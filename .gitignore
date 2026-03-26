@@ -1,0 +1,47 @@
+# Visual Studio files
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.vcxproj.filters
+
+# Build outputs
+bin/
+obj/
+x64/
+x86/
+Debug/
+Release/
+*.exe
+*.dll
+*.pdb
+*.ilk
+*.obj
+*.tlog
+*.log
+*.lastbuildstate
+
+# Compiled shaders
+*.cso
+
+# User-specific files
+*.suo
+*.user
+*.sln.docstates
+
+# Log files
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+~$*
+
+# IDE specific
+.vscode/
+.idea/
+
+# Windows
+Thumbs.db
+Desktop.ini
