@@ -85,6 +85,12 @@ Update the Visual Studio project to include paths to:
 - Redis++ include/lib directories
 - CUDA/TensorRT include/lib directories
 
+📖 **Guía Detallada**: Para instrucciones paso a paso de configuración de VS2022, consulte [VS2022_CONFIGURATION_GUIDE.md](VS2022_CONFIGURATION_GUIDE.md) que incluye:
+- Configuración completa de Include Directories
+- Configuración de Library Directories
+- Configuración de Linker Inputs
+- Verificación y resolución de problemas
+
 ### 3. Build
 
 Open `src/VIB.sln` in Visual Studio 2022:
