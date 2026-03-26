@@ -120,7 +120,7 @@ Antes de comenzar, asegúrese de tener instalado:
 
 3. Localice **Additional Include Directories**
 
-4. Haga clic en el dropdown y seleccione **&lt;Edit...&gt;**
+4. Haga clic en el dropdown y seleccione **\<Edit...\>**
 
 5. Agregue la siguiente ruta:
    ```
@@ -208,7 +208,7 @@ $(ProjectDir);C:\SDK\Blackmagic DeckLink SDK 15.3\Win\include;C:\SDK\Spout2-2.0.
 
 1. En las propiedades del proyecto
 2. Navegue a: **Linker** → **General** → **Additional Library Directories**
-3. Haga clic en **&lt;Edit...&gt;**
+3. Haga clic en **\<Edit...\>**
 4. Agregue la ruta según su configuración:
 
    **Para Release**:
@@ -230,7 +230,7 @@ C:\SDK\Spout2-2.0.7\BUILD\Binaries\x64;%(AdditionalLibraryDirectories)
 ### Paso 4: Configurar Linker Inputs
 
 1. Navegue a: **Linker** → **Input** → **Additional Dependencies**
-2. Haga clic en **&lt;Edit...&gt;**
+2. Haga clic en **\<Edit...\>**
 3. Agregue:
    ```
    SpoutLibrary.lib
