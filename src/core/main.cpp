@@ -103,12 +103,24 @@ int main(int argc, char* argv[]) {
         Logger::Info("D3D11 device ready for Spout interop");
         
         // Initialize capture channels
+        // Note: DeckLinkCapture uses CUDA-only pipeline (no D3D11 dependency)
+        // D3D11 device above is ONLY for SpoutManager (Phase 3)
         Logger::Info("Initializing capture channels...");
         std::vector<std::unique_ptr<DeckLinkCapture>> captureChannels;
         
         // Auto-detect DeckLink devices
         int numDevices = DeckLinkCapture::EnumerateDevices();
         Logger::Info("Found " + std::to_string(numDevices) + " DeckLink devices");
+        
+        // TODO: Create DeckLinkCapture instances for each device
+        // Example:
+        // for (int i = 0; i < numDevices; i++) {
+        //     auto capture = std::make_unique<DeckLinkCapture>();
+        //     if (capture->Initialize(i, "Channel_" + std::to_string(i+1))) {
+        //         capture->Start();
+        //         captureChannels.push_back(std::move(capture));
+        //     }
+        // }
         
         // Initialize Spout senders for each channel
         Logger::Info("Initializing Spout senders...");

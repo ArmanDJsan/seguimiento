@@ -7,6 +7,14 @@
  * 
  * Architecture: Uses CUDA cudaMallocPinned for zero-copy DMA on RTX 5080
  * No DirectX dependencies - D3D11 only used for Spout output in separate pipeline
+ * 
+ * SDK Compatibility: Designed for Blackmagic DeckLink SDK 15.3
+ * Required interfaces:
+ * - IDeckLinkInputCallback::VideoInputFrameArrived(IDeckLinkVideoInputFrame*, IDeckLinkAudioInputPacket*)
+ * - IDeckLinkMemoryAllocator::AllocateBuffer(uint32_t, void**)
+ * - IDeckLinkMemoryAllocator::ReleaseBuffer(void*)
+ * - IDeckLinkMemoryAllocator::Commit()
+ * - IDeckLinkMemoryAllocator::Decommit()
  */
 
 #pragma once
