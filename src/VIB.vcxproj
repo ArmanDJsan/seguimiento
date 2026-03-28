@@ -39,6 +39,9 @@
   </PropertyGroup>
   
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <Import Project="$(VCTargetsPath)\BuildCustomizations\CUDA 12.4.props" Condition="Exists('$(VCTargetsPath)\BuildCustomizations\CUDA 12.4.props')" />
+  <Import Project="$(VCTargetsPath)\BuildCustomizations\CUDA 12.3.props" Condition="Exists('$(VCTargetsPath)\BuildCustomizations\CUDA 12.3.props')" />
+  <Import Project="$(VCTargetsPath)\BuildCustomizations\CUDA 12.2.props" Condition="Exists('$(VCTargetsPath)\BuildCustomizations\CUDA 12.2.props')" />
   
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
@@ -114,8 +117,15 @@
     <ClCompile Include="redis\RedisWorker.cpp" />
     <ClCompile Include="utils\Logger.cpp" />
   </ItemGroup>
+
+  <ItemGroup>
+    <CudaCompile Include="capture\CudaColorConversion.cu">
+      <CudaArch>compute_100,sm_100</CudaArch>
+    </CudaCompile>
+  </ItemGroup>
   
   <ItemGroup>
+    <ClInclude Include="capture\CudaColorConversion.h" />
     <ClInclude Include="capture\DeckLinkCapture.h" />
     <ClInclude Include="spout\SpoutManager.h" />
     <ClInclude Include="ai\YOLOProcessor.h" />
@@ -137,5 +147,8 @@
   </ItemGroup>
   
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Import Project="$(VCTargetsPath)\BuildCustomizations\CUDA 12.4.targets" Condition="Exists('$(VCTargetsPath)\BuildCustomizations\CUDA 12.4.targets')" />
+  <Import Project="$(VCTargetsPath)\BuildCustomizations\CUDA 12.3.targets" Condition="Exists('$(VCTargetsPath)\BuildCustomizations\CUDA 12.3.targets')" />
+  <Import Project="$(VCTargetsPath)\BuildCustomizations\CUDA 12.2.targets" Condition="Exists('$(VCTargetsPath)\BuildCustomizations\CUDA 12.2.targets')" />
   
 </Project>

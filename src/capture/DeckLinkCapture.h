@@ -42,6 +42,7 @@ struct VideoChannel {
     IDeckLinkInput* deckLinkInput;
     void* cudaYUVBuffer;        // CUDA device memory for YUV input
     void* cudaRGBBuffer;        // CUDA device memory for RGB output
+    cudaStream_t stream;        // Dedicated CUDA stream per channel
     size_t bufferSize;          // Buffer size in bytes
     std::string channelName;
     int channelID;
