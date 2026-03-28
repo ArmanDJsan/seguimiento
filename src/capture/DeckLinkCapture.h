@@ -27,6 +27,7 @@
 #include <thread>
 #include <stop_token>
 #include <condition_variable>
+#include <functional>
 
 // Forward declarations for Blackmagic SDK
 class IDeckLink;
@@ -41,7 +42,7 @@ class IDeckLinkAudioInputPacket;
 struct VideoChannel {
     IDeckLinkInput* deckLinkInput;
     void* cudaYUVBuffer;        // CUDA device memory for YUV input
-    void* cudaRGBBuffer;        // CUDA device memory for RGB output
+    void* cudaBGRABuffer;       // CUDA device memory for BGRA output
     cudaStream_t stream;        // Dedicated CUDA stream per channel
     size_t bufferSize;          // Buffer size in bytes
     std::string channelName;
@@ -68,8 +69,11 @@ public:
     bool Start();
     void Stop();
     
+    // Register a callback invoked after color conversion and inference hook
+    void SetFrameReadyHandler(std::function<void(const VideoChannel&, cudaStream_t)> handler);
+    
     // Get CUDA buffer for YOLO/TensorRT processing
-    void* GetRGBBuffer() const { return m_channel.cudaRGBBuffer; }
+    void* GetBGRABuffer() const { return m_channel.cudaBGRABuffer; }
     void* GetYUVBuffer() const { return m_channel.cudaYUVBuffer; }
     
     // Get channel info
@@ -99,6 +103,7 @@ private:
     // Capture thread function (C++20 jthread)
     void CaptureThreadFunc(std::stop_token stopToken);
     void ProcessFrame(IDeckLinkVideoInputFrame* videoFrame);
+    void ExecuteInference();
     
     // Channel data
     VideoChannel m_channel;
@@ -113,4 +118,5 @@ private:
     std::queue<IDeckLinkVideoInputFrame*> m_frameQueue;
     std::mutex m_queueMutex;
     std::condition_variable_any m_frameCv;
+    std::function<void(const VideoChannel&, cudaStream_t)> m_frameReadyHandler;
 };

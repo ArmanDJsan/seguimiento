@@ -15,6 +15,7 @@
 #include <vector>
 #include <memory>
 #include <thread>
+#include <algorithm>
 #include <Windows.h>
 #include <d3d11.h>
 #include <dxgi.h>
@@ -29,6 +30,10 @@
 // Link DirectX libraries
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
+
+constexpr int kMaxSpoutChannels = 12;
+constexpr unsigned int kDefaultWidth = 3840;
+constexpr unsigned int kDefaultHeight = 2160;
 
 int main(int argc, char* argv[]) {
     Logger::Init("VIB_System");
@@ -108,7 +113,6 @@ int main(int argc, char* argv[]) {
         // Create the D3D11 device and context
         ComPtr<ID3D11Device> d3d11Device;
         ComPtr<ID3D11DeviceContext> d3d11Context;
-        D3D_FEATURE_LEVEL featureLevel;
         hr = D3D11CreateDevice(
             selectedAdapter.Get(),      // Explicit adapter selection
             D3D_DRIVER_TYPE_UNKNOWN,    // Must be UNKNOWN when adapter provided
@@ -152,6 +156,15 @@ int main(int argc, char* argv[]) {
         
         Logger::Info("D3D11 device ready for Spout interop");
         
+        // Initialize Spout senders for each channel
+        Logger::Info("Initializing Spout senders...");
+        auto spoutManager = std::make_shared<SpoutManager>(d3d11Device.Get());
+        // Pre-create all 12 channels to maintain stable names for vMix consumers
+        for (int channel = 0; channel < kMaxSpoutChannels; ++channel) {
+            const std::string senderName = "VIB_Channel_" + std::to_string(channel + 1);
+            spoutManager->CreateSender(channel, senderName, kDefaultWidth, kDefaultHeight);
+        }
+        
         // Initialize capture channels
         // Note: DeckLinkCapture uses CUDA-only pipeline (no D3D11 dependency)
         // D3D11 device above is ONLY for SpoutManager (Phase 3)
@@ -161,20 +174,31 @@ int main(int argc, char* argv[]) {
         // Auto-detect DeckLink devices
         int numDevices = DeckLinkCapture::EnumerateDevices();
         Logger::Info("Found " + std::to_string(numDevices) + " DeckLink devices");
+        if (numDevices < kMaxSpoutChannels) {
+            Logger::Warning("Fewer capture devices than Spout senders (" +
+                            std::to_string(numDevices) + " vs " +
+                            std::to_string(kMaxSpoutChannels) +
+                            "). Idle senders remain available to keep channel names stable in vMix.");
+        }
         
-        // TODO: Create DeckLinkCapture instances for each device
-        // Example:
-        // for (int i = 0; i < numDevices; i++) {
-        //     auto capture = std::make_unique<DeckLinkCapture>();
-        //     if (capture->Initialize(i, "Channel_" + std::to_string(i+1))) {
-        //         capture->Start();
-        //         captureChannels.push_back(std::move(capture));
-        //     }
-        // }
-        
-        // Initialize Spout senders for each channel
-        Logger::Info("Initializing Spout senders...");
-        SpoutManager spoutManager;
+        const int channelsToInit = std::min(kMaxSpoutChannels, static_cast<int>(numDevices));
+        for (int i = 0; i < channelsToInit; i++) {
+            auto capture = std::make_unique<DeckLinkCapture>();
+            const std::string channelName = "Channel_" + std::to_string(i + 1);
+            if (capture->Initialize(i, channelName)) {
+                capture->SetFrameReadyHandler([spoutManager](const VideoChannel& channel, cudaStream_t stream) {
+                    if (spoutManager->CopyCudaToSharedTexture(channel.channelID,
+                                                              channel.cudaBGRABuffer,
+                                                              channel.width,
+                                                              channel.height,
+                                                              stream)) {
+                        spoutManager->SendTexture(channel.channelID);
+                    }
+                });
+                capture->Start();
+                captureChannels.push_back(std::move(capture));
+            }
+        }
         
         // Initialize YOLO/TensorRT processor
         Logger::Info("Initializing YOLO processor...");
