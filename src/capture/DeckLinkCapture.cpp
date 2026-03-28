@@ -124,10 +124,11 @@ void DeckLinkCapture::Stop() {
     Logger::Info("Stopping capture on channel: " + m_channel.channelName);
     
     // Request thread stop via stop_token (C++20)
-    // jthread destructor will automatically join the thread
     if (m_captureThread.joinable()) {
         m_captureThread.request_stop();
-        // jthread destructor will join automatically
+        m_frameCv.notify_all();
+        // Ensure the capture thread completes before freeing CUDA buffers
+        m_captureThread.join();
     }
     
     // TODO: Stop DeckLink streaming
@@ -142,23 +143,27 @@ void DeckLinkCapture::CaptureThreadFunc(std::stop_token stopToken) {
     Logger::Info("Capture thread started for: " + m_channel.channelName);
     
     while (!stopToken.stop_requested()) {
-        // Process frame queue
         std::unique_lock<std::mutex> lock(m_queueMutex);
-        
+        m_frameCv.wait(lock, [&] {
+            return stopToken.stop_requested() || !m_frameQueue.empty();
+        });
+
+        if (stopToken.stop_requested() && m_frameQueue.empty()) {
+            break;
+        }
+
         if (!m_frameQueue.empty()) {
             IDeckLinkVideoInputFrame* frame = m_frameQueue.front();
             m_frameQueue.pop();
             lock.unlock();
-            
+
             // Process frame (transfer to CUDA memory)
-            OnFrameArrived(frame);
-            
-            // Release frame reference
-            // frame->Release();
-        } else {
-            lock.unlock();
-            // Sleep briefly to avoid busy-waiting
-            std::this_thread::sleep_for(std::chrono::microseconds(100));
+            ProcessFrame(frame);
+
+            // Release frame reference if DeckLink uses COM-style lifetime
+            if (frame) {
+                frame->Release();
+            }
         }
     }
     
@@ -169,36 +174,49 @@ void DeckLinkCapture::OnFrameArrived(IDeckLinkVideoInputFrame* videoFrame) {
     if (!videoFrame || !m_channel.isActive) {
         return;
     }
-    
-    // Get frame data pointer from DeckLink
-    void* frameBuffer = nullptr;
-    // videoFrame->GetBytes(&frameBuffer);
-    
-    if (!frameBuffer) {
+    // Producer: enqueue frame and wake capture thread
+    videoFrame->AddRef(); // retain while in queue
+    {
+        std::lock_guard<std::mutex> lock(m_queueMutex);
+        m_frameQueue.push(videoFrame);
+    }
+    m_frameCv.notify_one();
+}
+
+void DeckLinkCapture::ProcessFrame(IDeckLinkVideoInputFrame* videoFrame) {
+    if (!videoFrame || !m_channel.isActive) {
         return;
     }
-    
+
+    // Get frame data pointer from DeckLink
+    void* frameBuffer = nullptr;
+    videoFrame->GetBytes(&frameBuffer);
+
+    if (!frameBuffer) {
+        Logger::Error("DeckLink frame buffer is null");
+        return;
+    }
+
     // Copy frame data to CUDA device memory (zero-copy DMA path)
     // Using cudaMemcpyAsync for asynchronous transfer
     cudaError_t err = cudaMemcpyAsync(
         m_channel.cudaYUVBuffer,           // Destination: CUDA device memory
-        frameBuffer,                        // Source: DeckLink pinned memory
+        frameBuffer,                       // Source: DeckLink pinned memory
         m_channel.bufferSize,              // Size
         cudaMemcpyHostToDevice,            // Transfer direction
         0                                   // Default stream
     );
-    
+
     if (err != cudaSuccess) {
-        Logger::Error("Failed to copy frame to CUDA: " + 
+        Logger::Error("Failed to copy frame to CUDA: " +
                      std::string(cudaGetErrorString(err)));
         return;
     }
-    
+
     // TODO: Launch CUDA kernel for YUV to RGB conversion
-    // This will happen in-place on GPU, feeding directly into TensorRT
     // convertYUVtoRGB_CUDA(m_channel.cudaYUVBuffer, m_channel.cudaRGBBuffer,
     //                      m_channel.width, m_channel.height);
-    
+
     // Note: RGB buffer is now ready for TensorRT inference
     // No CPU involvement in the video pipeline - pure GPU processing
 }

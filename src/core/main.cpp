@@ -18,6 +18,7 @@
 #include <Windows.h>
 #include <d3d11.h>
 #include <dxgi.h>
+#include <wrl/client.h>
 
 #include "../capture/DeckLinkCapture.h"
 #include "../spout/SpoutManager.h"
@@ -38,8 +39,58 @@ int main(int argc, char* argv[]) {
         // Note: DeckLinkCapture uses CUDA-based zero-copy, not D3D11
         Logger::Info("Initializing DirectX 11 for Spout output...");
         
-        ID3D11Device* d3d11Device = nullptr;
-        ID3D11DeviceContext* d3d11Context = nullptr;
+        using Microsoft::WRL::ComPtr;
+        ComPtr<IDXGIFactory1> dxgiFactory;
+        HRESULT hr = CreateDXGIFactory1(IID_PPV_ARGS(&dxgiFactory));
+        if (FAILED(hr)) {
+            Logger::Error("Failed to create DXGI factory. HRESULT: 0x" + std::to_string(hr));
+            throw std::runtime_error("DXGI factory creation failed");
+        }
+
+        // Select RTX 5080 adapter explicitly (avoid integrated GPU)
+        ComPtr<IDXGIAdapter1> selectedAdapter;
+        DXGI_ADAPTER_DESC1 selectedDesc = {};
+        for (UINT adapterIndex = 0;; ++adapterIndex) {
+            ComPtr<IDXGIAdapter1> adapter;
+            if (dxgiFactory->EnumAdapters1(adapterIndex, adapter.GetAddressOf()) == DXGI_ERROR_NOT_FOUND) {
+                break;
+            }
+
+            DXGI_ADAPTER_DESC1 desc;
+            if (FAILED(adapter->GetDesc1(&desc))) {
+                continue;
+            }
+
+            // Skip software adapters
+            if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) {
+                continue;
+            }
+
+            std::wstring name(desc.Description);
+            if (name.find(L"RTX 5080") != std::wstring::npos) {
+                selectedAdapter = adapter;
+                selectedDesc = desc;
+                break;
+            }
+
+            // Fallback to first hardware adapter if RTX 5080 not found
+            if (!selectedAdapter) {
+                selectedAdapter = adapter;
+                selectedDesc = desc;
+            }
+        }
+
+        if (!selectedAdapter) {
+            Logger::Error("No suitable GPU adapter found");
+            throw std::runtime_error("GPU selection failed");
+        }
+
+        char adapterName[128];
+        size_t convertedChars = 0;
+        wcstombs_s(&convertedChars, adapterName, 128, selectedDesc.Description, 127);
+        Logger::Info("Selected GPU: " + std::string(adapterName));
+        Logger::Info("GPU LUID: High=" + std::to_string(selectedDesc.AdapterLuid.HighPart) +
+                     " Low=" + std::to_string(selectedDesc.AdapterLuid.LowPart));
         
         // Define feature levels (RTX 5080 supports 12+, but 11.0 is sufficient)
         D3D_FEATURE_LEVEL featureLevels[] = {
@@ -55,17 +106,20 @@ int main(int argc, char* argv[]) {
         #endif
         
         // Create the D3D11 device and context
-        HRESULT hr = D3D11CreateDevice(
-            nullptr,                    // Use default adapter (RTX 5080)
-            D3D_DRIVER_TYPE_HARDWARE,   // Hardware acceleration
+        ComPtr<ID3D11Device> d3d11Device;
+        ComPtr<ID3D11DeviceContext> d3d11Context;
+        D3D_FEATURE_LEVEL featureLevel;
+        hr = D3D11CreateDevice(
+            selectedAdapter.Get(),      // Explicit adapter selection
+            D3D_DRIVER_TYPE_UNKNOWN,    // Must be UNKNOWN when adapter provided
             nullptr,                    // No software module
             createDeviceFlags,          // BGRA support + debug flag in debug builds
             featureLevels,              // Feature levels to try
             _countof(featureLevels),    // Number of feature levels
             D3D11_SDK_VERSION,          // SDK version
-            &d3d11Device,               // Output device
+            d3d11Device.GetAddressOf(), // Output device
             &featureLevel,              // Actual feature level
-            &d3d11Context               // Output context
+            d3d11Context.GetAddressOf() // Output context
         );
         
         if (FAILED(hr)) {
@@ -79,25 +133,21 @@ int main(int argc, char* argv[]) {
                      "." + std::to_string((featureLevel >> 8) & 0xF));
         
         // Query adapter information for verification
-        IDXGIDevice* dxgiDevice = nullptr;
-        hr = d3d11Device->QueryInterface(__uuidof(IDXGIDevice), (void**)&dxgiDevice);
+        ComPtr<IDXGIDevice> dxgiDevice;
+        hr = d3d11Device.As(&dxgiDevice);
         if (SUCCEEDED(hr)) {
-            IDXGIAdapter* adapter = nullptr;
-            hr = dxgiDevice->GetAdapter(&adapter);
+            ComPtr<IDXGIAdapter> adapter;
+            hr = dxgiDevice->GetAdapter(adapter.GetAddressOf());
             if (SUCCEEDED(hr)) {
                 DXGI_ADAPTER_DESC adapterDesc;
                 adapter->GetDesc(&adapterDesc);
                 
-                // Convert wide string to regular string for logging
-                char adapterName[128];
-                size_t convertedChars = 0;
-                wcstombs_s(&convertedChars, adapterName, 128, adapterDesc.Description, 127);
-                Logger::Info("GPU: " + std::string(adapterName));
+                char adapterNameVerify[128];
+                size_t convertedCharsVerify = 0;
+                wcstombs_s(&convertedCharsVerify, adapterNameVerify, 128, adapterDesc.Description, 127);
+                Logger::Info("GPU (verified): " + std::string(adapterNameVerify));
                 Logger::Info("VRAM: " + std::to_string(adapterDesc.DedicatedVideoMemory / (1024*1024)) + " MB");
-                
-                adapter->Release();
             }
-            dxgiDevice->Release();
         }
         
         Logger::Info("D3D11 device ready for Spout interop");
@@ -151,16 +201,6 @@ int main(int argc, char* argv[]) {
         // Cleanup
         Logger::Info("Shutting down...");
         redisWorker.Stop();
-        
-        // Release D3D11 resources
-        if (d3d11Context) {
-            d3d11Context->Release();
-            d3d11Context = nullptr;
-        }
-        if (d3d11Device) {
-            d3d11Device->Release();
-            d3d11Device = nullptr;
-        }
         
         Logger::Info("Visual Intelligence Bypass shutdown complete");
         

@@ -26,6 +26,7 @@
 #include <mutex>
 #include <thread>
 #include <stop_token>
+#include <condition_variable>
 
 // Forward declarations for Blackmagic SDK
 class IDeckLink;
@@ -96,6 +97,7 @@ private:
     
     // Capture thread function (C++20 jthread)
     void CaptureThreadFunc(std::stop_token stopToken);
+    void ProcessFrame(IDeckLinkVideoInputFrame* videoFrame);
     
     // Channel data
     VideoChannel m_channel;
@@ -109,4 +111,5 @@ private:
     // Frame queue for async processing
     std::queue<IDeckLinkVideoInputFrame*> m_frameQueue;
     std::mutex m_queueMutex;
+    std::condition_variable_any m_frameCv;
 };
