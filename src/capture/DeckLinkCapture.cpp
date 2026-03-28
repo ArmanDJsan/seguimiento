@@ -28,7 +28,7 @@ DeckLinkCapture::DeckLinkCapture()
     // Initialize channel structure
     m_channel.deckLinkInput = nullptr;
     m_channel.cudaYUVBuffer = nullptr;
-    m_channel.cudaRGBBuffer = nullptr;
+    m_channel.cudaBGRABuffer = nullptr;
     m_channel.stream = nullptr;
     m_channel.bufferSize = 0;
     m_channel.channelID = -1;
@@ -52,9 +52,9 @@ DeckLinkCapture::~DeckLinkCapture() {
         cudaFree(m_channel.cudaYUVBuffer);
         m_channel.cudaYUVBuffer = nullptr;
     }
-    if (m_channel.cudaRGBBuffer) {
-        cudaFree(m_channel.cudaRGBBuffer);
-        m_channel.cudaRGBBuffer = nullptr;
+    if (m_channel.cudaBGRABuffer) {
+        cudaFree(m_channel.cudaBGRABuffer);
+        m_channel.cudaBGRABuffer = nullptr;
     }
 }
 
@@ -75,12 +75,12 @@ bool DeckLinkCapture::Initialize(int deviceIndex, const std::string& channelName
         return false;
     }
     
-    // Allocate CUDA device memory for RGB output (for TensorRT/Spout)
-    // RGB is 4 bytes per pixel (RGBA)
-    size_t rgbBufferSize = m_channel.width * m_channel.height * 4;
-    err = cudaMalloc(&m_channel.cudaRGBBuffer, rgbBufferSize);
+    // Allocate CUDA device memory for BGRA output (for TensorRT/Spout)
+    // BGRA is 4 bytes per pixel
+    size_t bgraBufferSize = m_channel.width * m_channel.height * 4;
+    err = cudaMalloc(&m_channel.cudaBGRABuffer, bgraBufferSize);
     if (err != cudaSuccess) {
-        Logger::Error("Failed to allocate CUDA RGB buffer: " + 
+        Logger::Error("Failed to allocate CUDA BGRA buffer: " + 
                      std::string(cudaGetErrorString(err)));
         cudaFree(m_channel.cudaYUVBuffer);
         m_channel.cudaYUVBuffer = nullptr;
@@ -92,15 +92,15 @@ bool DeckLinkCapture::Initialize(int deviceIndex, const std::string& channelName
     if (err != cudaSuccess) {
         Logger::Error("Failed to create CUDA stream: " +
                       std::string(cudaGetErrorString(err)));
-        cudaFree(m_channel.cudaRGBBuffer);
-        m_channel.cudaRGBBuffer = nullptr;
+        cudaFree(m_channel.cudaBGRABuffer);
+        m_channel.cudaBGRABuffer = nullptr;
         cudaFree(m_channel.cudaYUVBuffer);
         m_channel.cudaYUVBuffer = nullptr;
         return false;
     }
     
     Logger::Info("Allocated CUDA buffers: YUV=" + std::to_string(m_channel.bufferSize) + 
-                 " bytes, RGB=" + std::to_string(rgbBufferSize) + " bytes");
+                 " bytes, BGRA=" + std::to_string(bgraBufferSize) + " bytes");
     
     // TODO: Initialize Blackmagic SDK
     // 1. Create IDeckLink interface
@@ -163,6 +163,16 @@ void DeckLinkCapture::Stop() {
     }
     
     m_channel.isActive = false;
+}
+
+void DeckLinkCapture::SetFrameReadyHandler(std::function<void(const VideoChannel&, cudaStream_t)> handler) {
+    m_frameReadyHandler = std::move(handler);
+}
+
+void DeckLinkCapture::ExecuteInference() {
+    // Placeholder hook for TensorRT 10.x integration
+    // TODO: once TensorRT is wired, propagate inference status (return value or channel state)
+    // and add automated tests to validate the frame pipeline.
 }
 
 void DeckLinkCapture::CaptureThreadFunc(std::stop_token stopToken) {
@@ -242,7 +252,7 @@ void DeckLinkCapture::ProcessFrame(IDeckLinkVideoInputFrame* videoFrame) {
     // Launch CUDA kernel for YUV422 (YUY2) to BGRA8 conversion
     if (!ConvertYUV422ToBGRA(
             static_cast<uint8_t*>(m_channel.cudaYUVBuffer),
-            static_cast<uchar4*>(m_channel.cudaRGBBuffer),
+            static_cast<uchar4*>(m_channel.cudaBGRABuffer),
             static_cast<int>(m_channel.width),
             static_cast<int>(m_channel.height),
             m_channel.stream)) {
@@ -250,8 +260,13 @@ void DeckLinkCapture::ProcessFrame(IDeckLinkVideoInputFrame* videoFrame) {
         return;
     }
 
-    // Note: RGB buffer is now ready for TensorRT inference
-    // No CPU involvement in the video pipeline - pure GPU processing
+    // Hook for TensorRT integration (must stay on-GPU)
+    ExecuteInference();
+
+    // Forward to output handler (e.g., Spout zero-copy path)
+    if (m_frameReadyHandler) {
+        m_frameReadyHandler(m_channel, m_channel.stream);
+    }
 }
 
 int DeckLinkCapture::EnumerateDevices() {
