@@ -4,15 +4,29 @@
  * Custom memory allocator implementation for zero-copy DMA
  * Implements IDeckLinkMemoryAllocator and IDeckLinkVideoInputCallback
  * for direct GPU memory access from Blackmagic DeckLink cards
+ * 
+ * Architecture: Uses CUDA cudaMallocPinned for zero-copy DMA on RTX 5080
+ * No DirectX dependencies - D3D11 only used for Spout output in separate pipeline
+ * 
+ * SDK Compatibility: Designed for Blackmagic DeckLink SDK 15.3
+ * Required interfaces:
+ * - IDeckLinkInputCallback::VideoInputFrameArrived(IDeckLinkVideoInputFrame*, IDeckLinkAudioInputPacket*)
+ * - IDeckLinkMemoryAllocator::AllocateBuffer(uint32_t, void**)
+ * - IDeckLinkMemoryAllocator::ReleaseBuffer(void*)
+ * - IDeckLinkMemoryAllocator::Commit()
+ * - IDeckLinkMemoryAllocator::Decommit()
  */
 
 #pragma once
 
-#include <d3d11.h>
+#include <cuda_runtime.h>
 #include <string>
 #include <memory>
 #include <queue>
 #include <mutex>
+#include <thread>
+#include <stop_token>
+#include <condition_variable>
 
 // Forward declarations for Blackmagic SDK
 class IDeckLink;
@@ -22,12 +36,13 @@ class IDeckLinkAudioInputPacket;
 
 /**
  * Video channel structure for managing each capture input
+ * Uses CUDA device memory for zero-copy DMA pipeline
  */
 struct VideoChannel {
     IDeckLinkInput* deckLinkInput;
-    ID3D11Texture2D* sharedTexture;
-    ID3D11Texture2D* yuvTexture;
-    ID3D11Texture2D* rgbTexture;
+    void* cudaYUVBuffer;        // CUDA device memory for YUV input
+    void* cudaRGBBuffer;        // CUDA device memory for RGB output
+    size_t bufferSize;          // Buffer size in bytes
     std::string channelName;
     int channelID;
     unsigned int width;
@@ -38,21 +53,23 @@ struct VideoChannel {
 /**
  * Custom DeckLink capture class with zero-copy memory allocator
  * Philosophy: Maximum performance over development comfort
+ * Architecture: CUDA-only pipeline, no DirectX dependencies
  */
 class DeckLinkCapture {
 public:
-    DeckLinkCapture(ID3D11Device* device, ID3D11DeviceContext* context);
+    DeckLinkCapture();
     ~DeckLinkCapture();
     
     // Initialize capture from specific DeckLink device
     bool Initialize(int deviceIndex, const std::string& channelName);
     
-    // Start/Stop capture
+    // Start/Stop capture with C++20 thread safety
     bool Start();
     void Stop();
     
-    // Get the RGB texture for Spout/YOLO
-    ID3D11Texture2D* GetRGBTexture() const { return m_channel.rgbTexture; }
+    // Get CUDA buffer for YOLO/TensorRT processing
+    void* GetRGBBuffer() const { return m_channel.cudaRGBBuffer; }
+    void* GetYUVBuffer() const { return m_channel.cudaYUVBuffer; }
     
     // Get channel info
     const VideoChannel& GetChannel() const { return m_channel; }
@@ -62,24 +79,25 @@ public:
     
 private:
     // Custom memory allocator implementation
-    // Provides GPU memory directly to DeckLink for zero-copy DMA
+    // Uses cudaMallocPinned for zero-copy DMA on RTX 5080
     class CustomAllocator {
     public:
-        CustomAllocator(ID3D11Device* device);
+        CustomAllocator();
+        ~CustomAllocator();
+        
         void* AllocateBuffer(unsigned int bufferSize);
         void ReleaseBuffer(void* buffer);
         
     private:
-        ID3D11Device* m_device;
         std::vector<void*> m_pinnedBuffers;
     };
     
-    // Frame callback implementation
+    // Frame callback implementation (IDeckLinkInputCallback)
     void OnFrameArrived(IDeckLinkVideoInputFrame* videoFrame);
     
-    // DirectX 11 resources
-    ID3D11Device* m_device;
-    ID3D11DeviceContext* m_context;
+    // Capture thread function (C++20 jthread)
+    void CaptureThreadFunc(std::stop_token stopToken);
+    void ProcessFrame(IDeckLinkVideoInputFrame* videoFrame);
     
     // Channel data
     VideoChannel m_channel;
@@ -87,7 +105,11 @@ private:
     // Custom allocator
     std::unique_ptr<CustomAllocator> m_allocator;
     
+    // C++20 thread management for safe shutdown
+    std::jthread m_captureThread;
+    
     // Frame queue for async processing
     std::queue<IDeckLinkVideoInputFrame*> m_frameQueue;
     std::mutex m_queueMutex;
+    std::condition_variable_any m_frameCv;
 };
