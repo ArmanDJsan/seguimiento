@@ -7,6 +7,7 @@
  */
 
 #include "DeckLinkCapture.h"
+#include "CudaColorConversion.h"
 #include "../utils/Logger.h"
 #include <algorithm>
 
@@ -28,6 +29,7 @@ DeckLinkCapture::DeckLinkCapture()
     m_channel.deckLinkInput = nullptr;
     m_channel.cudaYUVBuffer = nullptr;
     m_channel.cudaRGBBuffer = nullptr;
+    m_channel.stream = nullptr;
     m_channel.bufferSize = 0;
     m_channel.channelID = -1;
     m_channel.width = 3840;  // Default 4K
@@ -37,6 +39,13 @@ DeckLinkCapture::DeckLinkCapture()
 
 DeckLinkCapture::~DeckLinkCapture() {
     Stop();
+    
+    // Destroy CUDA stream before freeing buffers
+    if (m_channel.stream) {
+        cudaStreamSynchronize(m_channel.stream);
+        cudaStreamDestroy(m_channel.stream);
+        m_channel.stream = nullptr;
+    }
     
     // Release CUDA resources
     if (m_channel.cudaYUVBuffer) {
@@ -73,6 +82,18 @@ bool DeckLinkCapture::Initialize(int deviceIndex, const std::string& channelName
     if (err != cudaSuccess) {
         Logger::Error("Failed to allocate CUDA RGB buffer: " + 
                      std::string(cudaGetErrorString(err)));
+        cudaFree(m_channel.cudaYUVBuffer);
+        m_channel.cudaYUVBuffer = nullptr;
+        return false;
+    }
+
+    // Create dedicated CUDA stream for this channel
+    err = cudaStreamCreateWithFlags(&m_channel.stream, cudaStreamNonBlocking);
+    if (err != cudaSuccess) {
+        Logger::Error("Failed to create CUDA stream: " +
+                      std::string(cudaGetErrorString(err)));
+        cudaFree(m_channel.cudaRGBBuffer);
+        m_channel.cudaRGBBuffer = nullptr;
         cudaFree(m_channel.cudaYUVBuffer);
         m_channel.cudaYUVBuffer = nullptr;
         return false;
@@ -136,6 +157,11 @@ void DeckLinkCapture::Stop() {
     //     m_channel.deckLinkInput->StopStreams();
     // }
     
+    // Ensure all GPU work for this channel is completed
+    if (m_channel.stream) {
+        cudaStreamSynchronize(m_channel.stream);
+    }
+    
     m_channel.isActive = false;
 }
 
@@ -198,13 +224,13 @@ void DeckLinkCapture::ProcessFrame(IDeckLinkVideoInputFrame* videoFrame) {
     }
 
     // Copy frame data to CUDA device memory (zero-copy DMA path)
-    // Using cudaMemcpyAsync for asynchronous transfer
+    // Using cudaMemcpyAsync for asynchronous transfer in per-channel stream
     cudaError_t err = cudaMemcpyAsync(
         m_channel.cudaYUVBuffer,           // Destination: CUDA device memory
         frameBuffer,                       // Source: DeckLink pinned memory
         m_channel.bufferSize,              // Size
         cudaMemcpyHostToDevice,            // Transfer direction
-        0                                   // Default stream
+        m_channel.stream                   // Per-channel CUDA stream
     );
 
     if (err != cudaSuccess) {
@@ -213,9 +239,16 @@ void DeckLinkCapture::ProcessFrame(IDeckLinkVideoInputFrame* videoFrame) {
         return;
     }
 
-    // TODO: Launch CUDA kernel for YUV to RGB conversion
-    // convertYUVtoRGB_CUDA(m_channel.cudaYUVBuffer, m_channel.cudaRGBBuffer,
-    //                      m_channel.width, m_channel.height);
+    // Launch CUDA kernel for YUV422 (YUY2) to BGRA8 conversion
+    if (!ConvertYUV422ToBGRA(
+            static_cast<uint8_t*>(m_channel.cudaYUVBuffer),
+            static_cast<uchar4*>(m_channel.cudaRGBBuffer),
+            static_cast<int>(m_channel.width),
+            static_cast<int>(m_channel.height),
+            m_channel.stream)) {
+        Logger::Error("Failed to launch YUV->BGRA CUDA kernel");
+        return;
+    }
 
     // Note: RGB buffer is now ready for TensorRT inference
     // No CPU involvement in the video pipeline - pure GPU processing
