@@ -16,6 +16,8 @@
 #include <memory>
 #include <thread>
 #include <algorithm>
+#include <sstream>
+#include <iomanip>
 #include <Windows.h>
 #include <d3d11.h>
 #include <dxgi.h>
@@ -161,7 +163,9 @@ int main(int argc, char* argv[]) {
         auto spoutManager = std::make_shared<SpoutManager>(d3d11Device.Get());
         // Pre-create all 12 channels to maintain stable names for vMix consumers
         for (int channel = 0; channel < kMaxSpoutChannels; ++channel) {
-            const std::string senderName = "VIB_Channel_" + std::to_string(channel + 1);
+            std::ostringstream oss;
+            oss << "VIB_CAM_" << std::setw(2) << std::setfill('0') << (channel + 1);
+            const std::string senderName = oss.str();
             spoutManager->CreateSender(channel, senderName, kDefaultWidth, kDefaultHeight);
         }
         

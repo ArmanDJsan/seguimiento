@@ -57,6 +57,7 @@ private:
         bool isActive;
         Microsoft::WRL::ComPtr<ID3D11Texture2D> sharedTexture;
         cudaGraphicsResource* cudaResource = nullptr;
+        cudaEvent_t copyCompleteEvent = nullptr;
     };
     
     Microsoft::WRL::ComPtr<ID3D11Device> m_device;

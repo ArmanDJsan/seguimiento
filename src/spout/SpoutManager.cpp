@@ -134,6 +134,14 @@ bool SpoutManager::CreateSender(int channelID, const std::string& senderName,
         UnregisterCudaResource(channel->cudaResource, "sender " + senderName);
         return false;
     }
+
+    cudaError_t evtStatus = cudaEventCreateWithFlags(&channel->copyCompleteEvent, cudaEventDisableTiming);
+    if (evtStatus != cudaSuccess) {
+        Logger::Error("Failed to create CUDA event for sender " + senderName + ": " +
+                      std::string(cudaGetErrorString(evtStatus)));
+        UnregisterCudaResource(channel->cudaResource, "sender " + senderName);
+        return false;
+    }
     channel->isActive = true;
 
     m_channels[channelID] = std::move(channel);
@@ -208,6 +216,14 @@ bool SpoutManager::CopyCudaToSharedTexture(int channelID, void* cudaBGRABuffer,
         return false;
     }
 
+    status = cudaEventRecord(channel.copyCompleteEvent, stream);
+    if (status != cudaSuccess) {
+        Logger::Error("Failed to record CUDA event for channel " + channel.name + ": " +
+                      std::string(cudaGetErrorString(status)));
+        cudaGraphicsUnmapResources(1, &channel.cudaResource, stream);
+        return false;
+    }
+
     status = cudaGraphicsUnmapResources(1, &channel.cudaResource, stream);
     if (status != cudaSuccess) {
         Logger::Error("Failed to unmap shared texture: " + std::string(cudaGetErrorString(status)));
@@ -224,6 +240,14 @@ bool SpoutManager::SendTexture(int channelID, ID3D11Texture2D* texture) {
     }
     
     if (!texture) {
+        return false;
+    }
+
+    // Ensure GPU copy into shared texture is complete to avoid tearing
+    cudaError_t waitStatus = cudaEventSynchronize(it->second->copyCompleteEvent);
+    if (waitStatus != cudaSuccess) {
+        Logger::Error("Failed to sync CUDA copy for channel " + it->second->name + ": " +
+                      std::string(cudaGetErrorString(waitStatus)));
         return false;
     }
 
@@ -260,6 +284,10 @@ void SpoutManager::ReleaseSender(int channelID) {
         Logger::Info("Releasing Spout sender: " + it->second->name);
         
         UnregisterCudaResource(it->second->cudaResource, "channel " + it->second->name);
+        if (it->second->copyCompleteEvent) {
+            cudaEventDestroy(it->second->copyCompleteEvent);
+            it->second->copyCompleteEvent = nullptr;
+        }
 
         if (it->second->sender) {
             it->second->sender->ReleaseSender();
@@ -275,6 +303,10 @@ void SpoutManager::ReleaseAll() {
     
     for (auto& pair : m_channels) {
         UnregisterCudaResource(pair.second->cudaResource, "channel " + pair.second->name);
+        if (pair.second->copyCompleteEvent) {
+            cudaEventDestroy(pair.second->copyCompleteEvent);
+            pair.second->copyCompleteEvent = nullptr;
+        }
         if (pair.second->sender) {
             pair.second->sender->ReleaseSender();
             pair.second->sender.reset();
