@@ -10,7 +10,6 @@
       <Platform>x64</Platform>
     </ProjectConfiguration>
   </ItemGroup>
-  
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
     <ProjectGuid>{A8B9C1D2-E3F4-5678-9ABC-DEF012345678}</ProjectGuid>
@@ -18,53 +17,43 @@
     <RootNamespace>VisualIntelligenceBypass</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
-  
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
-  
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
     <CLRSupport>false</CLRSupport>
   </PropertyGroup>
-  
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
     <CLRSupport>false</CLRSupport>
   </PropertyGroup>
-  
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
-  <Import Project="$(VCTargetsPath)\BuildCustomizations\CUDA 12.4.props" Condition="Exists('$(VCTargetsPath)\BuildCustomizations\CUDA 12.4.props')" />
-  <Import Project="$(VCTargetsPath)\BuildCustomizations\CUDA 12.3.props" Condition="Exists('$(VCTargetsPath)\BuildCustomizations\CUDA 12.3.props')" />
-  <Import Project="$(VCTargetsPath)\BuildCustomizations\CUDA 12.2.props" Condition="Exists('$(VCTargetsPath)\BuildCustomizations\CUDA 12.2.props')" />
-  
+  <ImportGroup Label="ExtensionSettings">
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\CUDA 12.4.props" />
+  </ImportGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
-  
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
-  
   <PropertyGroup Label="UserMacros" />
-  
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
     <OutDir>$(SolutionDir)bin\$(Configuration)\</OutDir>
     <IntDir>$(SolutionDir)obj\$(Configuration)\</IntDir>
   </PropertyGroup>
-  
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
     <OutDir>$(SolutionDir)bin\$(Configuration)\</OutDir>
     <IntDir>$(SolutionDir)obj\$(Configuration)\</IntDir>
   </PropertyGroup>
-  
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
@@ -84,7 +73,6 @@
       <ShaderModel>5.0</ShaderModel>
     </FxCompile>
   </ItemDefinitionGroup>
-  
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
@@ -107,8 +95,11 @@
     <FxCompile>
       <ShaderModel>5.0</ShaderModel>
     </FxCompile>
+    <CudaCompile>
+      <CodeGeneration>compute_90,sm_90</CodeGeneration>
+      <CompileOut>$(IntDir)%(Filename)%(Extension).obj</CompileOut>
+    </CudaCompile>
   </ItemDefinitionGroup>
-  
   <ItemGroup>
     <ClCompile Include="core\main.cpp" />
     <ClCompile Include="capture\DeckLinkCapture.cpp" />
@@ -117,13 +108,11 @@
     <ClCompile Include="redis\RedisWorker.cpp" />
     <ClCompile Include="utils\Logger.cpp" />
   </ItemGroup>
-
   <ItemGroup>
     <CudaCompile Include="capture\CudaColorConversion.cu">
-      <CudaArch>compute_100,sm_100</CudaArch>
+      <CudaArch>compute_90,sm_90</CudaArch>
     </CudaCompile>
   </ItemGroup>
-  
   <ItemGroup>
     <ClInclude Include="capture\CudaColorConversion.h" />
     <ClInclude Include="capture\DeckLinkCapture.h" />
@@ -132,7 +121,6 @@
     <ClInclude Include="redis\RedisWorker.h" />
     <ClInclude Include="utils\Logger.h" />
   </ItemGroup>
-  
   <ItemGroup>
     <FxCompile Include="shaders\ColorConversion.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Pixel</ShaderType>
@@ -145,10 +133,8 @@
       <EntryPointName>main</EntryPointName>
     </FxCompile>
   </ItemGroup>
-  
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
-  <Import Project="$(VCTargetsPath)\BuildCustomizations\CUDA 12.4.targets" Condition="Exists('$(VCTargetsPath)\BuildCustomizations\CUDA 12.4.targets')" />
-  <Import Project="$(VCTargetsPath)\BuildCustomizations\CUDA 12.3.targets" Condition="Exists('$(VCTargetsPath)\BuildCustomizations\CUDA 12.3.targets')" />
-  <Import Project="$(VCTargetsPath)\BuildCustomizations\CUDA 12.2.targets" Condition="Exists('$(VCTargetsPath)\BuildCustomizations\CUDA 12.2.targets')" />
-  
+  <ImportGroup Label="ExtensionTargets">
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\CUDA 12.4.targets" />
+  </ImportGroup>
 </Project>

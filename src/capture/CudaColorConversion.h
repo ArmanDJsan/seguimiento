@@ -3,17 +3,24 @@
 #include <cuda_runtime.h>
 #include <cstdint>
 
-/**
- * Launches CUDA kernel to convert YUV 4:2:2 (YUY2) frames to BGRA8.
- * @param yuv422Device Pointer to device memory containing YUY2 packed data.
- * @param bgraDevice Pointer to device memory for BGRA8 output.
- * @param width Frame width in pixels (must be even for 4:2:2).
- * @param height Frame height in pixels.
- * @param stream CUDA stream to enqueue the work on.
- * @return true if the kernel launch was successful, false otherwise.
- */
-bool ConvertYUV422ToBGRA(const uint8_t* yuv422Device,
-                         uchar4* bgraDevice,
-                         int width,
-                         int height,
-                         cudaStream_t stream);
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+    /**
+     * Lanza el kernel de CUDA para convertir frames YUV 4:2:2 (YUY2) a BGRA8.
+     * @param yuv422Device Puntero a memoria de GPU con datos YUYV.
+     * @param bgraDevice   Puntero a memoria de GPU para salida BGRA.
+     * @param width        Ancho del frame (debe ser par).
+     * @param height       Alto del frame.
+     * @param stream       Stream de CUDA (por defecto 0).
+     */
+    bool ConvertYUV422ToBGRA(const uint8_t* yuv422Device,
+        uchar4* bgraDevice,
+        int width,
+        int height,
+        cudaStream_t stream = 0);
+
+#ifdef __cplusplus
+}
+#endif
