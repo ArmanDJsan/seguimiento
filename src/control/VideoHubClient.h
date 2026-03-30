@@ -40,4 +40,5 @@ private:
     SOCKET m_socket;
     bool m_winsockInitialized;
     std::unordered_map<std::string, int> m_inputLookup;
+    int m_maxSourceIndex;
 };

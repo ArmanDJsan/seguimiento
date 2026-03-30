@@ -27,7 +27,11 @@ VideoHubClient::VideoHubClient(const std::string& host,
       m_port(port),
       m_socket(INVALID_SOCKET),
       m_winsockInitialized(false),
-      m_inputLookup(std::move(inputLookup)) {
+      m_inputLookup(std::move(inputLookup)),
+      m_maxSourceIndex(-1) {
+    for (const auto& entry : m_inputLookup) {
+        m_maxSourceIndex = std::max(m_maxSourceIndex, entry.second);
+    }
 }
 
 VideoHubClient::~VideoHubClient() {
@@ -129,6 +133,17 @@ bool VideoHubClient::RouteInputToOutput(int outputIndex, int sourceIndex) {
     if (outputIndex < 0 || sourceIndex < 0) {
         Logger::Error("[TECH ERROR] Invalid routing indexes: values must be non-negative (output=" +
                       std::to_string(outputIndex) + ", source=" + std::to_string(sourceIndex) + ")");
+        return false;
+    }
+    if (m_maxSourceIndex >= 0 && sourceIndex > m_maxSourceIndex) {
+        Logger::Error("[TECH ERROR] Invalid routing indexes: source exceeds configured range (" +
+                      std::to_string(sourceIndex) + " > " + std::to_string(m_maxSourceIndex) + ")");
+        return false;
+    }
+    bool configured = std::any_of(m_inputLookup.begin(), m_inputLookup.end(),
+                                  [sourceIndex](const auto& entry) { return entry.second == sourceIndex; });
+    if (!configured) {
+        Logger::Error("[TECH ERROR] Unknown source index (not configured): " + std::to_string(sourceIndex));
         return false;
     }
 

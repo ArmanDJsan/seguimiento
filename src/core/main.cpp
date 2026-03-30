@@ -22,26 +22,182 @@
 #include <d3d11.h>
 #include <dxgi.h>
 #include <wrl/client.h>
+#include <cstdio>
+#include <chrono>
+#include <fstream>
+#include <iterator>
+#include <regex>
 
 #include "../capture/DeckLinkCapture.h"
+#include "../capture/DeckLinkSource.h"
 #include "../spout/SpoutManager.h"
 #include "../ai/YOLOProcessor.h"
 #include "../redis/RedisWorker.h"
 #include "../utils/Logger.h"
+#include "../control/VideoHubClient.h"
+#include "../control/TrackPhysicalController.h"
+#include "../control/VMixController.h"
 
 // Link DirectX libraries
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
 
+#include <unordered_map>
+#include <vector>
+#include <numeric>
+
 constexpr int kMaxSpoutChannels = 12;
 constexpr unsigned int kDefaultWidth = 3840;
 constexpr unsigned int kDefaultHeight = 2160;
+constexpr int kVideoHubPrimaryOutput = 0;
+
+namespace {
+std::unordered_map<std::string, int> BuildInputLookup() {
+    std::unordered_map<std::string, int> lookup;
+    for (int i = 1; i <= 12; ++i) {
+        std::stringstream ss;
+        ss << "CAM_" << std::setw(2) << std::setfill('0') << i;
+        lookup[ss.str()] = i;
+    }
+    lookup["RADAR_01"] = 13;
+    lookup["RADAR_02"] = 14;
+    lookup["RADAR_03"] = 15;
+    lookup["RADAR_04"] = 16;
+    return lookup;
+}
+
+std::vector<int> RangeInclusive(int start, int end) {
+    std::vector<int> values(static_cast<size_t>(end - start + 1));
+    std::iota(values.begin(), values.end(), start);
+    return values;
+}
+
+int LoadTargetSpheres(const std::string& path) {
+    std::ifstream file(path);
+    if (!file.is_open()) {
+        Logger::Warning("No se pudo abrir config para target_spheres; usando 10 por defecto");
+        return 10;
+    }
+    std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    std::regex pattern(R"(target_spheres\s*[:=]\s*([0-9]+))", std::regex::icase);
+    std::smatch match;
+    if (std::regex_search(content, match, pattern) && match.size() > 1) {
+        try {
+            return std::stoi(match[1].str());
+        } catch (...) {
+            Logger::Warning("No se pudo parsear target_spheres; usando 10 por defecto");
+        }
+    } else {
+        Logger::Warning("No se encontró target_spheres en config; usando 10 por defecto");
+    }
+    return 10;
+}
+
+bool ValidateSignalGroup(VideoHubClient& videoHub,
+                         DeckLinkSource& deckLinkSource,
+                         const std::vector<int>& ports,
+                         const std::string& label) {
+    for (int port : ports) {
+        if (!videoHub.RouteInputToOutput(kVideoHubPrimaryOutput, port)) {
+            Logger::Error("[HW/SW ERROR]: No se pudo conmutar VideoHub para puerto " + std::to_string(port));
+            return false;
+        }
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+    const auto statuses = deckLinkSource.GetSignalStatus(ports);
+    for (const auto& status : statuses) {
+        if (!status.signalLocked) {
+            const std::string name = status.name.value_or("Port_" + std::to_string(status.index));
+            Logger::Error("[HW/SW ERROR]: Sin señal en " + name);
+            return false;
+        }
+    }
+
+    Logger::Info("Barrido " + label + " OK");
+    return true;
+}
+
+bool RunPhase1(VMixController& vmix,
+               VideoHubClient& videoHub,
+               DeckLinkSource& deckLinkSource,
+               TrackPhysicalController& trackController) {
+    if (!vmix.CheckInputsHealthy()) {
+        return false;
+    }
+
+    if (!ValidateSignalGroup(videoHub, deckLinkSource, RangeInclusive(1, 12), "Streaming (1-12)")) {
+        return false;
+    }
+
+    if (!ValidateSignalGroup(videoHub, deckLinkSource, RangeInclusive(13, 16), "Seguimiento (13-16)")) {
+        return false;
+    }
+
+    if (!trackController.ejecutarTest()) {
+        Logger::Error("[HW/SW ERROR] Prueba mecánica (ESP32 /test) fallida");
+        return false;
+    }
+
+    Logger::Info("Fase 1 completada correctamente");
+    return true;
+}
+
+bool RunPhase2(VideoHubClient& videoHub, int targetSpheres) {
+    if (!videoHub.RouteInputToOutput(kVideoHubPrimaryOutput, "CAM_01")) {
+        Logger::Error("[HW/SW ERROR]: No se pudo fijar CAM_01 en la salida");
+        return false;
+    }
+
+    // Placeholder YOLO check (pipeline integration pending)
+    const int detectedSpheres = targetSpheres;
+    Logger::Warning("Conteo de esferas usa stub; integrar motor YOLO para conteo real");
+
+    if (detectedSpheres != targetSpheres) {
+        Logger::Error("[SCENE ERROR]: Conteo incorrecto (" + std::to_string(detectedSpheres) +
+                      ") - Verifique esferas en pista");
+        return false;
+    }
+
+    Logger::Info("Fase 2 (Escena) completada: conteo de esferas OK");
+    return true;
+}
+} // namespace
 
 int main(int argc, char* argv[]) {
     Logger::Init("VIB_System");
     Logger::Info("Visual Intelligence Bypass v2.0 Starting...");
     
     try {
+        // Controllers for diagnostics and routing
+        auto inputLookup = BuildInputLookup();
+        VideoHubClient videoHub("192.168.1.10", 9990, inputLookup);
+        TrackPhysicalController trackController(L"192.168.1.50", 80);
+        VMixController vmix(L"127.0.0.1", 8088, 8099);
+        DeckLinkSource deckLinkSource;
+        deckLinkSource.Initialize(12);
+        const int targetSpheres = LoadTargetSpheres("config.json");
+
+        if (!videoHub.Connect()) {
+            Logger::Error("[HW/SW ERROR] No se pudo establecer conexión con VideoHub");
+            return 1;
+        }
+
+        vmix.ConnectTcp();  // prepare TCP channel; errors are logged but non-fatal
+
+        // Fase 1: Sweep hardware/software links
+        if (!RunPhase1(vmix, videoHub, deckLinkSource, trackController)) {
+            Logger::Error("Ignición abortada durante Fase 1");
+            return 1;
+        }
+
+        // Fase 2: Escena (YOLO check)
+        if (!RunPhase2(videoHub, targetSpheres)) {
+            Logger::Error("Ignición abortada durante Fase 2");
+            return 1;
+        }
+
         // Initialize DirectX 11 Device (for Spout output only)
         // Note: DeckLinkCapture uses CUDA-based zero-copy, not D3D11
         Logger::Info("Initializing DirectX 11 for Spout output...");

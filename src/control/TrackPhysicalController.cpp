@@ -184,7 +184,7 @@ bool TrackPhysicalController::PerformGet(const std::wstring& path) {
         return false;
     }
 
-    if (statusCode != 200) {
+    if (statusCode < 200 || statusCode >= 300) {
         Logger::Error("[TECH ERROR] ESP32 returned HTTP " + std::to_string(statusCode) +
                       " for path " + WideToUtf8(path));
         return false;
