@@ -78,7 +78,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>d3d11.lib;dxgi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>d3d11.lib;dxgi.lib;Ws2_32.lib;Winhttp.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <FxCompile>
       <ShaderModel>5.0</ShaderModel>
@@ -102,7 +102,7 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>d3d11.lib;dxgi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>d3d11.lib;dxgi.lib;Ws2_32.lib;Winhttp.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <FxCompile>
       <ShaderModel>5.0</ShaderModel>
@@ -116,6 +116,8 @@
     <ClCompile Include="ai\YOLOProcessor.cpp" />
     <ClCompile Include="redis\RedisWorker.cpp" />
     <ClCompile Include="utils\Logger.cpp" />
+    <ClCompile Include="control\TrackPhysicalController.cpp" />
+    <ClCompile Include="control\VideoHubClient.cpp" />
   </ItemGroup>
 
   <ItemGroup>
@@ -131,6 +133,8 @@
     <ClInclude Include="ai\YOLOProcessor.h" />
     <ClInclude Include="redis\RedisWorker.h" />
     <ClInclude Include="utils\Logger.h" />
+    <ClInclude Include="control\TrackPhysicalController.h" />
+    <ClInclude Include="control\VideoHubClient.h" />
   </ItemGroup>
   
   <ItemGroup>
