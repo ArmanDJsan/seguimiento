@@ -111,6 +111,7 @@
   
   <ItemGroup>
     <ClCompile Include="core\main.cpp" />
+    <ClCompile Include="core\main_test.cpp" />
     <ClCompile Include="capture\DeckLinkCapture.cpp" />
     <ClCompile Include="capture\DeckLinkSource.cpp" />
     <ClCompile Include="spout\SpoutManager.cpp" />
