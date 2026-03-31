@@ -5,7 +5,7 @@
  * Uses CUDA cudaMallocPinned for direct GPU memory access on RTX 5080
  * No DirectX dependencies - pure CUDA pipeline
  */
-
+#include "DeckLinkAPI_h.h"
 #include "DeckLinkCapture.h"
 #include "CudaColorConversion.h"
 #include "../utils/Logger.h"
@@ -219,6 +219,8 @@ void DeckLinkCapture::OnFrameArrived(IDeckLinkVideoInputFrame* videoFrame) {
     m_frameCv.notify_one();
 }
 
+
+/* -------revisar si la nueva implementacion de ProcessFrame es correcta, o si es necesario mantener la version anterior que hacia el procesamiento directo en el callback OnFrameArrived ------------------
 void DeckLinkCapture::ProcessFrame(IDeckLinkVideoInputFrame* videoFrame) {
     if (!videoFrame || !m_channel.isActive) {
         return;
@@ -266,6 +268,51 @@ void DeckLinkCapture::ProcessFrame(IDeckLinkVideoInputFrame* videoFrame) {
     // Forward to output handler (e.g., Spout zero-copy path)
     if (m_frameReadyHandler) {
         m_frameReadyHandler(m_channel, m_channel.stream);
+    }
+}
+------------------------revisar ----------------------------------
+*/
+
+void DeckLinkCapture::ProcessFrame(IDeckLinkVideoInputFrame* videoFrame) {
+    if (!videoFrame || !m_channel.isActive) return;
+
+    // 1. Obtener la interfaz de buffer (Necesario en Windows para acceder a los bytes)
+    IDeckLinkVideoBuffer* videoBuffer = nullptr;
+    HRESULT hr = videoFrame->QueryInterface(IID_IDeckLinkVideoBuffer, (void**)&videoBuffer);
+
+    if (SUCCEEDED(hr) && videoBuffer) {
+        void* frameBuffer = nullptr;
+
+        // 2. Bloquear acceso para lectura segura
+        if (videoBuffer->StartAccess(bmdBufferAccessRead) == S_OK) {
+            // 3. Obtener el puntero (Ahora sí funciona GetBytes)
+            if (SUCCEEDED(videoBuffer->GetBytes(&frameBuffer)) && frameBuffer) {
+
+                // 4. Transferencia Directa a VRAM (DMA)
+                // Al usar cudaMallocHost en tu CustomAllocator, esta copia es ultra rápida
+                cudaError_t err = cudaMemcpyAsync(
+                    m_channel.cudaYUVBuffer,
+                    frameBuffer,
+                    m_channel.bufferSize,
+                    cudaMemcpyHostToDevice,
+                    m_channel.stream
+                );
+
+                if (err == cudaSuccess) {
+                    // 5. Conversión de color en GPU (Sin tocar la CPU)
+                    if (ConvertYUV422ToBGRA(
+                        static_cast<uint8_t*>(m_channel.cudaYUVBuffer),
+                        static_cast<uchar4*>(m_channel.cudaBGRABuffer),
+                        m_channel.width, m_channel.height, m_channel.stream))
+                    {
+                        ExecuteInference(); // YOLO en RTX 2050
+                        if (m_frameReadyHandler) m_frameReadyHandler(m_channel, m_channel.stream);
+                    }
+                }
+            }
+            videoBuffer->EndAccess(bmdBufferAccessRead);
+        }
+        videoBuffer->Release(); // Liberar interfaz COM
     }
 }
 
