@@ -5,7 +5,9 @@
  * Implements minimal routing and labeling commands using the device's
  * text-based protocol.
  */
-
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include "VideoHubClient.h"
 #include "../utils/Logger.h"
 #include <ws2tcpip.h>

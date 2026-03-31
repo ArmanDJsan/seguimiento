@@ -341,7 +341,7 @@ int main(int argc, char* argv[]) {
                             "). Idle senders remain available to keep channel names stable in vMix.");
         }
         
-        const int channelsToInit = std::min(kMaxSpoutChannels, static_cast<int>(numDevices));
+        const int channelsToInit = (std::min)(numDevices, kMaxSpoutChannels);
         for (int i = 0; i < channelsToInit; i++) {
             auto capture = std::make_unique<DeckLinkCapture>();
             const std::string channelName = "Channel_" + std::to_string(i + 1);
