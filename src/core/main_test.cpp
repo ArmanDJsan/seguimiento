@@ -59,11 +59,18 @@ int main() {
 
     // Sweep ports 1..12 on primary output and query signal status
     auto ports = RangeInclusive(1, 12);
+    std::vector<int> failedRoutes;
     for (int port : ports) {
         if (!videoHub.RouteInputToOutput(kPrimaryOutput, port)) {
-            std::cout << "[VideoHub] Routing failed for port " << port << std::endl;
-            return 1;
+            failedRoutes.push_back(port);
         }
+    }
+
+    if (!failedRoutes.empty()) {
+        std::cout << "[VideoHub] Routing failed for ports:";
+        for (int p : failedRoutes) std::cout << " " << p;
+        std::cout << std::endl;
+        return 1;
     }
 
     const auto statuses = deckLinkSource.GetSignalStatus(ports);
