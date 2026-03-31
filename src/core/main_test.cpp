@@ -13,6 +13,8 @@
 #include <vector>
 #include <unordered_map>
 #include <numeric>
+#include <sstream>
+#include <iomanip>
 
 #include "../control/VMixController.h"
 #include "../control/VideoHubClient.h"
@@ -24,9 +26,9 @@ constexpr int kPrimaryOutput = 0;
 std::unordered_map<std::string, int> BuildInputLookup() {
     std::unordered_map<std::string, int> lookup;
     for (int i = 1; i <= 12; ++i) {
-        char name[16];
-        sprintf_s(name, "CAM_%02d", i);
-        lookup[name] = i;
+        std::ostringstream oss;
+        oss << "CAM_" << std::setw(2) << std::setfill('0') << i;
+        lookup[oss.str()] = i;
     }
     return lookup;
 }
