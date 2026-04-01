@@ -126,6 +126,7 @@
     <ClInclude Include="capture\DeckLinkCapture.h" />
     <ClInclude Include="capture\DeckLinkSource.h" />
     <ClInclude Include="DeckLinkAPI_h.h" />
+    <ClInclude Include="json.hpp" />
     <ClInclude Include="spout\SpoutManager.h" />
     <ClInclude Include="ai\YOLOProcessor.h" />
     <ClInclude Include="redis\RedisWorker.h" />
