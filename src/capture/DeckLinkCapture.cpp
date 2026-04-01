@@ -5,14 +5,21 @@
  * Uses CUDA cudaMallocPinned for direct GPU memory access on RTX 5080
  * No DirectX dependencies - pure CUDA pipeline
  */
-#include <winsock2.h>  // Si usas red
-#include <windows.h>   // BASE DE WINDOWS
-#include <objbase.h>    // NECESARIO PARA COM/INTERFACES
 
+// 1. Windows base headers (FUNDAMENTAL - must come first)
+#include <winsock2.h>  // Network types (if needed, must come before windows.h)
+#include <windows.h>   // Base Windows definitions
+#include <objbase.h>   // COM interfaces (HRESULT, REFIID, IUnknown)
+
+// 2. Blackmagic SDK headers (depend on Windows types)
 #include "DeckLinkAPI_h.h" 
+
+// 3. Project headers
 #include "DeckLinkCapture.h"
 #include "CudaColorConversion.h"
 #include "../utils/Logger.h"
+
+// 4. Standard library headers
 #include <algorithm>
 
 // CUDA error checking macro
