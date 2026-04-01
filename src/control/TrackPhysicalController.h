@@ -16,7 +16,7 @@ class TrackPhysicalController {
 public:
     // Endpoint values remain in Spanish to match the ESP32 firmware API; field names stay in English for readability.
     struct Endpoints {
-        std::wstring testEndpoint = L"/test";
+        std::wstring testEndpoint = L"/status";
         std::wstring openGateEndpoint = L"/iniciar";
         std::wstring openElevatorEndpoint = L"/recargar";
         std::wstring closeGatesEndpoint = L"/cerrar";
