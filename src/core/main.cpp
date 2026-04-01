@@ -51,6 +51,9 @@
 #include <unordered_map>
 #include <vector>
 #include <numeric>
+#include "../json.hpp"
+
+using json = nlohmann::json;
 
 constexpr int kMaxSpoutChannels = 12;
 constexpr unsigned int kDefaultWidth = 3840;
@@ -78,25 +81,70 @@ std::vector<int> RangeInclusive(int start, int end) {
     return values;
 }
 
-int LoadTargetSpheres(const std::string& path) {
+struct Config {
+    std::string videohubIp;
+    uint16_t videohubPort;
+    std::string esp32Ip;
+    uint16_t esp32Port;
+    int targetSpheres;
+};
+
+Config LoadConfig(const std::string& path) {
+    Config config;
+    // Set defaults
+    config.videohubIp = "192.168.1.50";
+    config.videohubPort = 9990;
+    config.esp32Ip = "192.168.88.114";
+    config.esp32Port = 80;
+    config.targetSpheres = 10;
+
     std::ifstream file(path);
     if (!file.is_open()) {
-        Logger::Warning("No se pudo abrir config para target_spheres; usando 10 por defecto");
-        return 10;
+        Logger::Warning("No se pudo abrir config.json; usando valores por defecto");
+        return config;
     }
-    std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-    std::regex pattern(R"(target_spheres\s*[:=]\s*([0-9]+))", std::regex::icase);
-    std::smatch match;
-    if (std::regex_search(content, match, pattern) && match.size() > 1) {
-        try {
-            return std::stoi(match[1].str());
-        } catch (...) {
-            Logger::Warning("No se pudo parsear target_spheres; usando 10 por defecto");
+
+    try {
+        json j;
+        file >> j;
+
+        // Parse videohub section
+        if (j.contains("videohub") && j["videohub"].is_object()) {
+            if (j["videohub"].contains("ip") && j["videohub"]["ip"].is_string()) {
+                config.videohubIp = j["videohub"]["ip"].get<std::string>();
+            }
+            if (j["videohub"].contains("port") && j["videohub"]["port"].is_number()) {
+                config.videohubPort = j["videohub"]["port"].get<uint16_t>();
+            }
         }
-    } else {
-        Logger::Warning("No se encontró target_spheres en config; usando 10 por defecto");
+
+        // Parse esp32 section
+        if (j.contains("esp32") && j["esp32"].is_object()) {
+            if (j["esp32"].contains("ip") && j["esp32"]["ip"].is_string()) {
+                config.esp32Ip = j["esp32"]["ip"].get<std::string>();
+            }
+            if (j["esp32"].contains("port") && j["esp32"]["port"].is_number()) {
+                config.esp32Port = j["esp32"]["port"].get<uint16_t>();
+            }
+        }
+
+        // Parse target_spheres from root
+        if (j.contains("target_spheres") && j["target_spheres"].is_number()) {
+            config.targetSpheres = j["target_spheres"].get<int>();
+        }
+
+        Logger::Info("Configuración cargada: VideoHub=" + config.videohubIp + ":" + 
+                     std::to_string(config.videohubPort) + ", ESP32=" + config.esp32Ip + ":" + 
+                     std::to_string(config.esp32Port) + ", target_spheres=" + 
+                     std::to_string(config.targetSpheres));
+
+    } catch (const json::exception& e) {
+        Logger::Warning("Error al parsear config.json: " + std::string(e.what()) + "; usando valores por defecto");
+    } catch (const std::exception& e) {
+        Logger::Warning("Error inesperado al cargar config: " + std::string(e.what()) + "; usando valores por defecto");
     }
-    return 10;
+
+    return config;
 }
 
 bool ValidateSignalGroup(VideoHubClient& videoHub,
@@ -186,14 +234,20 @@ int main(int argc, char* argv[]) {
     Logger::Info("COM initialized successfully for DeckLink SDK");
     
     try {
+        // Load configuration from JSON
+        Config config = LoadConfig("config.json");
+
         // Controllers for diagnostics and routing
         auto inputLookup = BuildInputLookup();
-        VideoHubClient videoHub("192.168.1.10", 9990, inputLookup);
-        TrackPhysicalController trackController(L"192.168.1.50", 80);
+        VideoHubClient videoHub(config.videohubIp, config.videohubPort, inputLookup);
+        
+        // Convert ESP32 IP to wide string
+        std::wstring esp32IpWide(config.esp32Ip.begin(), config.esp32Ip.end());
+        TrackPhysicalController trackController(esp32IpWide, config.esp32Port);
+        
         VMixController vmix(L"127.0.0.1", 8088, 8099);
         DeckLinkSource deckLinkSource;
         deckLinkSource.Initialize(12);
-        const int targetSpheres = LoadTargetSpheres("config.json");
 
         if (!videoHub.Connect()) {
             Logger::Error("[HW/SW ERROR] No se pudo establecer conexión con VideoHub");
@@ -209,7 +263,7 @@ int main(int argc, char* argv[]) {
         }
 
         // Fase 2: Escena (YOLO check)
-        if (!RunPhase2(videoHub, targetSpheres)) {
+        if (!RunPhase2(videoHub, config.targetSpheres)) {
             Logger::Error("Ignición abortada durante Fase 2");
             return 1;
         }
