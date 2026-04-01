@@ -34,6 +34,7 @@ class IDeckLink;
 class IDeckLinkInput;
 class IDeckLinkVideoInputFrame;
 class IDeckLinkAudioInputPacket;
+class IDeckLinkInputCallback;
 
 /**
  * Video channel structure for managing each capture input
@@ -56,8 +57,10 @@ struct VideoChannel {
  * Custom DeckLink capture class with zero-copy memory allocator
  * Philosophy: Maximum performance over development comfort
  * Architecture: CUDA-only pipeline, no DirectX dependencies
+ * 
+ * Implements IDeckLinkInputCallback for frame arrival notifications
  */
-class DeckLinkCapture {
+class DeckLinkCapture : public IDeckLinkInputCallback {
 public:
     DeckLinkCapture();
     ~DeckLinkCapture();
@@ -82,6 +85,21 @@ public:
     // Static method to enumerate available devices
     static int EnumerateDevices();
     
+    // IUnknown interface (required by IDeckLinkInputCallback)
+    virtual HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, LPVOID* ppv);
+    virtual ULONG STDMETHODCALLTYPE AddRef();
+    virtual ULONG STDMETHODCALLTYPE Release();
+    
+    // IDeckLinkInputCallback interface
+    virtual HRESULT STDMETHODCALLTYPE VideoInputFormatChanged(
+        BMDVideoInputFormatChangedEvents notificationEvents,
+        IDeckLinkDisplayMode* newDisplayMode,
+        BMDDetectedVideoInputFormatFlags detectedSignalFlags);
+    
+    virtual HRESULT STDMETHODCALLTYPE VideoInputFrameArrived(
+        IDeckLinkVideoInputFrame* videoFrame,
+        IDeckLinkAudioInputPacket* audioPacket);
+    
 private:
     // Custom memory allocator implementation
     // Uses cudaMallocPinned for zero-copy DMA on RTX 5080
@@ -97,9 +115,6 @@ private:
         std::vector<void*> m_pinnedBuffers;
     };
     
-    // Frame callback implementation (IDeckLinkInputCallback)
-    void OnFrameArrived(IDeckLinkVideoInputFrame* videoFrame);
-    
     // Capture thread function (C++20 jthread)
     void CaptureThreadFunc(std::stop_token stopToken);
     void ProcessFrame(IDeckLinkVideoInputFrame* videoFrame);
@@ -108,8 +123,14 @@ private:
     // Channel data
     VideoChannel m_channel;
     
+    // DeckLink device interface (for cleanup)
+    IDeckLink* m_deckLink;
+    
     // Custom allocator
     std::unique_ptr<CustomAllocator> m_allocator;
+    
+    // COM reference counting
+    std::atomic<ULONG> m_refCount;
     
     // C++20 thread management for safe shutdown
     std::jthread m_captureThread;
