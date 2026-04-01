@@ -19,6 +19,7 @@
 #include <sstream>
 #include <iomanip>
 #include <Windows.h>
+#include <objbase.h>  // For COM: CoInitializeEx, CoUninitialize
 #include <d3d11.h>
 #include <dxgi.h>
 #include <wrl/client.h>
@@ -28,6 +29,7 @@
 #include <iterator>
 #include <regex>
 
+#include "../DeckLinkAPI_h.h"  // DeckLink SDK COM interfaces
 #include "../capture/DeckLinkCapture.h"
 #include "../capture/DeckLinkSource.h"
 #include "../spout/SpoutManager.h"
@@ -41,6 +43,10 @@
 // Link DirectX libraries
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
+
+// Link COM library (required for DeckLink SDK)
+#pragma comment(lib, "ole32.lib")
+#pragma comment(lib, "oleaut32.lib")  // For SysFreeString
 
 #include <unordered_map>
 #include <vector>
