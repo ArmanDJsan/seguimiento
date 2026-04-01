@@ -6,11 +6,19 @@
  * that assumes signal lock is present but logs a warning.
  */
 
+// 1. Windows base headers (FUNDAMENTAL - must come first)
+#include <windows.h>   // Base Windows definitions
+#include <objbase.h>   // COM interfaces (HRESULT, REFIID, IUnknown)
+
+// 2. Blackmagic SDK headers (depend on Windows types)
+#include "../DeckLinkAPI_h.h"
+
+// 3. Standard library headers
+#include <mutex>
+
+// 4. Project headers
 #include "DeckLinkSource.h"
 #include "../utils/Logger.h"
-#include "../DeckLinkAPI_h.h"
-#include <mutex>
-#include <objbase.h>  // For COM
 
 #define HAS_DECKLINK_SDK 1  // SDK is available via DeckLinkAPI_h.h
 
