@@ -169,6 +169,16 @@ int main(int argc, char* argv[]) {
     Logger::Init("VIB_System");
     Logger::Info("Visual Intelligence Bypass v2.0 Starting...");
     
+    // Initialize COM for DeckLink SDK (Component Object Model)
+    // This MUST be called before any DeckLink interfaces are created
+    HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    if (FAILED(hr)) {
+        Logger::Error("Failed to initialize COM. HRESULT: 0x" + std::to_string(hr));
+        Logger::Error("DeckLink SDK requires COM initialization to function properly");
+        return 1;
+    }
+    Logger::Info("COM initialized successfully for DeckLink SDK");
+    
     try {
         // Controllers for diagnostics and routing
         auto inputLookup = BuildInputLookup();
@@ -390,8 +400,13 @@ int main(int argc, char* argv[]) {
         
     } catch (const std::exception& e) {
         Logger::Error("Fatal error: " + std::string(e.what()));
+        CoUninitialize();
         return 1;
     }
+    
+    // Uninitialize COM before exiting
+    CoUninitialize();
+    Logger::Info("COM uninitialized");
     
     return 0;
 }

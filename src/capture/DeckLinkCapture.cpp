@@ -319,12 +319,69 @@ void DeckLinkCapture::ProcessFrame(IDeckLinkVideoInputFrame* videoFrame) {
 }
 
 int DeckLinkCapture::EnumerateDevices() {
-    // TODO: Enumerate DeckLink devices
-    // Use IDeckLinkIterator to find all available devices
     Logger::Info("Enumerating DeckLink devices...");
     
-    // Placeholder: return number of detected devices
-    return 0;
+    // Create DeckLink iterator using COM
+    IDeckLinkIterator* deckLinkIterator = nullptr;
+    HRESULT hr = CoCreateInstance(
+        CLSID_CDeckLinkIterator,
+        nullptr,
+        CLSCTX_ALL,
+        IID_IDeckLinkIterator,
+        (void**)&deckLinkIterator
+    );
+    
+    if (FAILED(hr)) {
+        Logger::Error("Failed to create DeckLink Iterator. HRESULT: 0x" + std::to_string(hr));
+        Logger::Error("Ensure Blackmagic Desktop Video is installed and DeckLinkAPI64.dll is registered");
+        return 0;
+    }
+    
+    if (!deckLinkIterator) {
+        Logger::Error("DeckLink Iterator is null despite successful CoCreateInstance");
+        return 0;
+    }
+    
+    Logger::Info("DeckLink Iterator created successfully");
+    
+    // Enumerate all DeckLink devices
+    IDeckLink* deckLink = nullptr;
+    int deviceCount = 0;
+    
+    while (deckLinkIterator->Next(&deckLink) == S_OK) {
+        if (deckLink) {
+            deviceCount++;
+            
+            // Get device name
+            BSTR deviceNameBSTR = nullptr;
+            if (deckLink->GetDisplayName(&deviceNameBSTR) == S_OK) {
+                // Convert BSTR to std::string
+                char deviceName[256];
+                size_t convertedChars = 0;
+                wcstombs_s(&convertedChars, deviceName, 256, deviceNameBSTR, 255);
+                
+                Logger::Info("Found DeckLink device #" + std::to_string(deviceCount) + 
+                           ": " + std::string(deviceName));
+                
+                SysFreeString(deviceNameBSTR);
+            }
+            
+            // Release device interface
+            deckLink->Release();
+            deckLink = nullptr;
+        }
+    }
+    
+    // Release iterator
+    deckLinkIterator->Release();
+    
+    if (deviceCount == 0) {
+        Logger::Warning("No DeckLink devices found. Check hardware connections and drivers.");
+    } else {
+        Logger::Info("Total DeckLink devices found: " + std::to_string(deviceCount));
+    }
+    
+    return deviceCount;
 }
 
 // CustomAllocator implementation
