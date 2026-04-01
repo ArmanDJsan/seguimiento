@@ -35,6 +35,8 @@
 
 DeckLinkCapture::DeckLinkCapture()
     : m_allocator(nullptr)
+    , m_deckLink(nullptr)
+    , m_refCount(1)
 {
     // Initialize channel structure
     m_channel.deckLinkInput = nullptr;
@@ -50,6 +52,18 @@ DeckLinkCapture::DeckLinkCapture()
 
 DeckLinkCapture::~DeckLinkCapture() {
     Stop();
+    
+    // Release DeckLink input interface
+    if (m_channel.deckLinkInput) {
+        m_channel.deckLinkInput->Release();
+        m_channel.deckLinkInput = nullptr;
+    }
+    
+    // Release DeckLink device
+    if (m_deckLink) {
+        m_deckLink->Release();
+        m_deckLink = nullptr;
+    }
     
     // Destroy CUDA stream before freeing buffers
     if (m_channel.stream) {
@@ -113,12 +127,114 @@ bool DeckLinkCapture::Initialize(int deviceIndex, const std::string& channelName
     Logger::Info("Allocated CUDA buffers: YUV=" + std::to_string(m_channel.bufferSize) + 
                  " bytes, BGRA=" + std::to_string(bgraBufferSize) + " bytes");
     
-    // TODO: Initialize Blackmagic SDK
+    // Initialize Blackmagic SDK
     // 1. Create IDeckLink interface
-    // 2. Query for IDeckLinkInput
-    // 3. Set video input format (bmdModeHD1080p60 or bmdMode4K2160p60)
-    // 4. Create custom allocator
-    // 5. Set frame callback (IDeckLinkInputCallback interface)
+    IDeckLinkIterator* deckLinkIterator = nullptr;
+    HRESULT hr = CoCreateInstance(
+        CLSID_CDeckLinkIterator,
+        nullptr,
+        CLSCTX_ALL,
+        IID_IDeckLinkIterator,
+        (void**)&deckLinkIterator
+    );
+    
+    if (FAILED(hr) || !deckLinkIterator) {
+        Logger::Error("Failed to create DeckLink Iterator. HRESULT: 0x" + std::to_string(hr));
+        cudaFree(m_channel.cudaBGRABuffer);
+        m_channel.cudaBGRABuffer = nullptr;
+        cudaFree(m_channel.cudaYUVBuffer);
+        m_channel.cudaYUVBuffer = nullptr;
+        cudaStreamDestroy(m_channel.stream);
+        m_channel.stream = nullptr;
+        return false;
+    }
+    
+    // 2. Iterate to the specified device index
+    m_deckLink = nullptr;
+    for (int i = 0; i <= deviceIndex; i++) {
+        if (m_deckLink) {
+            m_deckLink->Release();
+            m_deckLink = nullptr;
+        }
+        hr = deckLinkIterator->Next(&m_deckLink);
+        if (hr != S_OK) {
+            Logger::Error("Failed to get DeckLink device at index " + std::to_string(deviceIndex));
+            deckLinkIterator->Release();
+            cudaFree(m_channel.cudaBGRABuffer);
+            m_channel.cudaBGRABuffer = nullptr;
+            cudaFree(m_channel.cudaYUVBuffer);
+            m_channel.cudaYUVBuffer = nullptr;
+            cudaStreamDestroy(m_channel.stream);
+            m_channel.stream = nullptr;
+            return false;
+        }
+    }
+    deckLinkIterator->Release();
+    
+    if (!m_deckLink) {
+        Logger::Error("DeckLink device is null");
+        cudaFree(m_channel.cudaBGRABuffer);
+        m_channel.cudaBGRABuffer = nullptr;
+        cudaFree(m_channel.cudaYUVBuffer);
+        m_channel.cudaYUVBuffer = nullptr;
+        cudaStreamDestroy(m_channel.stream);
+        m_channel.stream = nullptr;
+        return false;
+    }
+    
+    // 3. Query for IDeckLinkInput
+    hr = m_deckLink->QueryInterface(IID_IDeckLinkInput, (void**)&m_channel.deckLinkInput);
+    if (FAILED(hr) || !m_channel.deckLinkInput) {
+        Logger::Error("Failed to get IDeckLinkInput interface. HRESULT: 0x" + std::to_string(hr));
+        m_deckLink->Release();
+        m_deckLink = nullptr;
+        cudaFree(m_channel.cudaBGRABuffer);
+        m_channel.cudaBGRABuffer = nullptr;
+        cudaFree(m_channel.cudaYUVBuffer);
+        m_channel.cudaYUVBuffer = nullptr;
+        cudaStreamDestroy(m_channel.stream);
+        m_channel.stream = nullptr;
+        return false;
+    }
+    
+    // 4. Set frame callback (this object implements IDeckLinkInputCallback)
+    hr = m_channel.deckLinkInput->SetCallback(this);
+    if (FAILED(hr)) {
+        Logger::Error("Failed to set DeckLink callback. HRESULT: 0x" + std::to_string(hr));
+        m_channel.deckLinkInput->Release();
+        m_channel.deckLinkInput = nullptr;
+        m_deckLink->Release();
+        m_deckLink = nullptr;
+        cudaFree(m_channel.cudaBGRABuffer);
+        m_channel.cudaBGRABuffer = nullptr;
+        cudaFree(m_channel.cudaYUVBuffer);
+        m_channel.cudaYUVBuffer = nullptr;
+        cudaStreamDestroy(m_channel.stream);
+        m_channel.stream = nullptr;
+        return false;
+    }
+    
+    // 5. Set video input format to 4K@30fps (bmdMode4K2160p30)
+    // Using YUV 4:2:2 8-bit format for compatibility
+    hr = m_channel.deckLinkInput->EnableVideoInput(
+        bmdMode4K2160p30,           // 4K 30fps mode
+        bmdFormat8BitYUV,           // YUV 4:2:2 8-bit
+        bmdVideoInputFlagDefault    // Default flags
+    );
+    if (FAILED(hr)) {
+        Logger::Error("Failed to enable video input. HRESULT: 0x" + std::to_string(hr));
+        m_channel.deckLinkInput->Release();
+        m_channel.deckLinkInput = nullptr;
+        m_deckLink->Release();
+        m_deckLink = nullptr;
+        cudaFree(m_channel.cudaBGRABuffer);
+        m_channel.cudaBGRABuffer = nullptr;
+        cudaFree(m_channel.cudaYUVBuffer);
+        m_channel.cudaYUVBuffer = nullptr;
+        cudaStreamDestroy(m_channel.stream);
+        m_channel.stream = nullptr;
+        return false;
+    }
     
     // Initialize custom allocator with cudaMallocPinned
     m_allocator = std::make_unique<CustomAllocator>();
@@ -141,10 +257,20 @@ bool DeckLinkCapture::Start() {
         CaptureThreadFunc(st);
     });
     
-    // TODO: Start DeckLink streaming
-    // m_channel.deckLinkInput->StartStreams();
+    // Start DeckLink streaming
+    HRESULT hr = m_channel.deckLinkInput->StartStreams();
+    if (FAILED(hr)) {
+        Logger::Error("Failed to start DeckLink streams. HRESULT: 0x" + std::to_string(hr));
+        if (m_captureThread.joinable()) {
+            m_captureThread.request_stop();
+            m_frameCv.notify_all();
+            m_captureThread.join();
+        }
+        return false;
+    }
     
     m_channel.isActive = true;
+    Logger::Info("DeckLink streaming started successfully");
     return true;
 }
 
@@ -155,6 +281,14 @@ void DeckLinkCapture::Stop() {
     
     Logger::Info("Stopping capture on channel: " + m_channel.channelName);
     
+    // Stop DeckLink streaming first
+    if (m_channel.deckLinkInput) {
+        HRESULT hr = m_channel.deckLinkInput->StopStreams();
+        if (FAILED(hr)) {
+            Logger::Warning("Failed to stop DeckLink streams. HRESULT: 0x" + std::to_string(hr));
+        }
+    }
+    
     // Request thread stop via stop_token (C++20)
     if (m_captureThread.joinable()) {
         m_captureThread.request_stop();
@@ -162,11 +296,6 @@ void DeckLinkCapture::Stop() {
         // Ensure the capture thread completes before freeing CUDA buffers
         m_captureThread.join();
     }
-    
-    // TODO: Stop DeckLink streaming
-    // if (m_channel.deckLinkInput) {
-    //     m_channel.deckLinkInput->StopStreams();
-    // }
     
     // Ensure all GPU work for this channel is completed
     if (m_channel.stream) {
@@ -323,6 +452,62 @@ void DeckLinkCapture::ProcessFrame(IDeckLinkVideoInputFrame* videoFrame) {
         }
         videoBuffer->Release(); // Liberar interfaz COM
     }
+}
+
+// COM Interface Implementation (IUnknown)
+HRESULT STDMETHODCALLTYPE DeckLinkCapture::QueryInterface(REFIID iid, LPVOID* ppv) {
+    if (!ppv) {
+        return E_POINTER;
+    }
+    
+    if (iid == IID_IUnknown) {
+        *ppv = static_cast<IUnknown*>(this);
+        AddRef();
+        return S_OK;
+    }
+    if (iid == IID_IDeckLinkInputCallback) {
+        *ppv = static_cast<IDeckLinkInputCallback*>(this);
+        AddRef();
+        return S_OK;
+    }
+    
+    *ppv = nullptr;
+    return E_NOINTERFACE;
+}
+
+ULONG STDMETHODCALLTYPE DeckLinkCapture::AddRef() {
+    return ++m_refCount;
+}
+
+ULONG STDMETHODCALLTYPE DeckLinkCapture::Release() {
+    ULONG newRefCount = --m_refCount;
+    if (newRefCount == 0) {
+        // Note: Don't delete this here as it's managed by unique_ptr elsewhere
+        // This is a simplified implementation for callback interface
+    }
+    return newRefCount;
+}
+
+// IDeckLinkInputCallback Implementation
+HRESULT STDMETHODCALLTYPE DeckLinkCapture::VideoInputFormatChanged(
+    BMDVideoInputFormatChangedEvents notificationEvents,
+    IDeckLinkDisplayMode* newDisplayMode,
+    BMDDetectedVideoInputFormatFlags detectedSignalFlags)
+{
+    // Log format change but don't handle it for now
+    Logger::Info("Video input format changed on channel: " + m_channel.channelName);
+    return S_OK;
+}
+
+HRESULT STDMETHODCALLTYPE DeckLinkCapture::VideoInputFrameArrived(
+    IDeckLinkVideoInputFrame* videoFrame,
+    IDeckLinkAudioInputPacket* audioPacket)
+{
+    // Forward frame to our internal handler
+    if (videoFrame) {
+        OnFrameArrived(videoFrame);
+    }
+    return S_OK;
 }
 
 int DeckLinkCapture::EnumerateDevices() {
