@@ -213,6 +213,33 @@ This happens in parallel for all 8.3M pixels in a 4K frame.
 
 ## Troubleshooting
 
+### DeckLink SDK Not Detected (COM Initialization Error)
+
+**Symptom**: The log shows `[WARN] DeckLink SDK not available; signal lock checks will be stubbed` even though DeckLinkAPI64.dll is registered with regsvr32.
+
+**Root Cause**: COM (Component Object Model) was not initialized before attempting to create DeckLink interfaces.
+
+**Solution**: The application now properly initializes COM at startup:
+
+1. **CoInitializeEx()** is called in `main()` before any DeckLink operations
+2. Uses `COINIT_MULTITHREADED` for thread safety
+3. **CoUninitialize()** is called on shutdown to release COM resources
+4. Proper error handling for COM initialization failures
+
+**Required Libraries**:
+- `ole32.lib` - Core COM library
+- `oleaut32.lib` - OLE Automation (for BSTR strings)
+
+**Key Files Modified**:
+- `src/core/main.cpp` - Added COM initialization/cleanup
+- `src/capture/DeckLinkCapture.cpp` - Implemented proper device enumeration
+- `src/capture/DeckLinkSource.cpp` - Updated to use COM-based device detection
+
+**Verification**: 
+- Check logs for "COM initialized successfully for DeckLink SDK"
+- Look for "Found X DeckLink device(s)" message
+- No more "[WARN] DeckLink SDK not available" warnings
+
 ### No DeckLink Devices Found
 
 - Check driver installation

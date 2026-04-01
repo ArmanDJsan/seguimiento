@@ -19,6 +19,7 @@
 #include <sstream>
 #include <iomanip>
 #include <Windows.h>
+#include <objbase.h>  // For COM: CoInitializeEx, CoUninitialize
 #include <d3d11.h>
 #include <dxgi.h>
 #include <wrl/client.h>
@@ -28,6 +29,7 @@
 #include <iterator>
 #include <regex>
 
+#include "../DeckLinkAPI_h.h"  // DeckLink SDK COM interfaces
 #include "../capture/DeckLinkCapture.h"
 #include "../capture/DeckLinkSource.h"
 #include "../spout/SpoutManager.h"
@@ -41,6 +43,10 @@
 // Link DirectX libraries
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
+
+// Link COM library (required for DeckLink SDK)
+#pragma comment(lib, "ole32.lib")
+#pragma comment(lib, "oleaut32.lib")  // For SysFreeString
 
 #include <unordered_map>
 #include <vector>
@@ -168,6 +174,16 @@ bool RunPhase2(VideoHubClient& videoHub, int targetSpheres) {
 int main(int argc, char* argv[]) {
     Logger::Init("VIB_System");
     Logger::Info("Visual Intelligence Bypass v2.0 Starting...");
+    
+    // Initialize COM for DeckLink SDK (Component Object Model)
+    // This MUST be called before any DeckLink interfaces are created
+    HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    if (FAILED(hr)) {
+        Logger::Error("Failed to initialize COM. HRESULT: 0x" + std::to_string(hr));
+        Logger::Error("DeckLink SDK requires COM initialization to function properly");
+        return 1;
+    }
+    Logger::Info("COM initialized successfully for DeckLink SDK");
     
     try {
         // Controllers for diagnostics and routing
@@ -390,8 +406,13 @@ int main(int argc, char* argv[]) {
         
     } catch (const std::exception& e) {
         Logger::Error("Fatal error: " + std::string(e.what()));
+        CoUninitialize();
         return 1;
     }
+    
+    // Uninitialize COM before exiting
+    CoUninitialize();
+    Logger::Info("COM uninitialized");
     
     return 0;
 }
