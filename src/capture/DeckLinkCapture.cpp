@@ -4,6 +4,11 @@
  * Implementation of zero-copy DMA capture from Blackmagic DeckLink cards
  * Uses CUDA cudaMallocPinned for direct GPU memory access on RTX 5080
  * No DirectX dependencies - pure CUDA pipeline
+ * 
+ * CRITICAL: Include order matters for COM/DeckLink SDK compilation:
+ * 1. DeckLinkCapture.h (which includes Windows.h, objbase.h, DeckLinkAPI_h.h)
+ * 2. Other project headers
+ * 3. Standard library headers
  */
 
 #include "DeckLinkCapture.h"

@@ -19,6 +19,16 @@
 
 #pragma once
 
+// 1. Windows base headers (FUNDAMENTAL - must come first)
+// These define core Windows types like HRESULT, REFIID, IUnknown
+// Required before any COM-based SDK headers
+#include <Windows.h>
+#include <objbase.h>
+
+// 2. Blackmagic DeckLink SDK headers (after Windows COM types are defined)
+#include "DeckLinkAPI_h.h"
+
+// 3. CUDA and standard library headers
 #include <cuda_runtime.h>
 #include <string>
 #include <memory>
@@ -28,12 +38,6 @@
 #include <stop_token>
 #include <condition_variable>
 #include <functional>
-
-// Forward declarations for Blackmagic SDK
-class IDeckLink;
-class IDeckLinkInput;
-class IDeckLinkVideoInputFrame;
-class IDeckLinkAudioInputPacket;
 
 /**
  * Video channel structure for managing each capture input
