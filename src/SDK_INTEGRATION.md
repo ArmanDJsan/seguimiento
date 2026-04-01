@@ -25,24 +25,9 @@ This document provides step-by-step instructions for integrating the required SD
 
 ### Integration in Code
 
-**CRITICAL: Include Order**
-
-The DeckLink SDK uses COM interfaces (HRESULT, REFIID, IUnknown) that must be defined before including DeckLink headers. Always follow this order:
-
 ```cpp
-// 1. Windows base headers (FUNDAMENTAL - must come first)
-#include <Windows.h>
-#include <objbase.h>
-
-// 2. Blackmagic DeckLink SDK headers (after Windows COM types are defined)
 #include "DeckLinkAPI_h.h"
 
-// 3. Other headers...
-```
-
-**Example Usage:**
-
-```cpp
 // Create DeckLink iterator
 IDeckLinkIterator* deckLinkIterator;
 CoCreateInstance(CLSID_CDeckLinkIterator, nullptr, CLSCTX_ALL,
@@ -54,10 +39,6 @@ while (deckLinkIterator->Next(&deckLink) == S_OK) {
     // Found a device
 }
 ```
-
-**Common Compilation Errors:**
-
-If you see 100+ errors in `DeckLinkAPI_h.h` about undefined types like `HRESULT`, `REFIID`, or `IUnknown`, it means Windows headers were not included before the DeckLink SDK headers. Fix by ensuring `Windows.h` and `objbase.h` are included first.
 
 ## 2. Spout SDK
 

@@ -163,33 +163,6 @@ oleaut32.lib
 
 Estos generalmente ya están incluidos por defecto en proyectos de Windows.
 
-### Paso 6: CRÍTICO - Orden de Inclusión de Encabezados
-
-⚠️ **MUY IMPORTANTE**: El DeckLink SDK utiliza tipos COM de Windows (HRESULT, REFIID, IUnknown) que DEBEN estar definidos antes de incluir los encabezados del SDK.
-
-**Orden Correcto de #include:**
-
-```cpp
-// 1. Encabezados base de Windows (FUNDAMENTAL - deben ir primero)
-#include <Windows.h>
-#include <objbase.h>
-
-// 2. Encabezados del SDK de Blackmagic DeckLink (después de definir tipos COM)
-#include "DeckLinkAPI_h.h"
-
-// 3. Otros encabezados del proyecto...
-```
-
-**⛔ Síntoma de Orden Incorrecto:**
-
-Si ve más de 100 errores de compilación en `DeckLinkAPI_h.h` sobre tipos no definidos como:
-- `HRESULT`
-- `REFIID`
-- `IUnknown`
-- `LPUNKNOWN`
-
-**Solución:** Asegúrese de que `Windows.h` y `objbase.h` estén incluidos ANTES de cualquier encabezado del DeckLink SDK.
-
 ### Resumen de Configuración DeckLink SDK 15.3
 
 | Propiedad | Configuración |
