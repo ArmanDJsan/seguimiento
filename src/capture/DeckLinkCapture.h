@@ -34,6 +34,7 @@ class IDeckLink;
 class IDeckLinkInput;
 class IDeckLinkVideoInputFrame;
 class IDeckLinkAudioInputPacket;
+class IDeckLinkInputCallback;
 
 /**
  * Video channel structure for managing each capture input
@@ -57,7 +58,7 @@ struct VideoChannel {
  * Philosophy: Maximum performance over development comfort
  * Architecture: CUDA-only pipeline, no DirectX dependencies
  */
-class DeckLinkCapture {
+class DeckLinkCapture : public IDeckLinkInputCallback {
 public:
     DeckLinkCapture();
     ~DeckLinkCapture();
@@ -81,6 +82,20 @@ public:
     
     // Static method to enumerate available devices
     static int EnumerateDevices();
+    
+    // COM interface implementation (IUnknown)
+    virtual HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, LPVOID* ppv);
+    virtual ULONG STDMETHODCALLTYPE AddRef();
+    virtual ULONG STDMETHODCALLTYPE Release();
+    
+    // IDeckLinkInputCallback implementation
+    virtual HRESULT STDMETHODCALLTYPE VideoInputFormatChanged(
+        BMDVideoInputFormatChangedEvents notificationEvents,
+        IDeckLinkDisplayMode* newDisplayMode,
+        BMDDetectedVideoInputFormatFlags detectedSignalFlags);
+    virtual HRESULT STDMETHODCALLTYPE VideoInputFrameArrived(
+        IDeckLinkVideoInputFrame* videoFrame,
+        IDeckLinkAudioInputPacket* audioPacket);
     
 private:
     // Custom memory allocator implementation
@@ -107,6 +122,12 @@ private:
     
     // Channel data
     VideoChannel m_channel;
+    
+    // DeckLink device handle
+    IDeckLink* m_deckLink;
+    
+    // COM reference count
+    std::atomic<ULONG> m_refCount;
     
     // Custom allocator
     std::unique_ptr<CustomAllocator> m_allocator;

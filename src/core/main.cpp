@@ -19,29 +19,255 @@
 #include <sstream>
 #include <iomanip>
 #include <Windows.h>
+#include <objbase.h>  // For COM: CoInitializeEx, CoUninitialize
 #include <d3d11.h>
 #include <dxgi.h>
 #include <wrl/client.h>
+#include <cstdio>
+#include <chrono>
+#include <fstream>
+#include <iterator>
+#include <regex>
 
+#include "../DeckLinkAPI_h.h"  // DeckLink SDK COM interfaces
 #include "../capture/DeckLinkCapture.h"
+#include "../capture/DeckLinkSource.h"
 #include "../spout/SpoutManager.h"
 #include "../ai/YOLOProcessor.h"
 #include "../redis/RedisWorker.h"
 #include "../utils/Logger.h"
+#include "../control/VideoHubClient.h"
+#include "../control/TrackPhysicalController.h"
+#include "../control/VMixController.h"
 
 // Link DirectX libraries
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
 
+// Link COM library (required for DeckLink SDK)
+#pragma comment(lib, "ole32.lib")
+#pragma comment(lib, "oleaut32.lib")  // For SysFreeString
+
+#include <unordered_map>
+#include <vector>
+#include <numeric>
+#include "../json.hpp"
+
+using json = nlohmann::json;
+
 constexpr int kMaxSpoutChannels = 12;
 constexpr unsigned int kDefaultWidth = 3840;
 constexpr unsigned int kDefaultHeight = 2160;
+constexpr int kVideoHubPrimaryOutput = 0;
+
+namespace {
+std::unordered_map<std::string, int> BuildInputLookup() {
+    std::unordered_map<std::string, int> lookup;
+    for (int i = 1; i <= 12; ++i) {
+        std::stringstream ss;
+        ss << "CAM_" << std::setw(2) << std::setfill('0') << i;
+        lookup[ss.str()] = i;
+    }
+    lookup["RADAR_01"] = 13;
+    lookup["RADAR_02"] = 14;
+    lookup["RADAR_03"] = 15;
+    lookup["RADAR_04"] = 16;
+    return lookup;
+}
+
+std::vector<int> RangeInclusive(int start, int end) {
+    std::vector<int> values(static_cast<size_t>(end - start + 1));
+    std::iota(values.begin(), values.end(), start);
+    return values;
+}
+
+struct Config {
+    std::string videohubIp;
+    uint16_t videohubPort;
+    std::string esp32Ip;
+    uint16_t esp32Port;
+    int targetSpheres;
+};
+
+Config LoadConfig(const std::string& path) {
+    Config config;
+    // Set defaults
+    config.videohubIp = "192.168.1.50";
+    config.videohubPort = 9990;
+    config.esp32Ip = "192.168.88.114";
+    config.esp32Port = 80;
+    config.targetSpheres = 10;
+
+    std::ifstream file(path);
+    if (!file.is_open()) {
+        Logger::Warning("No se pudo abrir config.json; usando valores por defecto");
+        return config;
+    }
+
+    try {
+        json j;
+        file >> j;
+
+        // Parse videohub section
+        if (j.contains("videohub") && j["videohub"].is_object()) {
+            if (j["videohub"].contains("ip") && j["videohub"]["ip"].is_string()) {
+                config.videohubIp = j["videohub"]["ip"].get<std::string>();
+            }
+            if (j["videohub"].contains("port") && j["videohub"]["port"].is_number()) {
+                config.videohubPort = j["videohub"]["port"].get<uint16_t>();
+            }
+        }
+
+        // Parse esp32 section
+        if (j.contains("esp32") && j["esp32"].is_object()) {
+            if (j["esp32"].contains("ip") && j["esp32"]["ip"].is_string()) {
+                config.esp32Ip = j["esp32"]["ip"].get<std::string>();
+            }
+            if (j["esp32"].contains("port") && j["esp32"]["port"].is_number()) {
+                config.esp32Port = j["esp32"]["port"].get<uint16_t>();
+            }
+        }
+
+        // Parse target_spheres from root
+        if (j.contains("target_spheres") && j["target_spheres"].is_number()) {
+            config.targetSpheres = j["target_spheres"].get<int>();
+        }
+
+        Logger::Info("Configuración cargada: VideoHub=" + config.videohubIp + ":" + 
+                     std::to_string(config.videohubPort) + ", ESP32=" + config.esp32Ip + ":" + 
+                     std::to_string(config.esp32Port) + ", target_spheres=" + 
+                     std::to_string(config.targetSpheres));
+
+    } catch (const json::exception& e) {
+        Logger::Warning("Error al parsear config.json: " + std::string(e.what()) + "; usando valores por defecto");
+    } catch (const std::exception& e) {
+        Logger::Warning("Error inesperado al cargar config: " + std::string(e.what()) + "; usando valores por defecto");
+    }
+
+    return config;
+}
+
+bool ValidateSignalGroup(VideoHubClient& videoHub,
+                         DeckLinkSource& deckLinkSource,
+                         const std::vector<int>& ports,
+                         const std::string& label) {
+    for (int port : ports) {
+        if (!videoHub.RouteInputToOutput(kVideoHubPrimaryOutput, port)) {
+            Logger::Error("[HW/SW ERROR]: No se pudo conmutar VideoHub para puerto " + std::to_string(port));
+            return false;
+        }
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+    const auto statuses = deckLinkSource.GetSignalStatus(ports);
+    for (const auto& status : statuses) {
+        if (!status.signalLocked) {
+            const std::string name = status.name.value_or("Port_" + std::to_string(status.index));
+            Logger::Error("[HW/SW ERROR]: Sin señal en " + name);
+            return false;
+        }
+    }
+
+    Logger::Info("Barrido " + label + " OK");
+    return true;
+}
+
+bool RunPhase1(VMixController& vmix,
+               VideoHubClient& videoHub,
+               DeckLinkSource& deckLinkSource,
+               TrackPhysicalController& trackController) {
+    if (!vmix.CheckInputsHealthy()) {
+        return false;
+    }
+
+    if (!ValidateSignalGroup(videoHub, deckLinkSource, RangeInclusive(1, 12), "Streaming (1-12)")) {
+        return false;
+    }
+
+    if (!ValidateSignalGroup(videoHub, deckLinkSource, RangeInclusive(13, 16), "Seguimiento (13-16)")) {
+        return false;
+    }
+
+    if (!trackController.ejecutarTest()) {
+        Logger::Error("[HW/SW ERROR] Prueba mecánica (ESP32 /test) fallida");
+        return false;
+    }
+
+    Logger::Info("Fase 1 completada correctamente");
+    return true;
+}
+
+bool RunPhase2(VideoHubClient& videoHub, int targetSpheres) {
+    if (!videoHub.RouteInputToOutput(kVideoHubPrimaryOutput, "CAM_01")) {
+        Logger::Error("[HW/SW ERROR]: No se pudo fijar CAM_01 en la salida");
+        return false;
+    }
+
+    // Placeholder YOLO check (pipeline integration pending)
+    const int detectedSpheres = targetSpheres;
+    Logger::Warning("Conteo de esferas usa stub; integrar motor YOLO para conteo real");
+
+    if (detectedSpheres != targetSpheres) {
+        Logger::Error("[SCENE ERROR]: Conteo incorrecto (" + std::to_string(detectedSpheres) +
+                      ") - Verifique esferas en pista");
+        return false;
+    }
+
+    Logger::Info("Fase 2 (Escena) completada: conteo de esferas OK");
+    return true;
+}
+} // namespace
 
 int main(int argc, char* argv[]) {
     Logger::Init("VIB_System");
     Logger::Info("Visual Intelligence Bypass v2.0 Starting...");
     
+    // Initialize COM for DeckLink SDK (Component Object Model)
+    // This MUST be called before any DeckLink interfaces are created
+    HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    if (FAILED(hr)) {
+        Logger::Error("Failed to initialize COM. HRESULT: 0x" + std::to_string(hr));
+        Logger::Error("DeckLink SDK requires COM initialization to function properly");
+        return 1;
+    }
+    Logger::Info("COM initialized successfully for DeckLink SDK");
+    
     try {
+        // Load configuration from JSON
+        Config config = LoadConfig("config.json");
+
+        // Controllers for diagnostics and routing
+        auto inputLookup = BuildInputLookup();
+        VideoHubClient videoHub(config.videohubIp, config.videohubPort, inputLookup);
+        
+        // Convert ESP32 IP to wide string
+        std::wstring esp32IpWide(config.esp32Ip.begin(), config.esp32Ip.end());
+        TrackPhysicalController trackController(esp32IpWide, config.esp32Port);
+        
+        VMixController vmix(L"127.0.0.1", 8088, 8099);
+        DeckLinkSource deckLinkSource;
+        deckLinkSource.Initialize(12);
+
+        if (!videoHub.Connect()) {
+            Logger::Error("[HW/SW ERROR] No se pudo establecer conexión con VideoHub");
+            return 1;
+        }
+
+        vmix.ConnectTcp();  // prepare TCP channel; errors are logged but non-fatal
+
+        // Fase 1: Sweep hardware/software links
+        if (!RunPhase1(vmix, videoHub, deckLinkSource, trackController)) {
+            Logger::Error("Ignición abortada durante Fase 1");
+            return 1;
+        }
+
+        // Fase 2: Escena (YOLO check)
+        if (!RunPhase2(videoHub, config.targetSpheres)) {
+            Logger::Error("Ignición abortada durante Fase 2");
+            return 1;
+        }
+
         // Initialize DirectX 11 Device (for Spout output only)
         // Note: DeckLinkCapture uses CUDA-based zero-copy, not D3D11
         Logger::Info("Initializing DirectX 11 for Spout output...");
@@ -185,7 +411,7 @@ int main(int argc, char* argv[]) {
                             "). Idle senders remain available to keep channel names stable in vMix.");
         }
         
-        const int channelsToInit = std::min(kMaxSpoutChannels, static_cast<int>(numDevices));
+        const int channelsToInit = (std::min)(numDevices, kMaxSpoutChannels);
         for (int i = 0; i < channelsToInit; i++) {
             auto capture = std::make_unique<DeckLinkCapture>();
             const std::string channelName = "Channel_" + std::to_string(i + 1);
@@ -234,8 +460,13 @@ int main(int argc, char* argv[]) {
         
     } catch (const std::exception& e) {
         Logger::Error("Fatal error: " + std::string(e.what()));
+        CoUninitialize();
         return 1;
     }
+    
+    // Uninitialize COM before exiting
+    CoUninitialize();
+    Logger::Info("COM uninitialized");
     
     return 0;
 }

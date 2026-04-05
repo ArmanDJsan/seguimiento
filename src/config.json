@@ -1,0 +1,35 @@
+{
+  "videohub": {
+    "ip": "192.168.1.50",
+    "port": 9990
+  },
+  "esp32": {
+    "ip": "192.168.88.114",
+    "port": 80,
+    "endpoints": {
+      "test": "/test",
+      "iniciar": "/iniciar",
+      "cerrar": "/cerrar",
+      "recargar": "/recargar"
+    }
+  },
+  "ports": [
+    { "index": 1, "name": "CAM_01", "role": "stream", "is_output": true },
+    { "index": 2, "name": "CAM_02", "role": "stream" },
+    { "index": 3, "name": "CAM_03", "role": "stream" },
+    { "index": 4, "name": "CAM_04", "role": "stream" },
+    { "index": 5, "name": "CAM_05", "role": "stream" },
+    { "index": 6, "name": "CAM_06", "role": "stream" },
+    { "index": 7, "name": "CAM_07", "role": "stream" },
+    { "index": 8, "name": "CAM_08", "role": "stream" },
+    { "index": 9, "name": "CAM_09", "role": "stream" },
+    { "index": 10, "name": "CAM_10", "role": "stream" },
+    { "index": 11, "name": "CAM_11", "role": "stream" },
+    { "index": 12, "name": "CAM_12", "role": "stream" },
+    { "index": 13, "name": "RADAR_01", "role": "radar" },
+    { "index": 14, "name": "RADAR_02", "role": "radar" },
+    { "index": 15, "name": "RADAR_03", "role": "radar" },
+    { "index": 16, "name": "RADAR_04", "role": "radar" }
+  ],
+  "target_spheres": 10
+}
