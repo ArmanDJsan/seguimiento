@@ -33,7 +33,7 @@
 #include "../capture/DeckLinkCapture.h"
 #include "../capture/DeckLinkSource.h"
 #include "../ndi/NDIManager.h"
-#include "../ai/YOLOProcessor.h"
+#include "../ai/ActiveCameraSelector.h"
 #include "../redis/RedisWorker.h"
 #include "../utils/Logger.h"
 #include "../control/VideoHubClient.h"
@@ -87,6 +87,26 @@ struct Config {
     std::string esp32Ip;
     uint16_t esp32Port;
     int targetSpheres;
+    
+    // Redis configuration
+    bool redisEnabled;
+    std::string redisHost;
+    int redisPort;
+    
+    // YOLO configuration
+    bool yoloEnabled;
+    std::string yoloModelPath;
+    std::string yoloFallback;
+    int yoloBatchSize;
+    float yoloConfidenceThreshold;
+    float yoloNmsThreshold;
+    bool yoloUseFP16;
+    
+    // Camera selector configuration
+    bool selectorEnabled;
+    int selectorTopK;
+    float selectorMotionThreshold;
+    float selectorEdgeMargin;
 };
 
 Config LoadConfig(const std::string& path) {
@@ -97,6 +117,26 @@ Config LoadConfig(const std::string& path) {
     config.esp32Ip = "192.168.88.114";
     config.esp32Port = 80;
     config.targetSpheres = 10;
+    
+    // Redis defaults
+    config.redisEnabled = true;
+    config.redisHost = "127.0.0.1";
+    config.redisPort = 6379;
+    
+    // YOLO defaults
+    config.yoloEnabled = true;
+    config.yoloModelPath = "models/yolov8n.engine";
+    config.yoloFallback = "stub";
+    config.yoloBatchSize = 4;
+    config.yoloConfidenceThreshold = 0.5f;
+    config.yoloNmsThreshold = 0.4f;
+    config.yoloUseFP16 = true;
+    
+    // Camera selector defaults
+    config.selectorEnabled = true;
+    config.selectorTopK = 4;
+    config.selectorMotionThreshold = 0.05f;
+    config.selectorEdgeMargin = 0.1f;
 
     std::ifstream file(path);
     if (!file.is_open()) {
@@ -132,11 +172,66 @@ Config LoadConfig(const std::string& path) {
         if (j.contains("target_spheres") && j["target_spheres"].is_number()) {
             config.targetSpheres = j["target_spheres"].get<int>();
         }
+        
+        // Parse Redis section
+        if (j.contains("redis") && j["redis"].is_object()) {
+            if (j["redis"].contains("enabled") && j["redis"]["enabled"].is_boolean()) {
+                config.redisEnabled = j["redis"]["enabled"].get<bool>();
+            }
+            if (j["redis"].contains("host") && j["redis"]["host"].is_string()) {
+                config.redisHost = j["redis"]["host"].get<std::string>();
+            }
+            if (j["redis"].contains("port") && j["redis"]["port"].is_number()) {
+                config.redisPort = j["redis"]["port"].get<int>();
+            }
+        }
+        
+        // Parse YOLO section
+        if (j.contains("yolo") && j["yolo"].is_object()) {
+            if (j["yolo"].contains("enabled") && j["yolo"]["enabled"].is_boolean()) {
+                config.yoloEnabled = j["yolo"]["enabled"].get<bool>();
+            }
+            if (j["yolo"].contains("model_path") && j["yolo"]["model_path"].is_string()) {
+                config.yoloModelPath = j["yolo"]["model_path"].get<std::string>();
+            }
+            if (j["yolo"].contains("fallback") && j["yolo"]["fallback"].is_string()) {
+                config.yoloFallback = j["yolo"]["fallback"].get<std::string>();
+            }
+            if (j["yolo"].contains("batch_size") && j["yolo"]["batch_size"].is_number()) {
+                config.yoloBatchSize = j["yolo"]["batch_size"].get<int>();
+            }
+            if (j["yolo"].contains("confidence_threshold") && j["yolo"]["confidence_threshold"].is_number()) {
+                config.yoloConfidenceThreshold = j["yolo"]["confidence_threshold"].get<float>();
+            }
+            if (j["yolo"].contains("nms_threshold") && j["yolo"]["nms_threshold"].is_number()) {
+                config.yoloNmsThreshold = j["yolo"]["nms_threshold"].get<float>();
+            }
+            if (j["yolo"].contains("use_fp16") && j["yolo"]["use_fp16"].is_boolean()) {
+                config.yoloUseFP16 = j["yolo"]["use_fp16"].get<bool>();
+            }
+        }
+        
+        // Parse camera selector section
+        if (j.contains("camera_selector") && j["camera_selector"].is_object()) {
+            if (j["camera_selector"].contains("enabled") && j["camera_selector"]["enabled"].is_boolean()) {
+                config.selectorEnabled = j["camera_selector"]["enabled"].get<bool>();
+            }
+            if (j["camera_selector"].contains("top_k") && j["camera_selector"]["top_k"].is_number()) {
+                config.selectorTopK = j["camera_selector"]["top_k"].get<int>();
+            }
+            if (j["camera_selector"].contains("motion_threshold") && j["camera_selector"]["motion_threshold"].is_number()) {
+                config.selectorMotionThreshold = j["camera_selector"]["motion_threshold"].get<float>();
+            }
+            if (j["camera_selector"].contains("edge_handover_margin") && j["camera_selector"]["edge_handover_margin"].is_number()) {
+                config.selectorEdgeMargin = j["camera_selector"]["edge_handover_margin"].get<float>();
+            }
+        }
 
         Logger::Info("Configuración cargada: VideoHub=" + config.videohubIp + ":" + 
                      std::to_string(config.videohubPort) + ", ESP32=" + config.esp32Ip + ":" + 
-                     std::to_string(config.esp32Port) + ", target_spheres=" + 
-                     std::to_string(config.targetSpheres));
+                     std::to_string(config.esp32Port) + ", Redis=" + (config.redisEnabled ? "enabled" : "disabled") +
+                     ", YOLO=" + (config.yoloEnabled ? "enabled" : "disabled") +
+                     ", Selector=" + (config.selectorEnabled ? "enabled" : "disabled"));
 
     } catch (const json::exception& e) {
         Logger::Warning("Error al parsear config.json: " + std::string(e.what()) + "; usando valores por defecto");
@@ -342,44 +437,181 @@ int main(int argc, char* argv[]) {
                 // The handler receives both YUV and BGRA buffers from DeckLinkCapture:
                 // - YUV (UYVY) goes to NDI for vMix output (zero color conversion)
                 // - BGRA is used for YOLO inference (already converted via CUDA kernel)
-                capture->SetFrameReadyHandler([ndiManager](const VideoChannel& channel, cudaStream_t stream) {
-                    // Send UYVY directly to NDI for vMix
-                    // This is the zero-conversion path - DeckLink outputs UYVY,
-                    // vMix expects UYVY and converts internally to 32-bit float 4:4:4
+                // Frame ready handler: Orchestrates Capture → Selector → YOLO → NDI/Redis
+                // Philosophy: Video flow (NDI) NEVER stops, even if AI/Redis fails
+                capture->SetFrameReadyHandler([ndiManager, cameraSelector, yoloProcessor, &redisWorker, &config, yoloReady]
+                                             (const VideoChannel& channel, cudaStream_t stream) {
+                    // ============================================================================
+                    // PRIORITY 1: Video Output to vMix (ALWAYS happens)
+                    // ============================================================================
                     ndiManager->SendUYVYFrame(
                         channel.channelID,
-                        channel.cudaYUVBuffer,  // UYVY buffer from DeckLink
+                        channel.cudaYUVBuffer,
                         channel.width,
                         channel.height,
                         stream
                     );
                     
-                    // YOLO inference path uses cudaBGRABuffer (converted separately)
-                    // This happens in parallel via the YOLO processor
+                    // ============================================================================
+                    // PRIORITY 2: Motion Analysis (if selector enabled)
+                    // ============================================================================
+                    if (cameraSelector && config.selectorEnabled) {
+                        // Update motion metrics for this camera
+                        cameraSelector->ProcessFrame(
+                            channel.channelID,
+                            channel.cudaYUVBuffer,
+                            channel.width,
+                            channel.height,
+                            stream
+                        );
+                    }
+                    
+                    // ============================================================================
+                    // PRIORITY 3: AI Inference (if YOLO enabled and ready)
+                    // ============================================================================
+                    if (yoloReady && config.yoloEnabled) {
+                        // Get active camera selection
+                        std::vector<int> selectedCameras;
+                        
+                        if (cameraSelector && config.selectorEnabled) {
+                            auto selection = cameraSelector->GetActiveSelection();
+                            selectedCameras = selection.selectedCameraIDs;
+                        } else {
+                            // If selector disabled, process all cameras (not recommended for 12 cams)
+                            selectedCameras.push_back(channel.channelID);
+                        }
+                        
+                        // Only process if this camera is selected
+                        bool isSelected = std::find(selectedCameras.begin(), selectedCameras.end(), 
+                                                    channel.channelID) != selectedCameras.end();
+                        
+                        if (isSelected) {
+                            // Process single frame (batch processing happens in separate thread)
+                            // Note: In production, collect frames and process in batches periodically
+                            auto detections = yoloProcessor->ProcessFrame(
+                                channel.cudaBGRABuffer,
+                                channel.channelID,
+                                channel.width,
+                                channel.height,
+                                stream
+                            );
+                            
+                            // Update Redis worker with new detections
+                            if (!detections.empty() && config.redisEnabled) {
+                                redisWorker.UpdateDetections(detections);
+                            }
+                        }
+                    }
                 });
                 capture->Start();
                 captureChannels.push_back(std::move(capture));
             }
         }
         
+        // ============================================================================
+        // Initialize AI Pipeline Components
+        // ============================================================================
+        
+        // Initialize ActiveCameraSelector for Top-4 motion-based selection
+        std::shared_ptr<ActiveCameraSelector> cameraSelector;
+        if (config.selectorEnabled) {
+            Logger::Info("Initializing ActiveCameraSelector...");
+            cameraSelector = std::make_shared<ActiveCameraSelector>(
+                kMaxNDIChannels,
+                config.selectorTopK,
+                config.selectorMotionThreshold,
+                config.selectorEdgeMargin
+            );
+            if (!cameraSelector->Initialize()) {
+                Logger::Error("Failed to initialize ActiveCameraSelector");
+                throw std::runtime_error("ActiveCameraSelector initialization failed");
+            }
+            Logger::Info("ActiveCameraSelector initialized: Top-" + std::to_string(config.selectorTopK) + 
+                        " from " + std::to_string(kMaxNDIChannels) + " cameras");
+        } else {
+            Logger::Info("ActiveCameraSelector disabled by configuration");
+        }
+        
         // Initialize YOLO/TensorRT processor
         Logger::Info("Initializing YOLO processor...");
-        YOLOProcessor yoloProcessor;
+        auto yoloProcessor = std::make_shared<YOLOProcessor>(
+            config.yoloBatchSize,
+            config.yoloUseFP16
+        );
+        
+        bool yoloReady = false;
+        if (config.yoloEnabled) {
+            bool useFallback = (config.yoloFallback == "stub");
+            if (yoloProcessor->Initialize(config.yoloModelPath, useFallback)) {
+                yoloProcessor->SetConfidenceThreshold(config.yoloConfidenceThreshold);
+                yoloProcessor->SetNMSThreshold(config.yoloNmsThreshold);
+                yoloReady = true;
+                
+                if (yoloProcessor->IsStubMode()) {
+                    Logger::Warning("YOLO running in STUB mode - no real inference");
+                } else {
+                    Logger::Info("YOLO initialized successfully with TensorRT");
+                }
+            } else {
+                Logger::Warning("YOLO initialization failed - inference disabled");
+            }
+        } else {
+            Logger::Info("YOLO disabled by configuration");
+        }
         
         // Initialize Redis worker
         Logger::Info("Initializing Redis worker...");
-        RedisWorker redisWorker("127.0.0.1", 6379);
-        redisWorker.Start();
+        RedisWorker redisWorker(config.redisHost, config.redisPort, config.redisEnabled);
+        if (config.redisEnabled) {
+            redisWorker.Start();
+            if (redisWorker.IsConnected()) {
+                Logger::Info("Redis worker connected and running");
+            } else {
+                Logger::Warning("Redis worker started but not connected - will retry");
+            }
+        } else {
+            Logger::Info("Redis worker disabled by configuration");
+        }
         
-        // Main capture loop
-        Logger::Info("Starting capture loop...");
+        // Main monitoring loop
+        Logger::Info("=== System Status ===");
+        Logger::Info("Video Pipeline: " + std::to_string(kMaxNDIChannels) + " NDI channels active");
+        Logger::Info("Camera Selector: " + std::string(config.selectorEnabled ? "Enabled (Top-" + std::to_string(config.selectorTopK) + ")" : "Disabled"));
+        Logger::Info("YOLO Inference: " + std::string(yoloReady ? (yoloProcessor->IsStubMode() ? "Stub mode" : "Active") : "Disabled"));
+        Logger::Info("Redis Publishing: " + std::string(config.redisEnabled ? (redisWorker.IsConnected() ? "Connected" : "Retrying") : "Disabled"));
+        Logger::Info("=====================");
         Logger::Info("Press ESC to exit");
+        
         bool running = true;
+        auto lastStatusLog = std::chrono::steady_clock::now();
+        const auto statusInterval = std::chrono::seconds(10);  // Log status every 10 seconds
         
         while (running) {
             // Check for exit condition
             if (GetAsyncKeyState(VK_ESCAPE) & 0x8000) {
                 running = false;
+            }
+            
+            // Periodic status logging
+            auto now = std::chrono::steady_clock::now();
+            if (now - lastStatusLog >= statusInterval) {
+                if (cameraSelector && config.selectorEnabled) {
+                    auto selection = cameraSelector->GetActiveSelection();
+                    std::string selectedList;
+                    for (size_t i = 0; i < selection.selectedCameraIDs.size(); i++) {
+                        selectedList += std::to_string(selection.selectedCameraIDs[i]);
+                        if (i < selection.selectedCameraIDs.size() - 1) selectedList += ",";
+                    }
+                    Logger::Info("[STATUS] Active cameras: [" + selectedList + "], " +
+                                "Avg motion: " + std::to_string(selection.averageMotionScore));
+                }
+                
+                if (config.redisEnabled) {
+                    Logger::Info("[STATUS] Redis: " + std::string(redisWorker.IsConnected() ? "Connected" : "Disconnected") +
+                                ", Retry count: " + std::to_string(redisWorker.GetRetryCount()));
+                }
+                
+                lastStatusLog = now;
             }
             
             std::this_thread::sleep_for(std::chrono::milliseconds(16));
