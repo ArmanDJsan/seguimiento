@@ -107,6 +107,11 @@ struct Config {
     int selectorTopK;
     float selectorMotionThreshold;
     float selectorEdgeMargin;
+    
+    // Detection optimization - hysteresis configuration
+    float hysteresisSwitchThreshold;
+    int hysteresisMinActiveFrames;
+    float hysteresisDecayFactor;
 };
 
 Config LoadConfig(const std::string& path) {
@@ -137,6 +142,11 @@ Config LoadConfig(const std::string& path) {
     config.selectorTopK = 4;
     config.selectorMotionThreshold = 0.05f;
     config.selectorEdgeMargin = 0.1f;
+    
+    // Hysteresis defaults
+    config.hysteresisSwitchThreshold = 0.20f;
+    config.hysteresisMinActiveFrames = 15;
+    config.hysteresisDecayFactor = 0.95f;
 
     std::ifstream file(path);
     if (!file.is_open()) {
@@ -224,6 +234,22 @@ Config LoadConfig(const std::string& path) {
             }
             if (j["camera_selector"].contains("edge_handover_margin") && j["camera_selector"]["edge_handover_margin"].is_number()) {
                 config.selectorEdgeMargin = j["camera_selector"]["edge_handover_margin"].get<float>();
+            }
+        }
+        
+        // Parse detection optimization - hysteresis section
+        if (j.contains("detection_optimization") && j["detection_optimization"].is_object()) {
+            if (j["detection_optimization"].contains("hysteresis") && j["detection_optimization"]["hysteresis"].is_object()) {
+                auto& hyst = j["detection_optimization"]["hysteresis"];
+                if (hyst.contains("switch_threshold") && hyst["switch_threshold"].is_number()) {
+                    config.hysteresisSwitchThreshold = hyst["switch_threshold"].get<float>();
+                }
+                if (hyst.contains("min_active_frames") && hyst["min_active_frames"].is_number()) {
+                    config.hysteresisMinActiveFrames = hyst["min_active_frames"].get<int>();
+                }
+                if (hyst.contains("decay_factor") && hyst["decay_factor"].is_number()) {
+                    config.hysteresisDecayFactor = hyst["decay_factor"].get<float>();
+                }
             }
         }
 
@@ -566,15 +592,18 @@ int main(int argc, char* argv[]) {
                 throw std::runtime_error("ActiveCameraSelector initialization failed");
             }
             
-            // Apply hysteresis configuration from config if available
+            // Apply hysteresis configuration from config.json
             HysteresisConfig hysteresisConfig;
-            hysteresisConfig.switch_threshold = 0.20f;   // 20% more required to switch
-            hysteresisConfig.min_active_frames = 15;     // 500ms @ 30fps
-            hysteresisConfig.decay_factor = 0.95f;       // Gradual decay
+            hysteresisConfig.switch_threshold = config.hysteresisSwitchThreshold;
+            hysteresisConfig.min_active_frames = config.hysteresisMinActiveFrames;
+            hysteresisConfig.decay_factor = config.hysteresisDecayFactor;
             cameraSelector->SetHysteresisConfig(hysteresisConfig);
             
             Logger::Info("ActiveCameraSelector initialized: Top-" + std::to_string(config.selectorTopK) + 
-                        " from " + std::to_string(kMaxNDIChannels) + " cameras with hysteresis");
+                        " from " + std::to_string(kMaxNDIChannels) + " cameras with hysteresis" +
+                        " (threshold=" + std::to_string(config.hysteresisSwitchThreshold) +
+                        ", frames=" + std::to_string(config.hysteresisMinActiveFrames) +
+                        ", decay=" + std::to_string(config.hysteresisDecayFactor) + ")");
         } else {
             Logger::Info("ActiveCameraSelector disabled by configuration");
         }

@@ -33,6 +33,13 @@
     "motion_threshold": 0.05,
     "edge_handover_margin": 0.1
   },
+  "detection_optimization": {
+    "hysteresis": {
+      "switch_threshold": 0.20,
+      "min_active_frames": 15,
+      "decay_factor": 0.95
+    }
+  },
   "ports": [
     { "index": 1, "name": "CAM_01", "role": "stream", "is_output": true },
     { "index": 2, "name": "CAM_02", "role": "stream" },
