@@ -21,16 +21,13 @@
 #include <algorithm>
 #include <cstring>
 
-// NDI SDK 6 include - conditionally compile based on SDK availability
-// SDK 6 is expected at: C:\Program Files\NDI\NDI 6 SDK\Include
+// NDI SDK include - conditionally compile based on SDK availability
 #if __has_include("Processing.NDI.Lib.h")
     #include "Processing.NDI.Lib.h"
     #define HAS_NDI_SDK 1
-    #define NDI_SDK_VERSION 6
 #elif __has_include(<ndi/Processing.NDI.Lib.h>)
     #include <ndi/Processing.NDI.Lib.h>
     #define HAS_NDI_SDK 1
-    #define NDI_SDK_VERSION 6
 #else
     // Stub definitions when NDI SDK is not available
     // This allows compilation to succeed for development/testing
@@ -138,12 +135,10 @@ bool NDIManager::Initialize() {
         Logger::Error("Failed to initialize NDI library");
         return false;
     }
-    Logger::Info("NDI SDK " + std::to_string(NDI_SDK_VERSION) + " initialized successfully");
-    Logger::Info("Expected SDK path: C:\\Program Files\\NDI\\NDI 6 SDK\\Include");
+    Logger::Info("NDI library initialized successfully");
 #else
     Logger::Warning("NDI SDK not available - using stub implementation");
-    Logger::Warning("Install NDI SDK 6 from https://ndi.video/for-developers/ndi-sdk/");
-    Logger::Warning("Expected path: C:\\Program Files\\NDI\\NDI 6 SDK");
+    Logger::Warning("Install NDI SDK and rebuild for production use");
 #endif
     
     m_initialized = true;
