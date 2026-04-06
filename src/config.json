@@ -35,9 +35,9 @@
   },
   "detection_optimization": {
     "hysteresis": {
-      "switch_threshold": 0.20,
-      "min_active_frames": 15,
-      "decay_factor": 0.95
+      "switch_threshold": 0.15,
+      "min_active_frames": 10,
+      "decay_factor": 0.98
     }
   },
   "ports": [

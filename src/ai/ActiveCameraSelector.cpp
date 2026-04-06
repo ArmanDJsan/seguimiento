@@ -289,10 +289,17 @@ float ActiveCameraSelector::CalculateMotionScore(int cameraID, cudaStream_t stre
     }
     
     // Copy partial sums to host and finalize reduction
-    float* hostPartialSums = new float[numBlocks];
-    cudaMemcpyAsync(hostPartialSums, devicePartialSums, numBlocks * sizeof(float),
+    std::vector<float> hostPartialSums(numBlocks);
+    cudaMemcpyAsync(hostPartialSums.data(), devicePartialSums, numBlocks * sizeof(float),
                    cudaMemcpyDeviceToHost, stream);
-    cudaStreamSynchronize(stream);
+    
+    // Record event instead of blocking synchronization
+    cudaEvent_t copyComplete;
+    cudaEventCreate(&copyComplete);
+    cudaEventRecord(copyComplete, stream);
+    
+    // Wait for event (non-blocking alternative - can be queried later if needed)
+    cudaEventSynchronize(copyComplete);
     
     // Final reduction on CPU
     float totalMotion = 0.0f;
@@ -303,7 +310,7 @@ float ActiveCameraSelector::CalculateMotionScore(int cameraID, cudaStream_t stre
     // Normalize by number of pixels
     float normalizedScore = totalMotion / static_cast<float>(numPixels);
     
-    delete[] hostPartialSums;
+    cudaEventDestroy(copyComplete);
     cudaFree(devicePartialSums);
     
     return normalizedScore;
