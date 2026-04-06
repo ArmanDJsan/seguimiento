@@ -516,10 +516,11 @@ int main(int argc, char* argv[]) {
                             auto selection = cameraSelector->GetActiveSelection();
                             selectedCameras = selection.selectedCameraIDs;
                             
-                            // Adaptive quality: respect performance monitor recommendation
+                            // Adaptive quality: respect both performance monitor AND config.selectorTopK
                             int recommended = perfMonitor->GetRecommendedActiveCameras();
-                            if (static_cast<int>(selectedCameras.size()) > recommended) {
-                                selectedCameras.resize(recommended);
+                            int maxAllowed = (std::min)(recommended, config.selectorTopK);
+                            if (static_cast<int>(selectedCameras.size()) > maxAllowed) {
+                                selectedCameras.resize(maxAllowed);
                             }
                         } else {
                             // If selector disabled, process this camera only
@@ -665,16 +666,63 @@ int main(int argc, char* argv[]) {
         Logger::Info("YOLO Inference: " + std::string(yoloReady ? (yoloProcessor->IsStubMode() ? "Stub mode" : "Active") : "Disabled"));
         Logger::Info("Redis Publishing: " + std::string(config.redisEnabled ? (redisWorker.IsConnected() ? "Connected" : "Retrying") : "Disabled"));
         Logger::Info("=====================");
-        Logger::Info("Press ESC to exit");
+        Logger::Info("=== Keyboard Shortcuts ===");
+        Logger::Info("ESC - Exit application");
+        Logger::Info("F2  - Reduce to 2 cameras (thermal throttle)");
+        Logger::Info("F3  - Restore to 4 cameras");
+        Logger::Info("F4  - Graceful shutdown");
+        Logger::Info("==========================");
         
         bool running = true;
         auto lastStatusLog = std::chrono::steady_clock::now();
         const auto statusInterval = std::chrono::seconds(10);  // Log status every 10 seconds
         
+        // Track key states to prevent multiple triggers (debouncing)
+        bool f2Pressed = false;
+        bool f3Pressed = false;
+        bool f4Pressed = false;
+        
         while (running) {
             // Check for exit condition
             if (GetAsyncKeyState(VK_ESCAPE) & 0x8000) {
                 running = false;
+            }
+            
+            // ============================================================================
+            // EMERGENCY KEYBOARD SHORTCUTS (F2/F3/F4)
+            // ============================================================================
+            
+            // F2 - Reduce active cameras to 2 (thermal throttle)
+            if (GetAsyncKeyState(VK_F2) & 0x8000) {
+                if (!f2Pressed) {
+                    f2Pressed = true;
+                    config.selectorTopK = 2;
+                    Logger::Info("[EMERGENCY] Reduced active cameras to 2 (thermal throttle)");
+                }
+            } else {
+                f2Pressed = false;
+            }
+            
+            // F3 - Restore active cameras to 4
+            if (GetAsyncKeyState(VK_F3) & 0x8000) {
+                if (!f3Pressed) {
+                    f3Pressed = true;
+                    config.selectorTopK = 4;
+                    Logger::Info("[EMERGENCY] Restored active cameras to 4");
+                }
+            } else {
+                f3Pressed = false;
+            }
+            
+            // F4 - Graceful stop
+            if (GetAsyncKeyState(VK_F4) & 0x8000) {
+                if (!f4Pressed) {
+                    f4Pressed = true;
+                    running = false;
+                    Logger::Info("[EMERGENCY] Graceful stop initiated - exiting main loop");
+                }
+            } else {
+                f4Pressed = false;
             }
             
             // Periodic status logging
