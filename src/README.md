@@ -41,7 +41,7 @@ VIB is a C++ application designed for ultra-low latency video capture and AI-pow
 ### Required SDKs
 
 1. **Blackmagic DeckLink SDK**: Download from Blackmagic Design website
-2. **NDI SDK 5**: Download from [ndi.video/for-developers](https://ndi.video/for-developers/ndi-sdk/)
+2. **NDI SDK 6 (Required)**: Download from [ndi.video/for-developers](https://ndi.video/for-developers/ndi-sdk/) - Mandatory, no fallback mode
 3. **Redis C++ Client**: [sewenew/redis-plus-plus](https://github.com/sewenew/redis-plus-plus)
 4. **NVIDIA TensorRT**: For YOLO inference
 

@@ -3,6 +3,10 @@
  * 
  * Implementation of NDI sender management for zero-latency video output to vMix
  * 
+ * IMPORTANT: This implementation requires NDI SDK 6 to be installed.
+ * No fallback stub mode is provided - this is a production-only build.
+ * Install NDI SDK 6 from https://ndi.video/for-developers/ndi-sdk/
+ * 
  * Key design decisions:
  * 1. Zero-copy async sending via NDIlib_send_send_video_async_v2
  * 2. UYVY format preferred (native DeckLink format, vMix converts internally)
@@ -21,68 +25,8 @@
 #include <algorithm>
 #include <cstring>
 
-// NDI SDK include - conditionally compile based on SDK availability
-#if __has_include("Processing.NDI.Lib.h")
-    #include "Processing.NDI.Lib.h"
-    #define HAS_NDI_SDK 1
-#elif __has_include(<ndi/Processing.NDI.Lib.h>)
-    #include <ndi/Processing.NDI.Lib.h>
-    #define HAS_NDI_SDK 1
-#else
-    // Stub definitions when NDI SDK is not available
-    // This allows compilation to succeed for development/testing
-    #define HAS_NDI_SDK 0
-    
-    // Minimal NDI type stubs
-    typedef void* NDIlib_send_instance_t;
-    
-    // FourCC constants
-    enum NDIlib_FourCC_type_e {
-        NDIlib_FourCC_type_UYVY = 0x59565955,  // 'UYVY' - YCbCr 4:2:2
-        NDIlib_FourCC_type_BGRA = 0x41524742,  // 'BGRA' - 32-bit BGRA
-        NDIlib_FourCC_type_BGRX = 0x58524742,  // 'BGRX' - 32-bit BGRX (no alpha)
-        NDIlib_FourCC_type_RGBA = 0x41424752,  // 'RGBA' - 32-bit RGBA
-        NDIlib_FourCC_type_RGBX = 0x58424752   // 'RGBX' - 32-bit RGBX (no alpha)
-    };
-    
-    // Frame rate constants
-    constexpr int NDIlib_frame_rate_numerator_30 = 30000;
-    constexpr int NDIlib_frame_rate_denominator_30 = 1001;
-    
-    // Video frame structure (matches NDI SDK)
-    struct NDIlib_video_frame_v2_t {
-        int xres;
-        int yres;
-        NDIlib_FourCC_type_e FourCC;
-        int frame_rate_N;
-        int frame_rate_D;
-        float picture_aspect_ratio;
-        int line_stride_in_bytes;
-        uint8_t* p_data;
-        const char* p_metadata;
-        int64_t timecode;
-    };
-    
-    // Send creation settings
-    struct NDIlib_send_create_t {
-        const char* p_ndi_name;
-        const char* p_groups;
-        bool clock_video;
-        bool clock_audio;
-    };
-    
-    // Stub function declarations (no-op implementations)
-    inline bool NDIlib_initialize() { return true; }
-    inline void NDIlib_destroy() {}
-    inline NDIlib_send_instance_t NDIlib_send_create(const NDIlib_send_create_t*) { return nullptr; }
-    inline void NDIlib_send_destroy(NDIlib_send_instance_t) {}
-    inline void NDIlib_send_send_video_v2(NDIlib_send_instance_t, const NDIlib_video_frame_v2_t*) {}
-    inline void NDIlib_send_send_video_async_v2(NDIlib_send_instance_t, const NDIlib_video_frame_v2_t*) {}
-    
-    // Async completion callback type
-    typedef void (*NDIlib_send_video_async_completion_cb_t)(void* p_instance, const NDIlib_video_frame_v2_t* p_video_data, void* p_user_data);
-    inline void NDIlib_send_set_video_async_completion(NDIlib_send_instance_t, NDIlib_send_video_async_completion_cb_t, void*) {}
-#endif
+// NDI SDK 6 is required for production builds
+#include <Processing.NDI.Lib.h>
 
 namespace {
     // Constants for 4K@30fps (NTSC standard: 29.97fps = 30000/1001)
@@ -99,9 +43,7 @@ namespace {
 // NDIChannel destructor implementation
 NDIManager::NDIChannel::~NDIChannel() {
     if (sender) {
-#if HAS_NDI_SDK
         NDIlib_send_destroy(sender);
-#endif
         sender = nullptr;
     }
     
@@ -130,16 +72,11 @@ bool NDIManager::Initialize() {
         return true;
     }
     
-#if HAS_NDI_SDK
     if (!NDIlib_initialize()) {
         Logger::Error("Failed to initialize NDI library");
         return false;
     }
     Logger::Info("NDI library initialized successfully");
-#else
-    Logger::Warning("NDI SDK not available - using stub implementation");
-    Logger::Warning("Install NDI SDK and rebuild for production use");
-#endif
     
     m_initialized = true;
     return true;
@@ -185,7 +122,6 @@ bool NDIManager::CreateSender(int channelID, const std::string& senderName,
         return false;
     }
     
-#if HAS_NDI_SDK
     // Create NDI sender
     NDIlib_send_create_t sendDesc;
     sendDesc.p_ndi_name = senderName.c_str();
@@ -216,9 +152,6 @@ bool NDIManager::CreateSender(int channelID, const std::string& senderName,
     Logger::Info("Created NDI sender: " + senderName + 
                  " (" + std::to_string(width) + "x" + std::to_string(height) + 
                  ", " + (useUYVY ? "UYVY" : "BGRA") + ")");
-#else
-    Logger::Warning("NDI sender created (stub): " + senderName);
-#endif
     
     channel->isActive = true;
     m_channels[channelID] = std::move(channel);
@@ -316,7 +249,6 @@ bool NDIManager::SendFrameInternal(int channelID, void* cudaBuffer,
     // - The frameInFlight flag already provides the foundation for this
     cudaEventSynchronize(channel.transferComplete);
     
-#if HAS_NDI_SDK
     // Mark frame as in flight
     channel.frameInFlight.store(true, std::memory_order_release);
     
@@ -335,10 +267,6 @@ bool NDIManager::SendFrameInternal(int channelID, void* cudaBuffer,
     
     // Send frame asynchronously (zero-copy with completion callback)
     NDIlib_send_send_video_async_v2(channel.sender, &ndiFrame);
-#else
-    // Stub: just mark as sent
-    (void)useUYVY;
-#endif
     
     return true;
 }
@@ -355,7 +283,6 @@ bool NDIManager::SendFrameSync(int channelID, void* hostBuffer,
     
     NDIChannel& channel = *it->second;
     
-#if HAS_NDI_SDK
     size_t bytesPerPixel = useUYVY ? kBytesPerPixelUYVY : kBytesPerPixelBGRA;
     size_t lineStride = static_cast<size_t>(width) * bytesPerPixel;
     
@@ -373,13 +300,6 @@ bool NDIManager::SendFrameSync(int channelID, void* hostBuffer,
     
     // Synchronous send - blocks until frame is sent
     NDIlib_send_send_video_v2(channel.sender, &ndiFrame);
-#else
-    (void)hostBuffer;
-    (void)width;
-    (void)height;
-    (void)useUYVY;
-    (void)channel;
-#endif
     
     return true;
 }
@@ -400,13 +320,11 @@ void NDIManager::ReleaseAll() {
     Logger::Info("Releasing all NDI senders");
     m_channels.clear();
     
-#if HAS_NDI_SDK
     if (m_initialized) {
         NDIlib_destroy();
         m_initialized = false;
         Logger::Info("NDI library shut down");
     }
-#endif
 }
 
 int NDIManager::GetActiveSenderCount() const {
