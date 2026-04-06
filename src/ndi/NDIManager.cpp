@@ -307,7 +307,12 @@ bool NDIManager::SendFrameInternal(int channelID, void* cudaBuffer,
     cudaEventRecord(channel.transferComplete, stream);
     
     // Wait for transfer to complete before sending
-    // TODO: Could pipeline this with multiple buffers for even lower latency
+    // PERFORMANCE NOTE: This synchronous wait may cause frame drops under heavy load
+    // with 12+ cameras. For production, consider implementing multi-buffering:
+    // - Use 2-3 pinned buffers per channel
+    // - Pipeline GPU transfer with NDI send (while one buffer is sending, 
+    //   another is receiving)
+    // - The frameInFlight flag already provides the foundation for this
     cudaEventSynchronize(channel.transferComplete);
     
 #if HAS_NDI_SDK
@@ -413,11 +418,4 @@ int NDIManager::GetActiveSenderCount() const {
         }
     }
     return count;
-}
-
-// Static callback implementation
-void NDIManager::AsyncCompletionCallback(void* userData) {
-    // This is called by NDI when a frame is no longer needed
-    // The per-channel lambda in CreateSender handles this
-    (void)userData;
 }

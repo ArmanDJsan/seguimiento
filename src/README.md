@@ -6,6 +6,8 @@ High-performance video capture and AI processing system for vMix with zero-copy 
 
 VIB is a C++ application designed for ultra-low latency video capture and AI-powered object detection. It captures multiple 4K@30fps streams from Blackmagic DeckLink cards, processes them with YOLO AI, and delivers the video to vMix via NDI while publishing detection metadata to Redis.
 
+> **Note**: The system targets 30fps for streaming cameras as configured in the hardware setup. The architecture supports 60fps if needed by changing the DeckLink configuration to bmdMode4K2160p60.
+
 ## Architecture Philosophy
 
 **Performance over Comfort**: This system prioritizes maximum hardware utilization and minimal latency over development convenience.

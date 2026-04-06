@@ -47,7 +47,7 @@ NDI is used for sending video to vMix. It provides native support in vMix withou
 ### Download
 
 1. Visit [NDI SDK Downloads](https://ndi.video/for-developers/ndi-sdk/)
-2. Register for a free developer account
+2. Register for a free developer account (requires name, email, and organization info)
 3. Download "NDI 5 SDK" for Windows
 
 ### Installation

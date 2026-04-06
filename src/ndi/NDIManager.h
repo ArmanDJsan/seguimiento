@@ -40,8 +40,8 @@ struct NDIVideoFrame {
     int width;
     int height;
     int fourCC;             // NDIlib_FourCC_type_UYVY or NDIlib_FourCC_type_BGRA
-    float frameRateN;       // Frame rate numerator
-    float frameRateD;       // Frame rate denominator
+    int frameRateN;         // Frame rate numerator (e.g., 30000)
+    int frameRateD;         // Frame rate denominator (e.g., 1001 for 29.97fps)
     float aspectRatio;      // Pixel aspect ratio
     int lineStride;         // Bytes per line
     void* data;             // Pointer to video data
@@ -175,18 +175,15 @@ private:
     };
 
     /**
-     * Async completion callback called by NDI when frame is no longer needed
-     * This enables zero-copy operation
-     */
-    static void AsyncCompletionCallback(void* userData);
-
-    /**
      * Internal helper to allocate pinned memory for a channel
      */
     bool AllocatePinnedBuffer(NDIChannel& channel, size_t size);
 
     /**
      * Internal helper to send frame with specified format
+     * Note: The current implementation uses cudaEventSynchronize which may cause
+     * frame drops under heavy load. For production environments with 12+ cameras,
+     * consider implementing multi-buffering to pipeline GPU transfers with NDI sends.
      */
     bool SendFrameInternal(int channelID, void* cudaBuffer,
                            unsigned int width, unsigned int height,
