@@ -88,7 +88,7 @@ bool ActiveCameraSelector::AllocateCameraResources(int cameraID,
     }
     
     auto& state = m_cameraStates[cameraID];
-    std::lock_guard<std::mutex> lock(state.frameMutex);
+    std::lock_guard<std::recursive_mutex> lock(state.frameMutex);
     
     // Check if resources already allocated for this resolution
     if (state.width == width && state.height == height && state.previousFrame != nullptr) {
@@ -181,7 +181,7 @@ void ActiveCameraSelector::FreeCameraResources(int cameraID) {
     }
     
     auto& state = m_cameraStates[cameraID];
-    std::lock_guard<std::mutex> lock(state.frameMutex);
+    std::lock_guard<std::recursive_mutex> lock(state.frameMutex);
     
     if (state.previousFrame) {
         cudaFree(state.previousFrame);
@@ -224,7 +224,7 @@ bool ActiveCameraSelector::ProcessFrame(int cameraID, void* cudaYUVBuffer,
     }
     
     auto& state = m_cameraStates[cameraID];
-    std::lock_guard<std::mutex> lock(state.frameMutex);
+    std::lock_guard<std::recursive_mutex> lock(state.frameMutex);
     
     // Allocate resources if needed
     if (!AllocateCameraResources(cameraID, width, height)) {
@@ -567,7 +567,7 @@ void ActiveCameraSelector::Reset() {
     Logger::Info("Resetting ActiveCameraSelector");
     
     for (auto& state : m_cameraStates) {
-        std::lock_guard<std::mutex> lock(state.frameMutex);
+        std::lock_guard<std::recursive_mutex> lock(state.frameMutex);
         state.hasHistory = false;
         state.metrics.motionScore = 0.0f;
         state.metrics.edgeActivity = 0.0f;

@@ -129,12 +129,16 @@ bool NDIManager::CreateSender(int channelID, const std::string& senderName,
 bool NDIManager::SendFrameInternal(int channelID, void* cudaBuffer,
     unsigned int width, unsigned int height,
     cudaStream_t stream, bool useUYVY) {
-    std::lock_guard<std::mutex> lock(m_channelsMutex);
+    // Lock scope 1: Check channel exists and get reference
+    NDIChannel* pChannel = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(m_channelsMutex);
+        auto it = m_channels.find(channelID);
+        if (it == m_channels.end() || !it->second->isActive) return false;
+        pChannel = it->second.get();
+    }
 
-    auto it = m_channels.find(channelID);
-    if (it == m_channels.end() || !it->second->isActive) return false;
-
-    NDIChannel& channel = *it->second;
+    NDIChannel& channel = *pChannel;
 
     // Evitar solapamiento de frames si el bus PCIe está saturado
     if (channel.frameInFlight.load(std::memory_order_acquire)) {
