@@ -110,7 +110,9 @@
     <ClCompile Include="DeckLinkAPI_i.c" />
     <ClCompile Include="ndi\NDIManager.cpp" />
     <ClCompile Include="ai\YOLOProcessor.cpp" />
+    <ClCompile Include="ai\ActiveCameraSelector.cpp" />
     <ClCompile Include="redis\RedisWorker.cpp" />
+    <ClCompile Include="telemetry\PerformanceMonitor.cpp" />
     <ClCompile Include="utils\Logger.cpp" />
     <ClCompile Include="control\TrackPhysicalController.cpp" />
     <ClCompile Include="control\VideoHubClient.cpp" />
@@ -118,6 +120,9 @@
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="capture\CudaColorConversion.cu">
+      <CudaArch>compute_100,sm_100</CudaArch>
+    </CudaCompile>
+    <CudaCompile Include="ai\MotionDetection.cu">
       <CudaArch>compute_100,sm_100</CudaArch>
     </CudaCompile>
   </ItemGroup>
@@ -129,6 +134,8 @@
     <ClInclude Include="json.hpp" />
     <ClInclude Include="ndi\NDIManager.h" />
     <ClInclude Include="ai\YOLOProcessor.h" />
+    <ClInclude Include="ai\ActiveCameraSelector.h" />
+    <ClInclude Include="telemetry\PerformanceMonitor.h" />
     <ClInclude Include="redis\RedisWorker.h" />
     <ClInclude Include="utils\Logger.h" />
     <ClInclude Include="control\TrackPhysicalController.h" />
