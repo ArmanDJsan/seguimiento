@@ -28,7 +28,7 @@
 #include <functional>
 
 // Forward declaration for NDI SDK types
-// Full definitions come from NDI SDK headers when available
+// Full definitions come from Processing.NDI.Lib.h (NDI SDK 6 required)
 struct NDIlib_send_instance_type;
 typedef NDIlib_send_instance_type* NDIlib_send_instance_t;
 
