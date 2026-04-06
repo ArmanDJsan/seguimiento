@@ -437,26 +437,35 @@ int main(int argc, char* argv[]) {
                 // The handler receives both YUV and BGRA buffers from DeckLinkCapture:
                 // - YUV (UYVY) goes to NDI for vMix output (zero color conversion)
                 // - BGRA is used for YOLO inference (already converted via CUDA kernel)
-                // Frame ready handler: Orchestrates Capture → Selector → YOLO → NDI/Redis
-                // Philosophy: Video flow (NDI) NEVER stops, even if AI/Redis fails
-                capture->SetFrameReadyHandler([ndiManager, cameraSelector, yoloProcessor, &redisWorker, &config, yoloReady]
+                // Frame ready handler: Non-blocking pipeline with strict priority order
+                // ORDEN 2: NON-BLOCKING PIPELINE - NDI → Selector → YOLO (async) → Redis (async)
+                capture->SetFrameReadyHandler([ndiManager, cameraSelector, yoloProcessor, &redisWorker, 
+                                              perfMonitor, &config, yoloReady, yoloStream]
                                              (const VideoChannel& channel, cudaStream_t stream) {
+                    auto frameStart = std::chrono::high_resolution_clock::now();
+                    Telemetry telemetry = {0, 0, 0, 0, 0};
+                    
                     // ============================================================================
-                    // PRIORITY 1: Video Output to vMix (ALWAYS happens)
+                    // PRIORITY 1: Video Output to vMix (ALWAYS happens FIRST - sacred video)
+                    // NDI sends async - does NOT block for GPU completion
                     // ============================================================================
+                    auto ndiStart = std::chrono::high_resolution_clock::now();
                     ndiManager->SendUYVYFrame(
                         channel.channelID,
                         channel.cudaYUVBuffer,
                         channel.width,
                         channel.height,
-                        stream
+                        stream  // Uses capture stream, returns immediately
                     );
+                    auto ndiEnd = std::chrono::high_resolution_clock::now();
+                    telemetry.ndi_ms = std::chrono::duration<double, std::milli>(ndiEnd - ndiStart).count();
                     
                     // ============================================================================
                     // PRIORITY 2: Motion Analysis (if selector enabled)
                     // ============================================================================
+                    auto selectorStart = std::chrono::high_resolution_clock::now();
                     if (cameraSelector && config.selectorEnabled) {
-                        // Update motion metrics for this camera
+                        // Update motion metrics for this camera (async in capture stream)
                         cameraSelector->ProcessFrame(
                             channel.channelID,
                             channel.cudaYUVBuffer,
@@ -465,10 +474,14 @@ int main(int argc, char* argv[]) {
                             stream
                         );
                     }
+                    auto selectorEnd = std::chrono::high_resolution_clock::now();
+                    telemetry.selector_ms = std::chrono::duration<double, std::milli>(selectorEnd - selectorStart).count();
                     
                     // ============================================================================
                     // PRIORITY 3: AI Inference (if YOLO enabled and ready)
+                    // IMPORTANT: YOLO runs in SEPARATE CUDA STREAM - does NOT block NDI/Selector
                     // ============================================================================
+                    auto yoloStart = std::chrono::high_resolution_clock::now();
                     if (yoloReady && config.yoloEnabled) {
                         // Get active camera selection
                         std::vector<int> selectedCameras;
@@ -476,8 +489,14 @@ int main(int argc, char* argv[]) {
                         if (cameraSelector && config.selectorEnabled) {
                             auto selection = cameraSelector->GetActiveSelection();
                             selectedCameras = selection.selectedCameraIDs;
+                            
+                            // Adaptive quality: respect performance monitor recommendation
+                            int recommended = perfMonitor->GetRecommendedActiveCameras();
+                            if (static_cast<int>(selectedCameras.size()) > recommended) {
+                                selectedCameras.resize(recommended);
+                            }
                         } else {
-                            // If selector disabled, process all cameras (not recommended for 12 cams)
+                            // If selector disabled, process this camera only
                             selectedCameras.push_back(channel.channelID);
                         }
                         
@@ -486,22 +505,38 @@ int main(int argc, char* argv[]) {
                                                     channel.channelID) != selectedCameras.end();
                         
                         if (isSelected) {
-                            // Process single frame (batch processing happens in separate thread)
-                            // Note: In production, collect frames and process in batches periodically
+                            // Process frame in YOLO's dedicated stream (async, non-blocking)
+                            // Note: ProcessFrame launches kernels but does NOT wait for completion
                             auto detections = yoloProcessor->ProcessFrame(
                                 channel.cudaBGRABuffer,
                                 channel.channelID,
                                 channel.width,
                                 channel.height,
-                                stream
+                                yoloStream  // Separate stream - does NOT block capture stream
                             );
                             
-                            // Update Redis worker with new detections
+                            // ============================================================
+                            // PRIORITY 4: Redis Publishing (async, can be 1 frame late)
+                            // ============================================================
+                            auto redisStart = std::chrono::high_resolution_clock::now();
                             if (!detections.empty() && config.redisEnabled) {
+                                // Non-blocking update - Redis worker publishes async
                                 redisWorker.UpdateDetections(detections);
                             }
+                            auto redisEnd = std::chrono::high_resolution_clock::now();
+                            telemetry.redis_ms = std::chrono::duration<double, std::milli>(redisEnd - redisStart).count();
                         }
                     }
+                    auto yoloEnd = std::chrono::high_resolution_clock::now();
+                    telemetry.yolo_ms = std::chrono::duration<double, std::milli>(yoloEnd - yoloStart).count();
+                    
+                    // Record telemetry for performance monitoring and auto-adjust
+                    auto frameEnd = std::chrono::high_resolution_clock::now();
+                    telemetry.capture_ms = std::chrono::duration<double, std::milli>(frameEnd - frameStart).count();
+                    perfMonitor->RecordFrame(telemetry);
+                    
+                    // NOTE: No cudaDeviceSynchronize() or cudaStreamSynchronize() here!
+                    // Streams execute async - sync happens only when needed via events
                 });
                 capture->Start();
                 captureChannels.push_back(std::move(capture));
@@ -511,6 +546,10 @@ int main(int argc, char* argv[]) {
         // ============================================================================
         // Initialize AI Pipeline Components
         // ============================================================================
+        
+        // Initialize PerformanceMonitor for real-time telemetry
+        Logger::Info("Initializing PerformanceMonitor...");
+        auto perfMonitor = std::make_shared<PerformanceMonitor>(33.0, 30);  // 33ms target, log every 30 frames
         
         // Initialize ActiveCameraSelector for Top-4 motion-based selection
         std::shared_ptr<ActiveCameraSelector> cameraSelector;
@@ -526,8 +565,16 @@ int main(int argc, char* argv[]) {
                 Logger::Error("Failed to initialize ActiveCameraSelector");
                 throw std::runtime_error("ActiveCameraSelector initialization failed");
             }
+            
+            // Apply hysteresis configuration from config if available
+            HysteresisConfig hysteresisConfig;
+            hysteresisConfig.switch_threshold = 0.20f;   // 20% more required to switch
+            hysteresisConfig.min_active_frames = 15;     // 500ms @ 30fps
+            hysteresisConfig.decay_factor = 0.95f;       // Gradual decay
+            cameraSelector->SetHysteresisConfig(hysteresisConfig);
+            
             Logger::Info("ActiveCameraSelector initialized: Top-" + std::to_string(config.selectorTopK) + 
-                        " from " + std::to_string(kMaxNDIChannels) + " cameras");
+                        " from " + std::to_string(kMaxNDIChannels) + " cameras with hysteresis");
         } else {
             Logger::Info("ActiveCameraSelector disabled by configuration");
         }
@@ -538,6 +585,15 @@ int main(int argc, char* argv[]) {
             config.yoloBatchSize,
             config.yoloUseFP16
         );
+        
+        // Create dedicated CUDA stream for YOLO processing (non-blocking)
+        cudaStream_t yoloStream = nullptr;
+        cudaError_t err = cudaStreamCreate(&yoloStream);
+        if (err != cudaSuccess) {
+            Logger::Error("Failed to create YOLO CUDA stream: " + std::string(cudaGetErrorString(err)));
+            throw std::runtime_error("CUDA stream creation failed");
+        }
+        Logger::Info("Created dedicated CUDA stream for YOLO (non-blocking pipeline)");
         
         bool yoloReady = false;
         if (config.yoloEnabled) {
@@ -619,6 +675,13 @@ int main(int argc, char* argv[]) {
         
         // Cleanup
         Logger::Info("Shutting down...");
+        
+        // Destroy YOLO CUDA stream
+        if (yoloStream) {
+            cudaStreamDestroy(yoloStream);
+            Logger::Info("YOLO CUDA stream destroyed");
+        }
+        
         redisWorker.Stop();
         
         // Stop all capture channels before releasing NDI
