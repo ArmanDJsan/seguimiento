@@ -141,6 +141,8 @@ private:
     
     // State
     std::atomic<bool> m_initialized;
+    std::atomic<int> m_warmupFrameCount;  // Track warmup progress (0-10 frames)
+    std::atomic<bool> m_isStable;         // True after warmup completes
     
     // Per-camera tracking
     struct CameraState {

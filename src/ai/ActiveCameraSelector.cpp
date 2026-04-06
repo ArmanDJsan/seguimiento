@@ -31,6 +31,8 @@ ActiveCameraSelector::ActiveCameraSelector(int numCameras, int topK,
     , m_motionThreshold(motionThreshold)
     , m_edgeMargin(edgeMargin)
     , m_initialized(false)
+    , m_warmupFrameCount(0)
+    , m_isStable(false)
 {
     Logger::Info("ActiveCameraSelector created: " + std::to_string(numCameras) + 
                  " cameras, Top-" + std::to_string(topK) + " selection");
@@ -458,6 +460,26 @@ std::vector<int> ActiveCameraSelector::SelectTopK() {
     for (int i = 0; i < m_numCameras; i++) {
         bool nowActive = std::find(selected.begin(), selected.end(), i) != selected.end();
         m_cameraStates[i].metrics.isActive = nowActive;
+        if (!nowActive) {
+            m_cameraStates[i].metrics.consecutiveActiveFrames = 0;
+        }
+    }
+    
+    // Warmup logging: Track progress until min_active_frames is reached
+    if (!m_isStable) {
+        int currentWarmup = m_warmupFrameCount.load();
+        if (currentWarmup < m_hysteresisConfig.min_active_frames) {
+            currentWarmup++;
+            m_warmupFrameCount.store(currentWarmup);
+            Logger::Info("Selector warming up... (" + std::to_string(currentWarmup) + 
+                        "/" + std::to_string(m_hysteresisConfig.min_active_frames) + " frames)");
+            
+            if (currentWarmup >= m_hysteresisConfig.min_active_frames) {
+                m_isStable.store(true);
+                Logger::Info("Selector stable (" + std::to_string(m_hysteresisConfig.min_active_frames) + 
+                            "/" + std::to_string(m_hysteresisConfig.min_active_frames) + " frames)");
+            }
+        }
     }
     
     return selected;
