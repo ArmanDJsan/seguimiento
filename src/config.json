@@ -13,6 +13,26 @@
       "recargar": "/recargar"
     }
   },
+  "redis": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 6379
+  },
+  "yolo": {
+    "enabled": true,
+    "model_path": "models/yolov8n.engine",
+    "fallback": "stub",
+    "batch_size": 4,
+    "confidence_threshold": 0.5,
+    "nms_threshold": 0.4,
+    "use_fp16": true
+  },
+  "camera_selector": {
+    "enabled": true,
+    "top_k": 4,
+    "motion_threshold": 0.05,
+    "edge_handover_margin": 0.1
+  },
   "ports": [
     { "index": 1, "name": "CAM_01", "role": "stream", "is_output": true },
     { "index": 2, "name": "CAM_02", "role": "stream" },
