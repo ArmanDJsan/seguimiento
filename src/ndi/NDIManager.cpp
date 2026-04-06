@@ -35,14 +35,20 @@ NDIManager::NDIChannel::~NDIChannel() {
         sender = nullptr;
     }
 
-    if (transferComplete) {
-        cudaEventDestroy(transferComplete);
-        transferComplete = nullptr;
+    // Free all CUDA events
+    for (int i = 0; i < NUM_BUFFERS; i++) {
+        if (transferComplete[i]) {
+            cudaEventDestroy(transferComplete[i]);
+            transferComplete[i] = nullptr;
+        }
     }
 
-    if (pinnedBuffer) {
-        cudaFreeHost(pinnedBuffer);
-        pinnedBuffer = nullptr;
+    // Free all pinned buffers
+    for (int i = 0; i < NUM_BUFFERS; i++) {
+        if (pinnedBuffers[i]) {
+            cudaFreeHost(pinnedBuffers[i]);
+            pinnedBuffers[i] = nullptr;
+        }
     }
 }
 
@@ -93,16 +99,24 @@ bool NDIManager::CreateSender(int channelID, const std::string& senderName,
     size_t bufferSize = static_cast<size_t>(width) * height * bytesPerPixel;
 
     // Reservar memoria Pinned (Host) para transferencias DMA desde la GPU
-    if (!AllocatePinnedBuffer(*channel, bufferSize)) {
-        Logger::Error("NDIManager: Error al reservar memoria Pinned para canal " + std::to_string(channelID));
-        return false;
+    // Multi-buffering: Allocate all buffers upfront
+    for (int i = 0; i < NDIChannel::NUM_BUFFERS; i++) {
+        cudaError_t err = cudaHostAlloc(&channel->pinnedBuffers[i], bufferSize, cudaHostAllocDefault);
+        if (err != cudaSuccess) {
+            Logger::Error("NDIManager: Error al reservar memoria Pinned para buffer " + 
+                         std::to_string(i) + ": " + cudaGetErrorString(err));
+            return false;
+        }
     }
+    channel->pinnedBufferSize = bufferSize;
 
-    // Evento CUDA para sincronizar la copia GPU -> RAM
-    cudaError_t cudaErr = cudaEventCreateWithFlags(&channel->transferComplete, cudaEventDisableTiming);
-    if (cudaErr != cudaSuccess) {
-        Logger::Error("NDIManager: Error CUDA Event: " + std::string(cudaGetErrorString(cudaErr)));
-        return false;
+    // Evento CUDA para sincronizar la copia GPU -> RAM (one per buffer)
+    for (int i = 0; i < NDIChannel::NUM_BUFFERS; i++) {
+        cudaError_t cudaErr = cudaEventCreateWithFlags(&channel->transferComplete[i], cudaEventDisableTiming);
+        if (cudaErr != cudaSuccess) {
+            Logger::Error("NDIManager: Error CUDA Event: " + std::string(cudaGetErrorString(cudaErr)));
+            return false;
+        }
     }
 
     // Configuración del emisor NDI
@@ -118,7 +132,7 @@ bool NDIManager::CreateSender(int channelID, const std::string& senderName,
         return false;
     }
 
-    Logger::Info("NDIManager: Emisor creado -> " + senderName + " (" + std::to_string(width) + "x" + std::to_string(height) + ")");
+    Logger::Info("NDIManager: Emisor creado -> " + senderName + " (" + std::to_string(width) + "x" + std::to_string(height) + ") - Multi-buffering enabled");
 
     channel->isActive = true;
     m_channels[channelID] = std::move(channel);
@@ -140,25 +154,32 @@ bool NDIManager::SendFrameInternal(int channelID, void* cudaBuffer,
 
     NDIChannel& channel = *pChannel;
 
-    // Evitar solapamiento de frames si el bus PCIe está saturado
-    if (channel.frameInFlight.load(std::memory_order_acquire)) {
-        return true;
+    // Multi-buffering: Select next available buffer (ping-pong)
+    int bufferIdx = channel.currentBufferIndex;
+    int nextBufferIdx = (bufferIdx + 1) % NDIChannel::NUM_BUFFERS;
+    
+    // Check if the selected buffer is available (not in flight)
+    if (channel.bufferInFlight[bufferIdx].load(std::memory_order_acquire)) {
+        // Buffer still in use by previous frame, skip this frame
+        return true;  // Not an error, just back-pressure
     }
 
     size_t bytesPerPixel = useUYVY ? kBytesPerPixelUYVY : kBytesPerPixelBGRA;
     size_t lineStride = static_cast<size_t>(width) * bytesPerPixel;
     size_t bufferSize = lineStride * height;
 
-    if (!AllocatePinnedBuffer(channel, bufferSize)) return false;
+    // Mark buffer as in-flight before starting transfer
+    channel.bufferInFlight[bufferIdx].store(true, std::memory_order_release);
 
-    // 1. Copia asíncrona de GPU a Memoria Pinned (CPU)
-    cudaMemcpyAsync(channel.pinnedBuffer, cudaBuffer, bufferSize, cudaMemcpyDeviceToHost, stream);
-    cudaEventRecord(channel.transferComplete, stream);
+    // 1. Async GPU->CPU transfer to pinned buffer
+    cudaMemcpyAsync(channel.pinnedBuffers[bufferIdx], cudaBuffer, bufferSize, 
+                    cudaMemcpyDeviceToHost, stream);
+    cudaEventRecord(channel.transferComplete[bufferIdx], stream);
 
-    // 2. Sincronización mínima: Esperar a que los datos estén en RAM antes de que NDI los lea
-    cudaEventSynchronize(channel.transferComplete);
+    // 2. Wait for transfer completion (minimal blocking)
+    cudaEventSynchronize(channel.transferComplete[bufferIdx]);
 
-    // 3. Preparar el frame de NDI
+    // 3. Prepare NDI frame
     NDIlib_video_frame_v2_t ndiFrame;
     ndiFrame.xres = static_cast<int>(width);
     ndiFrame.yres = static_cast<int>(height);
@@ -167,35 +188,24 @@ bool NDIManager::SendFrameInternal(int channelID, void* cudaBuffer,
     ndiFrame.frame_rate_D = kFrameRateDenominator;
     ndiFrame.picture_aspect_ratio = kAspectRatio;
     ndiFrame.line_stride_in_bytes = static_cast<int>(lineStride);
-    ndiFrame.p_data = static_cast<uint8_t*>(channel.pinnedBuffer);
+    ndiFrame.p_data = static_cast<uint8_t*>(channel.pinnedBuffers[bufferIdx]);
     ndiFrame.p_metadata = nullptr;
 
-    // Generar timecode automático para vMix
+    // Generate automatic timecode for vMix
     ndiFrame.timecode = NDIlib_send_timecode_synthesize;
 
-    // 4. Envío asíncrono (NDI hace una copia interna rápida)
+    // 4. Async NDI send (NDI makes internal copy quickly)
     NDIlib_send_send_video_async_v2(channel.sender, &ndiFrame);
 
-    // Liberamos el flag para el siguiente ciclo
-    channel.frameInFlight.store(false, std::memory_order_release);
+    // 5. Release buffer for next cycle (can overlap with next frame transfer)
+    channel.bufferInFlight[bufferIdx].store(false, std::memory_order_release);
+    
+    // 6. Advance to next buffer (ping-pong)
+    channel.currentBufferIndex = nextBufferIdx;
 
     return true;
 }
 
-bool NDIManager::AllocatePinnedBuffer(NDIChannel& channel, size_t size) {
-    if (channel.pinnedBuffer && channel.pinnedBufferSize >= size) return true;
-
-    if (channel.pinnedBuffer) {
-        cudaFreeHost(channel.pinnedBuffer);
-    }
-
-    cudaError_t err = cudaMallocHost(&channel.pinnedBuffer, size);
-    if (err != cudaSuccess) {
-        Logger::Error("NDIManager: Error en cudaMallocHost: " + std::string(cudaGetErrorString(err)));
-        return false;
-    }
-
-    channel.pinnedBufferSize = size;
     return true;
 }
 

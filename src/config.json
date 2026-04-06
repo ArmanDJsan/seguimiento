@@ -40,6 +40,33 @@
       "decay_factor": 0.98
     }
   },
+  "performance_optimization": {
+    "cpu_affinity": {
+      "enabled": true,
+      "capture_threads_cores": "0-3",
+      "processing_threads_cores": "4-7",
+      "description": "Pin video threads to CCD0 (cores 0-7) to avoid inter-CCD latency on Threadripper"
+    },
+    "gpu_scheduling": {
+      "hardware_accelerated_scheduling": "required",
+      "check_on_startup": true,
+      "pcie_bandwidth_monitoring": true,
+      "description": "Requires Windows Hardware Accelerated GPU Scheduling enabled in Graphics Settings"
+    },
+    "cuda_optimization": {
+      "multi_buffering_ndi": true,
+      "event_pooling": false,
+      "stream_priority_high": true,
+      "description": "Enable multi-buffering for NDI to reduce GPU->CPU transfer blocking"
+    },
+    "telemetry_targets": {
+      "cap_max_ms": 15.0,
+      "sel_max_ms": 5.0,
+      "ndi_max_ms": 10.0,
+      "total_max_ms": 32.0,
+      "description": "Performance KPIs under high motion (Avg motion > 0.5)"
+    }
+  },
   "ports": [
     { "index": 1, "name": "CAM_01", "role": "stream", "is_output": true },
     { "index": 2, "name": "CAM_02", "role": "stream" },

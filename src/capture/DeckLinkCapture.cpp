@@ -18,6 +18,7 @@
 #include "DeckLinkCapture.h"
 #include "CudaColorConversion.h"
 #include "../utils/Logger.h"
+#include "../utils/ThreadOptimizer.h"
 
 // 4. Standard library headers
 #include <algorithm>
@@ -317,6 +318,9 @@ void DeckLinkCapture::ExecuteInference() {
 
 void DeckLinkCapture::CaptureThreadFunc(std::stop_token stopToken) {
     Logger::Info("Capture thread started for: " + m_channel.channelName);
+    
+    // Optimize thread for video capture (cores 0-3, high priority)
+    ThreadOptimizer::OptimizeForVideoCapture();
     
     while (!stopToken.stop_requested()) {
         std::unique_lock<std::mutex> lock(m_queueMutex);
