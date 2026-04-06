@@ -153,7 +153,7 @@ private:
         float* hostMotionScore;     // Pinned host memory for motion score
         cudaEvent_t processingComplete;
         CameraMotionMetrics metrics;
-        std::mutex frameMutex;
+        std::recursive_mutex frameMutex;  // Recursive mutex to allow re-entry in same thread
         unsigned int width;
         unsigned int height;
         size_t frameSize;
@@ -184,7 +184,7 @@ private:
             , hostMotionScore(other.hostMotionScore)
             , processingComplete(other.processingComplete)
             , metrics(other.metrics)
-            , frameMutex()  // std::mutex cannot be moved, create new
+            , frameMutex()  // std::recursive_mutex cannot be moved, create new
             , width(other.width)
             , height(other.height)
             , frameSize(other.frameSize)
@@ -207,7 +207,7 @@ private:
                 hostMotionScore = other.hostMotionScore;
                 processingComplete = other.processingComplete;
                 metrics = other.metrics;
-                // Note: std::mutex cannot be moved, keep existing one
+                // Note: std::recursive_mutex cannot be moved, keep existing one
                 width = other.width;
                 height = other.height;
                 frameSize = other.frameSize;
