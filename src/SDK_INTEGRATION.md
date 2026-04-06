@@ -44,26 +44,28 @@ while (deckLinkIterator->Next(&deckLink) == S_OK) {
 
 NDI is used for sending video to vMix. It provides native support in vMix without any plugins.
 
+**IMPORTANT:** NDI SDK 6 is mandatory for this project. No fallback stub mode is provided.
+
 ### Download
 
 1. Visit [NDI SDK Downloads](https://ndi.video/for-developers/ndi-sdk/)
 2. Register for a free developer account (requires name, email, and organization info)
-3. Download "NDI 5 SDK" for Windows
+3. Download "NDI 6 SDK" for Windows
 
 ### Installation
 
 1. Run the NDI SDK installer
-2. Default installation path: `C:\Program Files\NDI\NDI 5 SDK`
+2. Default installation path: `C:\Program Files\NDI\NDI 6 SDK`
 
 ### Visual Studio Configuration
 
 #### Include Directories
 Project Properties → C/C++ → Additional Include Directories:
-- Add: `C:\Program Files\NDI\NDI 5 SDK\Include`
+- Add: `C:\Program Files\NDI\NDI 6 SDK\Include`
 
 #### Library Directories
 Project Properties → Linker → General → Additional Library Directories:
-- Add: `C:\Program Files\NDI\NDI 5 SDK\Lib\x64`
+- Add: `C:\Program Files\NDI\NDI 6 SDK\Lib\x64`
 
 #### Additional Dependencies
 Project Properties → Linker → Input → Additional Dependencies:
