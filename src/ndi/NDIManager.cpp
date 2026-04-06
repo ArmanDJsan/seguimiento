@@ -206,9 +206,6 @@ bool NDIManager::SendFrameInternal(int channelID, void* cudaBuffer,
     return true;
 }
 
-    return true;
-}
-
 bool NDIManager::SendUYVYFrame(int channelID, void* cudaUYVYBuffer, unsigned int width, unsigned int height, cudaStream_t stream) {
     return SendFrameInternal(channelID, cudaUYVYBuffer, width, height, stream, true);
 }

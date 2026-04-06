@@ -153,7 +153,7 @@ private:
      * Internal NDI channel structure
      * 
      * Multi-buffering strategy:
-     * - Uses 2 ping-pong buffers to overlap GPU->CPU transfer with NDI sending
+     * - Uses 2 ping-pong buffers to overlap GPU→CPU transfer with NDI sending
      * - While buffer A is being sent by NDI, buffer B receives the next frame
      * - Reduces blocking time from ~0.8ms to ~0.2ms
      */
@@ -165,7 +165,7 @@ private:
         bool isActive = false;
         bool useUYVY = true;
         
-        // Double-buffered pinned host memory for CUDA->CPU transfer
+        // Double-buffered pinned host memory for CUDA→CPU transfer
         static constexpr int NUM_BUFFERS = 2;
         void* pinnedBuffers[NUM_BUFFERS] = {nullptr, nullptr};
         size_t pinnedBufferSize = 0;
