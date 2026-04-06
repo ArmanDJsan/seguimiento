@@ -21,6 +21,16 @@
 #include <mutex>
 
 /**
+ * Hysteresis configuration to prevent camera flickering
+ * Ensures stable camera selection by requiring significant score difference
+ */
+struct HysteresisConfig {
+    float switch_threshold = 0.20f;   // 20% more score required to switch
+    int min_active_frames = 15;        // Minimum 15 frames active (500ms @ 30fps)
+    float decay_factor = 0.95f;        // Decay factor for inactive cameras
+};
+
+/**
  * Motion metrics for a single camera
  */
 struct CameraMotionMetrics {
@@ -29,6 +39,10 @@ struct CameraMotionMetrics {
     float edgeActivity;         // [0.0, 1.0] activity near frame edges
     bool isActive;              // Selected for YOLO processing
     unsigned long long frameCount;
+    
+    // Hysteresis state
+    int consecutiveActiveFrames;  // Frames camera has been continuously active
+    float decayedScore;          // Score after applying decay factor
 };
 
 /**
@@ -106,6 +120,16 @@ public:
      * Reset all motion tracking (e.g., after scene change)
      */
     void Reset();
+    
+    /**
+     * Get hysteresis configuration
+     */
+    const HysteresisConfig& GetHysteresisConfig() const { return m_hysteresisConfig; }
+    
+    /**
+     * Set hysteresis configuration
+     */
+    void SetHysteresisConfig(const HysteresisConfig& config) { m_hysteresisConfig = config; }
 
 private:
     // Configuration
@@ -113,6 +137,7 @@ private:
     int m_topK;
     float m_motionThreshold;
     float m_edgeMargin;
+    HysteresisConfig m_hysteresisConfig;
     
     // State
     std::atomic<bool> m_initialized;

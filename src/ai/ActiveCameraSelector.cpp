@@ -69,6 +69,8 @@ bool ActiveCameraSelector::Initialize() {
         state.metrics.edgeActivity = 0.0f;
         state.metrics.isActive = false;
         state.metrics.frameCount = 0;
+        state.metrics.consecutiveActiveFrames = 0;
+        state.metrics.decayedScore = 0.0f;
     }
     
     m_initialized = true;
@@ -347,32 +349,108 @@ float ActiveCameraSelector::CalculateEdgeActivity(int cameraID, cudaStream_t str
 }
 
 std::vector<int> ActiveCameraSelector::SelectTopK() {
-    // Create sorted list of cameras by motion score
+    // Create list of cameras with their scores
     std::vector<std::pair<float, int>> scoreMap;
     
     for (int i = 0; i < m_numCameras; i++) {
-        float score = m_cameraStates[i].metrics.motionScore;
-        if (score >= m_motionThreshold) {
-            scoreMap.push_back({score, i});
+        auto& state = m_cameraStates[i];
+        float rawScore = state.metrics.motionScore;
+        
+        // Apply hysteresis: decay inactive cameras, boost active ones
+        if (state.metrics.isActive) {
+            // Camera is currently active - use raw score
+            state.metrics.decayedScore = rawScore;
+            state.metrics.consecutiveActiveFrames++;
+        } else {
+            // Camera is inactive - apply decay factor
+            state.metrics.decayedScore *= m_hysteresisConfig.decay_factor;
+            // Update with current score if higher
+            if (rawScore > state.metrics.decayedScore) {
+                state.metrics.decayedScore = rawScore;
+            }
+            state.metrics.consecutiveActiveFrames = 0;
+        }
+        
+        // Only consider cameras above threshold
+        if (state.metrics.decayedScore >= m_motionThreshold) {
+            scoreMap.push_back({state.metrics.decayedScore, i});
         }
     }
     
-    // Sort descending by score
+    // Sort descending by decayed score
     std::sort(scoreMap.begin(), scoreMap.end(), 
               [](const auto& a, const auto& b) { return a.first > b.first; });
     
-    // Select top K
+    // Apply hysteresis logic: protect currently active cameras from being replaced
     std::vector<int> selected;
-    int k = std::min(m_topK, static_cast<int>(scoreMap.size()));
+    std::vector<int> currentlyActive;
     
-    for (int i = 0; i < k; i++) {
-        selected.push_back(scoreMap[i].second);
-        m_cameraStates[scoreMap[i].second].metrics.isActive = true;
+    // Collect currently active cameras
+    for (int i = 0; i < m_numCameras; i++) {
+        if (m_cameraStates[i].metrics.isActive) {
+            currentlyActive.push_back(i);
+        }
     }
     
-    // Mark non-selected as inactive
-    for (int i = k; i < static_cast<int>(scoreMap.size()); i++) {
-        m_cameraStates[scoreMap[i].second].metrics.isActive = false;
+    // First, keep active cameras that meet minimum frame count requirement
+    for (int camID : currentlyActive) {
+        auto& state = m_cameraStates[camID];
+        if (state.metrics.consecutiveActiveFrames < m_hysteresisConfig.min_active_frames) {
+            // Camera must stay active for minimum frames
+            selected.push_back(camID);
+        }
+    }
+    
+    // Then, add cameras from scoreMap that pass hysteresis threshold
+    for (const auto& [score, camID] : scoreMap) {
+        if (selected.size() >= static_cast<size_t>(m_topK)) {
+            break;
+        }
+        
+        // Skip if already in selected list
+        if (std::find(selected.begin(), selected.end(), camID) != selected.end()) {
+            continue;
+        }
+        
+        // Check if replacing an active camera
+        bool replacingActive = false;
+        int lowestActiveIdx = -1;
+        float lowestActiveScore = std::numeric_limits<float>::max();
+        
+        for (int activeID : currentlyActive) {
+            // Skip if already selected (protected by min_active_frames)
+            if (std::find(selected.begin(), selected.end(), activeID) != selected.end()) {
+                continue;
+            }
+            
+            float activeScore = m_cameraStates[activeID].metrics.decayedScore;
+            if (activeScore < lowestActiveScore) {
+                lowestActiveScore = activeScore;
+                lowestActiveIdx = activeID;
+            }
+        }
+        
+        if (lowestActiveIdx >= 0) {
+            // Only replace if new score is significantly higher (hysteresis threshold)
+            float requiredScore = lowestActiveScore * (1.0f + m_hysteresisConfig.switch_threshold);
+            if (score > requiredScore) {
+                // Replace the lowest scoring active camera
+                selected.push_back(camID);
+                replacingActive = true;
+            } else {
+                // Keep the current active camera
+                selected.push_back(lowestActiveIdx);
+            }
+        } else {
+            // No active camera to replace, just add
+            selected.push_back(camID);
+        }
+    }
+    
+    // Update active status
+    for (int i = 0; i < m_numCameras; i++) {
+        bool nowActive = std::find(selected.begin(), selected.end(), i) != selected.end();
+        m_cameraStates[i].metrics.isActive = nowActive;
     }
     
     return selected;
@@ -409,11 +487,12 @@ std::vector<int> ActiveCameraSelector::DetermineNeighborHandover(const std::vect
 CameraSelectionResult ActiveCameraSelector::GetActiveSelection() {
     std::lock_guard<std::mutex> lock(m_selectionMutex);
     
-    // Select top K cameras
+    // Select top K cameras with hysteresis
     std::vector<int> selected = SelectTopK();
     
-    // Determine neighbor handover
-    std::vector<int> preActivated = DetermineNeighborHandover(selected);
+    // Note: Edge handover disabled for track cameras (no camera overlap)
+    // Track cameras have distinct coverage areas without spatial overlap
+    std::vector<int> preActivated;  // Empty - handover not applicable
     
     // Calculate average motion score
     float avgScore = 0.0f;
@@ -427,7 +506,7 @@ CameraSelectionResult ActiveCameraSelector::GetActiveSelection() {
     // Build result
     CameraSelectionResult result;
     result.selectedCameraIDs = selected;
-    result.preActivatedIDs = preActivated;
+    result.preActivatedIDs = preActivated;  // Empty
     result.averageMotionScore = avgScore;
     result.timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()
@@ -465,6 +544,8 @@ void ActiveCameraSelector::Reset() {
         state.metrics.edgeActivity = 0.0f;
         state.metrics.isActive = false;
         state.metrics.frameCount = 0;
+        state.metrics.consecutiveActiveFrames = 0;
+        state.metrics.decayedScore = 0.0f;
     }
     
     std::lock_guard<std::mutex> lock(m_selectionMutex);
