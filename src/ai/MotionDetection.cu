@@ -4,7 +4,7 @@
  * CUDA kernels for high-performance motion detection
  * Computes frame difference and motion scores in <0.5ms
  */
-
+#define _HAS_STD_BYTE 0
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
 #include <cmath>

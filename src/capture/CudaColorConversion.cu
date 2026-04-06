@@ -1,3 +1,4 @@
+#define _HAS_STD_BYTE 0
 #include <cuda_runtime.h>
 #include "CudaColorConversion.h"
 
