@@ -4,7 +4,7 @@ High-performance video capture and AI processing system for vMix with zero-copy 
 
 ## Overview
 
-VIB is a C++ application designed for ultra-low latency video capture and AI-powered object detection. It captures multiple 4K@60fps streams from Blackmagic DeckLink cards, processes them with YOLO AI, and delivers the video to vMix via Spout while publishing detection metadata to Redis.
+VIB is a C++ application designed for ultra-low latency video capture and AI-powered object detection. It captures multiple 4K@30fps streams from Blackmagic DeckLink cards, processes them with YOLO AI, and delivers the video to vMix via NDI while publishing detection metadata to Redis.
 
 ## Architecture Philosophy
 
@@ -13,8 +13,8 @@ VIB is a C++ application designed for ultra-low latency video capture and AI-pow
 ### Key Features
 
 - **Zero-Copy DMA**: Custom memory allocator provides GPU memory directly to DeckLink cards
-- **GPU-Accelerated Color Conversion**: HLSL pixel shader converts YUV to RGB in <1ms
-- **Video Bypass**: Spout delivers video to vMix with sub-frame latency
+- **GPU-Accelerated Color Conversion**: CUDA kernel converts YUV to BGRA for YOLO processing
+- **NDI Video Output**: NDI delivers video to vMix with native support and zero-copy async sending
 - **Batch AI Processing**: TensorRT processes multiple camera streams efficiently
 - **Asynchronous Data Pipeline**: Redis worker decouples metadata updates from video flow
 
@@ -32,14 +32,14 @@ VIB is a C++ application designed for ultra-low latency video capture and AI-pow
 
 - **OS**: Windows 10/11 (64-bit)
 - **Compiler**: Visual Studio 2022 with C++20 support
-- **DirectX**: DirectX 11 Runtime
-- **CUDA**: NVIDIA CUDA Toolkit 12.x
-- **TensorRT**: NVIDIA TensorRT 8.x or higher
+- **DirectX**: DirectX 11 Runtime (for CUDA interop)
+- **CUDA**: NVIDIA CUDA Toolkit 12.x+
+- **TensorRT**: NVIDIA TensorRT 10.x or higher
 
 ### Required SDKs
 
 1. **Blackmagic DeckLink SDK**: Download from Blackmagic Design website
-2. **Spout SDK**: [Leadedge/Spout2](https://github.com/leadedge/Spout2)
+2. **NDI SDK 5**: Download from [ndi.video/for-developers](https://ndi.video/for-developers/ndi-sdk/)
 3. **Redis C++ Client**: [sewenew/redis-plus-plus](https://github.com/sewenew/redis-plus-plus)
 4. **NVIDIA TensorRT**: For YOLO inference
 
@@ -51,13 +51,14 @@ src/
 │   └── main.cpp              # Application entry point
 ├── capture/
 │   ├── DeckLinkCapture.h     # DeckLink capture interface
-│   └── DeckLinkCapture.cpp   # Zero-copy allocator implementation
+│   ├── DeckLinkCapture.cpp   # Zero-copy allocator implementation
+│   └── CudaColorConversion.cu # CUDA YUV to BGRA kernel
 ├── shaders/
-│   ├── ColorConversion.hlsl  # YUV to RGB pixel shader
+│   ├── ColorConversion.hlsl  # YUV to RGB pixel shader (legacy)
 │   └── VertexShader.hlsl     # Full-screen quad vertex shader
-├── spout/
-│   ├── SpoutManager.h        # Spout sender management
-│   └── SpoutManager.cpp      # Video output to vMix
+├── ndi/
+│   ├── NDIManager.h          # NDI sender management
+│   └── NDIManager.cpp        # Video output to vMix via NDI
 ├── ai/
 │   ├── YOLOProcessor.h       # YOLO/TensorRT interface
 │   └── YOLOProcessor.cpp     # Object detection implementation
@@ -81,7 +82,7 @@ Install all required SDKs and libraries listed above.
 
 Update the Visual Studio project to include paths to:
 - Blackmagic DeckLink SDK include/lib directories
-- Spout SDK include/lib directories
+- NDI SDK 5 include/lib directories
 - Redis++ include/lib directories
 - CUDA/TensorRT include/lib directories
 
@@ -107,7 +108,7 @@ The executable will be in `src/bin/Release/VIB.exe`
 
 The system auto-detects connected DeckLink devices. Ensure your cards are:
 - Installed with latest drivers
-- Configured for 4K input (3840x2160@60fps)
+- Configured for 4K input (3840x2160@30fps)
 - Connected to video sources
 
 ### Redis Server
@@ -121,12 +122,21 @@ redis-server --port 6379
 
 ### vMix Integration
 
-#### Receiving Video (Spout)
+#### Receiving Video (NDI)
 
 1. In vMix, click **Add Input**
-2. Select **NDI / Desktop Capture** → **Spout** tab
-3. Choose your camera sender (e.g., "Camera_01")
-4. Video appears with <1 frame latency
+2. Select **NDI / Desktop Capture** → **NDI** tab
+3. Choose your camera sender (e.g., "VIB_CAM_01")
+4. Video appears with low latency
+
+#### vMix Settings for Multiple NDI Sources
+
+For optimal performance with 12 cameras:
+
+| Setting | Recommended | Reason |
+|---------|-------------|--------|
+| High Input Performance Mode | ✅ ENABLE | Required for >8 cameras, needs GPU >3GB VRAM |
+| Show preview thumbnails for NDI sources | ❌ DISABLE | Reduces network overhead |
 
 #### Receiving Detection Data
 
@@ -177,8 +187,8 @@ Loop
 
 | Metric | Target | Actual |
 |--------|--------|--------|
-| Video Latency | < 1 frame | TBD |
-| Frame Rate | 60 fps | TBD |
+| Video Latency | < 2 frames | TBD |
+| Frame Rate | 30 fps | TBD |
 | Max Streams | 12x 4K | TBD |
 | VRAM Usage | < 8 GB | TBD |
 | CPU Usage | < 30% | TBD |
@@ -187,14 +197,24 @@ Loop
 
 ### Zero-Copy DMA Pipeline
 
-1. **Allocation**: Custom allocator creates GPU-visible memory
-2. **DMA Transfer**: DeckLink writes directly to GPU memory via PCIe
-3. **Processing**: Pixel shader converts YUV→RGB on GPU
-4. **Distribution**: Same texture shared with Spout and YOLO
+1. **Allocation**: Custom allocator creates CUDA pinned memory
+2. **DMA Transfer**: DeckLink writes directly to pinned memory via PCIe
+3. **GPU Copy**: CUDA async memcpy to device memory
+4. **Processing**: CUDA kernel converts YUV→BGRA for YOLO
+5. **Distribution**: 
+   - UYVY goes directly to NDI for vMix (no conversion)
+   - BGRA goes to YOLO for AI inference
 
-### Pixel Shader Conversion
+### NDI Video Output
 
-The YUV 4:2:2 (UYVY) to RGBA conversion uses BT.709 color space:
+The system uses NDI for vMix integration with the following advantages:
+- **Native vMix support**: No plugins required
+- **Zero-copy async sending**: Uses NDI's completion callbacks
+- **UYVY format**: Sends DeckLink's native format directly (vMix converts internally)
+
+### Pixel Shader Conversion (CUDA)
+
+The YUV 4:2:2 (UYVY) to BGRA conversion uses BT.709 color space:
 
 ```
 R = 1.1643(Y - 0.0625) + 1.5958(V - 0.5)
@@ -206,8 +226,9 @@ This happens in parallel for all 8.3M pixels in a 4K frame.
 
 ### Threading Model
 
-- **Main Thread**: DirectX 11 rendering and Spout output
-- **Capture Callbacks**: One per DeckLink card (lightweight)
+- **Main Thread**: Application control and exit handling
+- **Capture Callbacks**: One per DeckLink card (lightweight, from DeckLink)
+- **Capture Threads**: Process frames and send to NDI
 - **YOLO Worker**: Batch inference processing
 - **Redis Worker**: 60Hz metadata publishing
 
@@ -230,11 +251,6 @@ This happens in parallel for all 8.3M pixels in a 4K frame.
 - `ole32.lib` - Core COM library
 - `oleaut32.lib` - OLE Automation (for BSTR strings)
 
-**Key Files Modified**:
-- `src/core/main.cpp` - Added COM initialization/cleanup
-- `src/capture/DeckLinkCapture.cpp` - Implemented proper device enumeration
-- `src/capture/DeckLinkSource.cpp` - Updated to use COM-based device detection
-
 **Verification**: 
 - Check logs for "COM initialized successfully for DeckLink SDK"
 - Look for "Found X DeckLink device(s)" message
@@ -246,11 +262,12 @@ This happens in parallel for all 8.3M pixels in a 4K frame.
 - Verify cards are detected in Windows Device Manager
 - Ensure DeckLink SDK is properly installed
 
-### Spout Not Visible in vMix
+### NDI Sources Not Visible in vMix
 
-- Verify vMix has Spout support enabled
-- Check that the application is running as Administrator
-- Ensure GPU is shared between applications
+- Verify NDI Tools runtime is installed
+- Check Windows Firewall settings (NDI uses network discovery)
+- Ensure sender name doesn't conflict with existing sources
+- Try restarting vMix after the VIB application starts
 
 ### Poor Performance
 
@@ -278,10 +295,10 @@ Based on the technical specifications from the contexto.MD conversation with Gem
 ### Technologies Used
 
 - Blackmagic DeckLink SDK
-- Spout2 by Lynn Jarvis
+- NDI SDK by NewTek/Vizrt
 - NVIDIA CUDA/TensorRT
 - Redis by Redis Ltd.
-- DirectX 11 by Microsoft
+- DirectX 11 by Microsoft (for CUDA interop)
 
 ## Contact
 

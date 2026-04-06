@@ -65,31 +65,43 @@ CPU-based conversion using threading
 ### Implementation
 See `src/shaders/ColorConversion.hlsl`
 
-## Decision 3: Spout for vMix Integration
+## Decision 3: NDI for vMix Integration
 
 ### Context
-Need to get video into vMix with minimal latency.
+Need to get video into vMix with minimal latency. vMix has native NDI support but does NOT support Spout natively.
 
 ### Decision
-Use Spout2 protocol for GPU memory sharing.
+Use NDI (Network Device Interface) for video output to vMix.
 
 ### Rationale
-- **Zero-copy**: Shares DirectX texture handles between processes
-- **Latency**: < 0.5ms typical, essentially instant
-- **Native support**: vMix has built-in Spout receiver
-- **Stability**: Mature, well-tested protocol
+- **Native vMix support**: vMix has built-in NDI receiver (no plugins needed)
+- **Zero-copy with async callbacks**: NDI SDK supports async completion callbacks for zero-copy sending
+- **UYVY format support**: NDI accepts UYVY directly (native DeckLink format), avoiding color conversion
+- **Network transparent**: Works across machines if needed (future scalability)
+- **Industry standard**: Widely used in broadcast and streaming
 
-### Alternatives Considered
+### Implementation Details
+- Use `NDIlib_send_send_video_async_v2` with completion callbacks for zero-copy
+- Send UYVY format directly (vMix converts to 32-bit float 4:4:4 internally)
+- Per-channel CUDA events for GPU->CPU transfer synchronization
+- Pinned memory (cudaMallocHost) for efficient DMA transfer
 
-**NDI**
-- Rejected: Adds encoding/decoding latency
-- Network overhead even on localhost
-- Higher CPU usage
+### Performance Characteristics
+- Latency: ~1-2ms per frame (GPU transfer + async send)
+- CPU usage: Minimal (async sending, no encoding)
+- Format: UYVY 4:2:2 (matches DeckLink output)
 
-**Direct capture card sharing**
-- Rejected: vMix would need exclusive access
-- Can't run YOLO simultaneously
-- Less flexible architecture
+### vMix Configuration
+For optimal performance with 12 cameras:
+- Enable "High Input Performance Mode" (requires GPU with >3GB VRAM)
+- Disable "Show preview thumbnails for NDI sources"
+- NDI sources appear as "VIB_CAM_01" through "VIB_CAM_12"
+
+### Previous Decision (Deprecated)
+Spout was originally considered but rejected because:
+- vMix does NOT have native Spout support
+- Would require third-party plugin or workaround
+- NDI provides equivalent performance with native support
 
 ## Decision 4: Redis for Data Exchange
 
