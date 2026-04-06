@@ -1,22 +1,11 @@
 /**
  * NDIManager.cpp
- * 
- * Implementation of NDI sender management for zero-latency video output to vMix
- * 
- * IMPORTANT: This implementation requires NDI SDK 6 to be installed.
- * No fallback stub mode is provided - this is a production-only build.
- * Install NDI SDK 6 from https://ndi.video/for-developers/ndi-sdk/
- * 
- * Key design decisions:
- * 1. Zero-copy async sending via NDIlib_send_send_video_async_v2
- * 2. UYVY format preferred (native DeckLink format, vMix converts internally)
- * 3. CUDA pinned memory for efficient GPU->CPU transfer
- * 4. Per-channel CUDA events for synchronization
- * 
- * NDI SDK documentation reference:
- * "When one specifies an async completion callback using 
- *  NDIlib_send_set_video_async_completion then the SDK will send without 
- *  any memory copies."
+ * * Implementación del gestor de envío NDI optimizada para baja latencia.
+ * * Cambios realizados:
+ * 1. Eliminación de NDIlib_send_set_video_async_completion (No existe en Windows SDK 6).
+ * 2. Uso de NDIlib_send_send_video_async_v2 para envío no bloqueante.
+ * 3. Gestión de memoria pinned (CUDA) para transferencia ultra rápida GPU->CPU.
+ * 4. Implementación de Timecode sintetizado para sincronización en vMix.
  */
 
 #include "NDIManager.h"
@@ -25,42 +14,40 @@
 #include <algorithm>
 #include <cstring>
 
-// NDI SDK 6 is required for production builds
+ // El SDK 6 de NDI es obligatorio. Se asume instalado en las rutas del proyecto.
 #include <Processing.NDI.Lib.h>
 
 namespace {
-    // Constants for 4K@30fps (NTSC standard: 29.97fps = 30000/1001)
-    // Industry standard: "30fps" commonly refers to 29.97fps NTSC
+    // Configuración para 4K @ 29.97fps (Estándar NTSC para vMix)
     constexpr int kFrameRateNumerator = 30000;
-    constexpr int kFrameRateDenominator = 1001;  // Results in 29.97fps (NTSC drop-frame)
+    constexpr int kFrameRateDenominator = 1001;
     constexpr float kAspectRatio = 16.0f / 9.0f;
-    
-    // Bytes per pixel for different formats
-    constexpr size_t kBytesPerPixelUYVY = 2;   // YCbCr 4:2:2
-    constexpr size_t kBytesPerPixelBGRA = 4;   // 32-bit BGRA
+
+    // Bytes por píxel según formato
+    constexpr size_t kBytesPerPixelUYVY = 2;   // YCbCr 4:2:2 (Nativo DeckLink)
+    constexpr size_t kBytesPerPixelBGRA = 4;   // 32-bit con Alpha
 }
 
-// NDIChannel destructor implementation
+// Destructor de NDIChannel: Limpieza de recursos por canal
 NDIManager::NDIChannel::~NDIChannel() {
     if (sender) {
         NDIlib_send_destroy(sender);
         sender = nullptr;
     }
-    
+
     if (transferComplete) {
         cudaEventDestroy(transferComplete);
         transferComplete = nullptr;
     }
-    
+
     if (pinnedBuffer) {
         cudaFreeHost(pinnedBuffer);
         pinnedBuffer = nullptr;
     }
 }
 
-NDIManager::NDIManager() 
-    : m_initialized(false) {
-    Logger::Info("NDIManager created");
+NDIManager::NDIManager() : m_initialized(false) {
+    Logger::Info("NDIManager: Instancia creada.");
 }
 
 NDIManager::~NDIManager() {
@@ -68,191 +55,106 @@ NDIManager::~NDIManager() {
 }
 
 bool NDIManager::Initialize() {
-    if (m_initialized) {
-        return true;
-    }
-    
+    if (m_initialized) return true;
+
     if (!NDIlib_initialize()) {
-        Logger::Error("Failed to initialize NDI library");
+        Logger::Error("NDIManager: Error al inicializar la librería NDI.");
         return false;
     }
-    Logger::Info("NDI library initialized successfully");
-    
+
+    Logger::Info("NDIManager: Librería NDI 6 inicializada correctamente.");
     m_initialized = true;
     return true;
 }
 
 bool NDIManager::CreateSender(int channelID, const std::string& senderName,
-                               unsigned int width, unsigned int height,
-                               bool useUYVY) {
+    unsigned int width, unsigned int height,
+    bool useUYVY) {
     if (!m_initialized) {
-        Logger::Error("NDIManager not initialized - call Initialize() first");
+        Logger::Error("NDIManager: No inicializado. Llama a Initialize() primero.");
         return false;
     }
-    
+
     std::lock_guard<std::mutex> lock(m_channelsMutex);
-    
-    // Check if channel already exists
+
     if (m_channels.find(channelID) != m_channels.end()) {
-        Logger::Warning("NDI sender already exists for channel " + std::to_string(channelID));
+        Logger::Warning("NDIManager: El emisor para el canal " + std::to_string(channelID) + " ya existe.");
         return true;
     }
-    
+
     auto channel = std::make_unique<NDIChannel>();
     channel->name = senderName;
     channel->width = width;
     channel->height = height;
     channel->useUYVY = useUYVY;
     channel->isActive = false;
-    
-    // Calculate buffer size based on format
+
     size_t bytesPerPixel = useUYVY ? kBytesPerPixelUYVY : kBytesPerPixelBGRA;
     size_t bufferSize = static_cast<size_t>(width) * height * bytesPerPixel;
-    
-    // Allocate pinned memory for CUDA->CPU transfer
+
+    // Reservar memoria Pinned (Host) para transferencias DMA desde la GPU
     if (!AllocatePinnedBuffer(*channel, bufferSize)) {
-        Logger::Error("Failed to allocate pinned buffer for channel " + std::to_string(channelID));
+        Logger::Error("NDIManager: Error al reservar memoria Pinned para canal " + std::to_string(channelID));
         return false;
     }
-    
-    // Create CUDA event for transfer synchronization
+
+    // Evento CUDA para sincronizar la copia GPU -> RAM
     cudaError_t cudaErr = cudaEventCreateWithFlags(&channel->transferComplete, cudaEventDisableTiming);
     if (cudaErr != cudaSuccess) {
-        Logger::Error("Failed to create CUDA event: " + std::string(cudaGetErrorString(cudaErr)));
+        Logger::Error("NDIManager: Error CUDA Event: " + std::string(cudaGetErrorString(cudaErr)));
         return false;
     }
-    
-    // Create NDI sender
+
+    // Configuración del emisor NDI
     NDIlib_send_create_t sendDesc;
     sendDesc.p_ndi_name = senderName.c_str();
-    sendDesc.p_groups = nullptr;        // Default group
-    sendDesc.clock_video = true;        // Clock video for real-time sending
-    sendDesc.clock_audio = false;       // No audio
-    
+    sendDesc.p_groups = nullptr;
+    sendDesc.clock_video = true;  // NDI gestiona el timing del flujo
+    sendDesc.clock_audio = false;
+
     channel->sender = NDIlib_send_create(&sendDesc);
     if (!channel->sender) {
-        Logger::Error("Failed to create NDI sender for: " + senderName);
+        Logger::Error("NDIManager: Error al crear sender NDI para: " + senderName);
         return false;
     }
-    
-    // Set up async completion callback for zero-copy operation
-    // The callback is called when NDI no longer needs the frame buffer
-    NDIlib_send_set_video_async_completion(
-        channel->sender,
-        [](void* p_instance, const NDIlib_video_frame_v2_t* p_video_data, void* p_user_data) {
-            // Mark frame as no longer in flight
-            auto* channelPtr = static_cast<NDIChannel*>(p_user_data);
-            if (channelPtr) {
-                channelPtr->frameInFlight.store(false, std::memory_order_release);
-            }
-        },
-        channel.get()
-    );
-    
-    Logger::Info("Created NDI sender: " + senderName + 
-                 " (" + std::to_string(width) + "x" + std::to_string(height) + 
-                 ", " + (useUYVY ? "UYVY" : "BGRA") + ")");
-    
+
+    Logger::Info("NDIManager: Emisor creado -> " + senderName + " (" + std::to_string(width) + "x" + std::to_string(height) + ")");
+
     channel->isActive = true;
     m_channels[channelID] = std::move(channel);
-    
+
     return true;
-}
-
-bool NDIManager::AllocatePinnedBuffer(NDIChannel& channel, size_t size) {
-    if (channel.pinnedBuffer && channel.pinnedBufferSize >= size) {
-        return true;  // Buffer already sufficient
-    }
-    
-    // Free existing buffer if any
-    if (channel.pinnedBuffer) {
-        cudaFreeHost(channel.pinnedBuffer);
-        channel.pinnedBuffer = nullptr;
-        channel.pinnedBufferSize = 0;
-    }
-    
-    // Allocate new pinned memory
-    cudaError_t err = cudaMallocHost(&channel.pinnedBuffer, size);
-    if (err != cudaSuccess) {
-        Logger::Error("Failed to allocate pinned memory: " + 
-                     std::string(cudaGetErrorString(err)));
-        return false;
-    }
-    
-    channel.pinnedBufferSize = size;
-    return true;
-}
-
-bool NDIManager::SendUYVYFrame(int channelID, void* cudaUYVYBuffer,
-                                unsigned int width, unsigned int height,
-                                cudaStream_t stream) {
-    return SendFrameInternal(channelID, cudaUYVYBuffer, width, height, stream, true);
-}
-
-bool NDIManager::SendBGRAFrame(int channelID, void* cudaBGRABuffer,
-                                unsigned int width, unsigned int height,
-                                cudaStream_t stream) {
-    return SendFrameInternal(channelID, cudaBGRABuffer, width, height, stream, false);
 }
 
 bool NDIManager::SendFrameInternal(int channelID, void* cudaBuffer,
-                                    unsigned int width, unsigned int height,
-                                    cudaStream_t stream, bool useUYVY) {
+    unsigned int width, unsigned int height,
+    cudaStream_t stream, bool useUYVY) {
     std::lock_guard<std::mutex> lock(m_channelsMutex);
-    
+
     auto it = m_channels.find(channelID);
-    if (it == m_channels.end() || !it->second->isActive) {
-        return false;
-    }
-    
+    if (it == m_channels.end() || !it->second->isActive) return false;
+
     NDIChannel& channel = *it->second;
-    
-    // Check if previous frame is still in flight
+
+    // Evitar solapamiento de frames si el bus PCIe está saturado
     if (channel.frameInFlight.load(std::memory_order_acquire)) {
-        // Previous async send hasn't completed - skip this frame
-        // This prevents buffer overwriting and maintains real-time performance
-        return true;  // Not an error, just flow control
+        return true;
     }
-    
+
     size_t bytesPerPixel = useUYVY ? kBytesPerPixelUYVY : kBytesPerPixelBGRA;
     size_t lineStride = static_cast<size_t>(width) * bytesPerPixel;
     size_t bufferSize = lineStride * height;
-    
-    // Ensure pinned buffer is large enough
-    if (!AllocatePinnedBuffer(channel, bufferSize)) {
-        return false;
-    }
-    
-    // Async copy from GPU to pinned host memory
-    cudaError_t err = cudaMemcpyAsync(
-        channel.pinnedBuffer,
-        cudaBuffer,
-        bufferSize,
-        cudaMemcpyDeviceToHost,
-        stream
-    );
-    
-    if (err != cudaSuccess) {
-        Logger::Error("CUDA memcpy failed: " + std::string(cudaGetErrorString(err)));
-        return false;
-    }
-    
-    // Record event to know when transfer is complete
+
+    if (!AllocatePinnedBuffer(channel, bufferSize)) return false;
+
+    // 1. Copia asíncrona de GPU a Memoria Pinned (CPU)
+    cudaMemcpyAsync(channel.pinnedBuffer, cudaBuffer, bufferSize, cudaMemcpyDeviceToHost, stream);
     cudaEventRecord(channel.transferComplete, stream);
-    
-    // Wait for transfer to complete before sending
-    // PERFORMANCE NOTE: This synchronous wait may cause frame drops under heavy load
-    // with 12+ cameras. For production, consider implementing multi-buffering:
-    // - Use 2-3 pinned buffers per channel
-    // - Pipeline GPU transfer with NDI send (while one buffer is sending, 
-    //   another is receiving)
-    // - The frameInFlight flag already provides the foundation for this
+
+    // 2. Sincronización mínima: Esperar a que los datos estén en RAM antes de que NDI los lea
     cudaEventSynchronize(channel.transferComplete);
-    
-    // Mark frame as in flight
-    channel.frameInFlight.store(true, std::memory_order_release);
-    
-    // Prepare NDI video frame
+
+    // 3. Preparar el frame de NDI
     NDIlib_video_frame_v2_t ndiFrame;
     ndiFrame.xres = static_cast<int>(width);
     ndiFrame.yres = static_cast<int>(height);
@@ -263,78 +165,65 @@ bool NDIManager::SendFrameInternal(int channelID, void* cudaBuffer,
     ndiFrame.line_stride_in_bytes = static_cast<int>(lineStride);
     ndiFrame.p_data = static_cast<uint8_t*>(channel.pinnedBuffer);
     ndiFrame.p_metadata = nullptr;
-    ndiFrame.timecode = 0;  // Use NDI's internal timecode
-    
-    // Send frame asynchronously (zero-copy with completion callback)
+
+    // Generar timecode automático para vMix
+    ndiFrame.timecode = NDIlib_send_timecode_synthesize;
+
+    // 4. Envío asíncrono (NDI hace una copia interna rápida)
     NDIlib_send_send_video_async_v2(channel.sender, &ndiFrame);
-    
+
+    // Liberamos el flag para el siguiente ciclo
+    channel.frameInFlight.store(false, std::memory_order_release);
+
     return true;
 }
 
-bool NDIManager::SendFrameSync(int channelID, void* hostBuffer,
-                                unsigned int width, unsigned int height,
-                                bool useUYVY) {
-    std::lock_guard<std::mutex> lock(m_channelsMutex);
-    
-    auto it = m_channels.find(channelID);
-    if (it == m_channels.end() || !it->second->isActive) {
+bool NDIManager::AllocatePinnedBuffer(NDIChannel& channel, size_t size) {
+    if (channel.pinnedBuffer && channel.pinnedBufferSize >= size) return true;
+
+    if (channel.pinnedBuffer) {
+        cudaFreeHost(channel.pinnedBuffer);
+    }
+
+    cudaError_t err = cudaMallocHost(&channel.pinnedBuffer, size);
+    if (err != cudaSuccess) {
+        Logger::Error("NDIManager: Error en cudaMallocHost: " + std::string(cudaGetErrorString(err)));
         return false;
     }
-    
-    NDIChannel& channel = *it->second;
-    
-    size_t bytesPerPixel = useUYVY ? kBytesPerPixelUYVY : kBytesPerPixelBGRA;
-    size_t lineStride = static_cast<size_t>(width) * bytesPerPixel;
-    
-    NDIlib_video_frame_v2_t ndiFrame;
-    ndiFrame.xres = static_cast<int>(width);
-    ndiFrame.yres = static_cast<int>(height);
-    ndiFrame.FourCC = useUYVY ? NDIlib_FourCC_type_UYVY : NDIlib_FourCC_type_BGRA;
-    ndiFrame.frame_rate_N = kFrameRateNumerator;
-    ndiFrame.frame_rate_D = kFrameRateDenominator;
-    ndiFrame.picture_aspect_ratio = kAspectRatio;
-    ndiFrame.line_stride_in_bytes = static_cast<int>(lineStride);
-    ndiFrame.p_data = static_cast<uint8_t*>(hostBuffer);
-    ndiFrame.p_metadata = nullptr;
-    ndiFrame.timecode = 0;
-    
-    // Synchronous send - blocks until frame is sent
-    NDIlib_send_send_video_v2(channel.sender, &ndiFrame);
-    
+
+    channel.pinnedBufferSize = size;
     return true;
+}
+
+bool NDIManager::SendUYVYFrame(int channelID, void* cudaUYVYBuffer, unsigned int width, unsigned int height, cudaStream_t stream) {
+    return SendFrameInternal(channelID, cudaUYVYBuffer, width, height, stream, true);
+}
+
+bool NDIManager::SendBGRAFrame(int channelID, void* cudaBGRABuffer, unsigned int width, unsigned int height, cudaStream_t stream) {
+    return SendFrameInternal(channelID, cudaBGRABuffer, width, height, stream, false);
 }
 
 void NDIManager::ReleaseSender(int channelID) {
     std::lock_guard<std::mutex> lock(m_channelsMutex);
-    
     auto it = m_channels.find(channelID);
     if (it != m_channels.end()) {
-        Logger::Info("Releasing NDI sender for channel " + std::to_string(channelID));
+        Logger::Info("NDIManager: Liberando emisor del canal " + std::to_string(channelID));
         m_channels.erase(it);
     }
 }
 
 void NDIManager::ReleaseAll() {
     std::lock_guard<std::mutex> lock(m_channelsMutex);
-    
-    Logger::Info("Releasing all NDI senders");
+    Logger::Info("NDIManager: Cerrando todos los canales.");
     m_channels.clear();
-    
+
     if (m_initialized) {
         NDIlib_destroy();
         m_initialized = false;
-        Logger::Info("NDI library shut down");
     }
 }
 
 int NDIManager::GetActiveSenderCount() const {
     std::lock_guard<std::mutex> lock(m_channelsMutex);
-    
-    int count = 0;
-    for (const auto& pair : m_channels) {
-        if (pair.second && pair.second->isActive) {
-            count++;
-        }
-    }
-    return count;
+    return static_cast<int>(m_channels.size());
 }
