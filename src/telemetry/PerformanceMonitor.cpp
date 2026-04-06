@@ -9,12 +9,18 @@
 #include <sstream>
 #include <iomanip>
 #include <numeric>
+#include <fstream>
+#include <filesystem>
+#include <ctime>
 
 PerformanceMonitor::PerformanceMonitor(double targetFrameTime, int logInterval)
     : m_targetFrameTime(targetFrameTime)
     , m_logInterval(logInterval)
     , m_frameCount(0)
     , m_recommendedActiveCameras(4)  // Start with 4 cameras
+    , m_maxFrameTime(0.0)
+    , m_emergencyEventCount(0)
+    , m_startTime(std::chrono::steady_clock::now())
     , m_consecutiveSlowFrames(0)
     , m_consecutiveFastFrames(0)
 {
@@ -43,8 +49,15 @@ void PerformanceMonitor::RecordFrame(const Telemetry& telemetry) {
     
     m_frameCount++;
     
+    // Track maximum frame time
+    double total = telemetry.Total();
+    double currentMax = m_maxFrameTime.load();
+    if (total > currentMax) {
+        m_maxFrameTime.store(total);
+    }
+    
     // Check auto-adjust
-    CheckAutoAdjust(telemetry.Total());
+    CheckAutoAdjust(total);
     
     // Log periodically
     if (m_frameCount % m_logInterval == 0) {
@@ -133,14 +146,83 @@ Telemetry PerformanceMonitor::GetAverageTelemetry(int numFrames) const {
     return avg;
 }
 
-void PerformanceMonitor::Reset() {
+void PerformanceMonitor::Reset(bool saveBeforeReset, const std::string& runID) {
     std::lock_guard<std::mutex> lock(m_dataMutex);
     
+    // Save state before reset if requested
+    if (saveBeforeReset && m_frameCount > 0) {
+        // Generate runID if not provided
+        std::string actualRunID = runID;
+        if (actualRunID.empty()) {
+            auto now = std::chrono::system_clock::now();
+            auto time_t = std::chrono::system_clock::to_time_t(now);
+            std::tm tm;
+            localtime_s(&tm, &time_t);
+            
+            std::ostringstream oss;
+            oss << std::put_time(&tm, "%Y%m%d_%H%M%S");
+            actualRunID = oss.str();
+        }
+        
+        SaveTelemetryState(actualRunID);
+    }
+    
+    // Reset all counters
     m_recentFrames.clear();
     m_frameCount = 0;
+    m_maxFrameTime = 0.0;
+    m_emergencyEventCount = 0;
     m_consecutiveSlowFrames = 0;
     m_consecutiveFastFrames = 0;
     m_recommendedActiveCameras = 4;
+    m_startTime = std::chrono::steady_clock::now();
     
     Logger::Info("PerformanceMonitor reset");
+}
+
+void PerformanceMonitor::SaveTelemetryState(const std::string& runID) {
+    // Create logs directory if it doesn't exist
+    std::filesystem::create_directories("logs");
+    
+    // Calculate duration
+    auto now = std::chrono::steady_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::seconds>(now - m_startTime).count();
+    
+    // Calculate average telemetry
+    auto avg = GetAverageTelemetry(static_cast<int>(m_recentFrames.size()));
+    
+    // Build JSON manually (we already have nlohmann::json included in main.cpp)
+    std::ostringstream json;
+    json << std::fixed << std::setprecision(2);
+    json << "{\n";
+    json << "  \"run_id\": \"" << runID << "\",\n";
+    json << "  \"duration_seconds\": " << duration << ",\n";
+    json << "  \"total_frames\": " << m_frameCount << ",\n";
+    json << "  \"max_frame_time_ms\": " << m_maxFrameTime.load() << ",\n";
+    json << "  \"avg_frame_time_ms\": " << avg.Total() << ",\n";
+    json << "  \"avg_capture_ms\": " << avg.capture_ms << ",\n";
+    json << "  \"avg_selector_ms\": " << avg.selector_ms << ",\n";
+    json << "  \"avg_yolo_ms\": " << avg.yolo_ms << ",\n";
+    json << "  \"avg_ndi_ms\": " << avg.ndi_ms << ",\n";
+    json << "  \"avg_redis_ms\": " << avg.redis_ms << ",\n";
+    json << "  \"emergency_events\": " << m_emergencyEventCount << "\n";
+    json << "}\n";
+    
+    // Save to run-specific file
+    std::string filename = "logs/run_" + runID + ".json";
+    std::ofstream outFile(filename);
+    if (outFile.is_open()) {
+        outFile << json.str();
+        outFile.close();
+        Logger::Info("[RESET] Telemetry saved to " + filename);
+    } else {
+        Logger::Error("Failed to save telemetry to " + filename);
+    }
+    
+    // Also update telemetry_state.json with current state
+    std::ofstream stateFile("logs/telemetry_state.json");
+    if (stateFile.is_open()) {
+        stateFile << json.str();
+        stateFile.close();
+    }
 }

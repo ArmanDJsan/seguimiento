@@ -72,9 +72,37 @@ public:
     unsigned long long GetFrameCount() const { return m_frameCount; }
     
     /**
-     * Reset statistics
+     * Get maximum frame time recorded
      */
-    void Reset();
+    double GetMaxFrameTime() const { return m_maxFrameTime; }
+    
+    /**
+     * Reset statistics (optionally saving to file first)
+     * @param saveBeforeReset If true, saves current state before resetting
+     * @param runID Optional run identifier for the saved file
+     */
+    void Reset(bool saveBeforeReset = false, const std::string& runID = "");
+    
+    /**
+     * Save current telemetry state to JSON file
+     * @param runID Run identifier for the filename
+     */
+    void SaveTelemetryState(const std::string& runID);
+    
+    /**
+     * Get start time of monitoring
+     */
+    std::chrono::steady_clock::time_point GetStartTime() const { return m_startTime; }
+    
+    /**
+     * Get number of emergency events (thermal throttle, etc.)
+     */
+    int GetEmergencyEventCount() const { return m_emergencyEventCount; }
+    
+    /**
+     * Increment emergency event counter
+     */
+    void RecordEmergencyEvent() { m_emergencyEventCount++; }
     
 private:
     // Configuration
@@ -84,6 +112,9 @@ private:
     // State
     std::atomic<unsigned long long> m_frameCount;
     std::atomic<int> m_recommendedActiveCameras;
+    std::atomic<double> m_maxFrameTime;
+    std::atomic<int> m_emergencyEventCount;
+    std::chrono::steady_clock::time_point m_startTime;
     
     // Recent telemetry buffer (circular)
     mutable std::mutex m_dataMutex;

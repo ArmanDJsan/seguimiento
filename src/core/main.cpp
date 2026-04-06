@@ -671,6 +671,7 @@ int main(int argc, char* argv[]) {
         Logger::Info("F2  - Reduce to 2 cameras (thermal throttle)");
         Logger::Info("F3  - Restore to 4 cameras");
         Logger::Info("F4  - Graceful shutdown");
+        Logger::Info("F5  - Reset telemetry (save current run)");
         Logger::Info("==========================");
         
         bool running = true;
@@ -681,6 +682,7 @@ int main(int argc, char* argv[]) {
         bool f2Pressed = false;
         bool f3Pressed = false;
         bool f4Pressed = false;
+        bool f5Pressed = false;
         
         while (running) {
             // Check for exit condition
@@ -689,7 +691,7 @@ int main(int argc, char* argv[]) {
             }
             
             // ============================================================================
-            // EMERGENCY KEYBOARD SHORTCUTS (F2/F3/F4)
+            // EMERGENCY KEYBOARD SHORTCUTS (F2/F3/F4/F5)
             // ============================================================================
             
             // F2 - Reduce active cameras to 2 (thermal throttle)
@@ -697,6 +699,7 @@ int main(int argc, char* argv[]) {
                 if (!f2Pressed) {
                     f2Pressed = true;
                     config.selectorTopK = 2;
+                    perfMonitor->RecordEmergencyEvent();
                     Logger::Info("[EMERGENCY] Reduced active cameras to 2 (thermal throttle)");
                 }
             } else {
@@ -723,6 +726,29 @@ int main(int argc, char* argv[]) {
                 }
             } else {
                 f4Pressed = false;
+            }
+            
+            // F5 - Reset telemetry (save current run and start fresh)
+            if (GetAsyncKeyState(VK_F5) & 0x8000) {
+                if (!f5Pressed) {
+                    f5Pressed = true;
+                    
+                    // Generate run ID for saved file
+                    auto now = std::chrono::system_clock::now();
+                    auto time_t = std::chrono::system_clock::to_time_t(now);
+                    std::tm tm;
+                    localtime_s(&tm, &time_t);
+                    
+                    std::ostringstream runIDStream;
+                    runIDStream << std::put_time(&tm, "%Y%m%d_%H%M%S");
+                    std::string runID = runIDStream.str();
+                    
+                    Logger::Info("[RESET] Telemetry reset initiated. Saving previous run...");
+                    perfMonitor->Reset(true, runID);
+                    Logger::Info("[RESET] Telemetry reset complete. Previous run saved to logs/run_" + runID + ".json");
+                }
+            } else {
+                f5Pressed = false;
             }
             
             // Periodic status logging
