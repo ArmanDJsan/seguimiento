@@ -23,11 +23,12 @@
 /**
  * Hysteresis configuration to prevent camera flickering
  * Ensures stable camera selection by requiring significant score difference
+ * Default values are racing-optimized (from config.json)
  */
 struct HysteresisConfig {
-    float switch_threshold = 0.20f;   // 20% more score required to switch
-    int min_active_frames = 15;        // Minimum 15 frames active (500ms @ 30fps)
-    float decay_factor = 0.95f;        // Decay factor for inactive cameras
+    float switch_threshold = 0.15f;   // 15% more score required to switch (racing-optimized)
+    int min_active_frames = 10;        // Minimum 10 frames active (333ms @ 30fps, racing-optimized)
+    float decay_factor = 0.98f;        // Decay factor for inactive cameras (racing-optimized)
 };
 
 /**

@@ -735,9 +735,9 @@ int main(int argc, char* argv[]) {
                     
                     // Generate run ID for saved file
                     auto now = std::chrono::system_clock::now();
-                    auto time_t = std::chrono::system_clock::to_time_t(now);
+                    auto time_value = std::chrono::system_clock::to_time_t(now);
                     std::tm tm;
-                    localtime_s(&tm, &time_t);
+                    localtime_s(&tm, &time_value);
                     
                     std::ostringstream runIDStream;
                     runIDStream << std::put_time(&tm, "%Y%m%d_%H%M%S");

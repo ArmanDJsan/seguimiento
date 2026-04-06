@@ -155,9 +155,9 @@ void PerformanceMonitor::Reset(bool saveBeforeReset, const std::string& runID) {
         std::string actualRunID = runID;
         if (actualRunID.empty()) {
             auto now = std::chrono::system_clock::now();
-            auto time_t = std::chrono::system_clock::to_time_t(now);
+            auto time_value = std::chrono::system_clock::to_time_t(now);
             std::tm tm;
-            localtime_s(&tm, &time_t);
+            localtime_s(&tm, &time_value);
             
             std::ostringstream oss;
             oss << std::put_time(&tm, "%Y%m%d_%H%M%S");
