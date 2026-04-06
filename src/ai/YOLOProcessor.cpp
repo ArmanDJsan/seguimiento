@@ -7,23 +7,42 @@
 #include "YOLOProcessor.h"
 #include "../utils/Logger.h"
 #include <chrono>
+#include <fstream>
 
-YOLOProcessor::YOLOProcessor()
-    : m_inputWidth(640)
+YOLOProcessor::YOLOProcessor(int batchSize, bool useFP16)
+    : m_batchSize(batchSize)
+    , m_useFP16(useFP16)
+    , m_stubMode(true)  // Start in stub mode until model loaded
+    , m_inputWidth(640)
     , m_inputHeight(640)
     , m_numClasses(80)
     , m_confidenceThreshold(0.5f)
     , m_nmsThreshold(0.4f)
 {
-    Logger::Info("YOLOProcessor initialized");
+    Logger::Info("YOLOProcessor initialized: batch=" + std::to_string(batchSize) + 
+                 ", FP16=" + std::string(useFP16 ? "enabled" : "disabled"));
 }
 
 YOLOProcessor::~YOLOProcessor() {
     // TODO: Cleanup TensorRT resources
 }
 
-bool YOLOProcessor::Initialize(const std::string& modelPath) {
+bool YOLOProcessor::Initialize(const std::string& modelPath, bool useFallback) {
     Logger::Info("Initializing YOLO model from: " + modelPath);
+    
+    // Check if model file exists
+    std::ifstream modelFile(modelPath, std::ios::binary);
+    if (!modelFile.is_open()) {
+        if (useFallback) {
+            Logger::Warning("YOLO model not found at: " + modelPath + " - using stub mode");
+            m_stubMode = true;
+            return true;
+        } else {
+            Logger::Error("YOLO model not found at: " + modelPath);
+            return false;
+        }
+    }
+    modelFile.close();
     
     // TODO: Load TensorRT engine
     // 1. Read serialized engine file
@@ -31,8 +50,33 @@ bool YOLOProcessor::Initialize(const std::string& modelPath) {
     // 3. Create execution context
     // 4. Allocate GPU buffers for input/output
     
-    Logger::Info("YOLO model loaded successfully");
+    // For now, always use stub mode since TensorRT integration is pending
+    m_stubMode = true;
+    Logger::Info("YOLO model loaded successfully (stub mode)");
     return true;
+}
+
+std::vector<Detection> YOLOProcessor::ProcessFrame(void* cudaBGRABuffer, int cameraID,
+                                                    unsigned int width, unsigned int height,
+                                                    cudaStream_t stream) {
+    if (!cudaBGRABuffer) {
+        return {};
+    }
+    
+    // In stub mode, return empty detections
+    if (m_stubMode) {
+        return {};
+    }
+    
+    // TODO: Real TensorRT inference
+    // 1. Resize/preprocess BGRA buffer to model input size
+    // 2. Copy to TensorRT input buffer
+    // 3. Enqueue inference on the provided stream
+    // 4. Post-process results (NMS, filtering)
+    // 5. Convert to Detection structures
+    
+    std::vector<Detection> detections;
+    return detections;
 }
 
 std::vector<Detection> YOLOProcessor::ProcessFrame(ID3D11Texture2D* texture, int cameraID) {
@@ -40,7 +84,12 @@ std::vector<Detection> YOLOProcessor::ProcessFrame(ID3D11Texture2D* texture, int
         return {};
     }
     
-    // Process single frame
+    // In stub mode, return empty detections
+    if (m_stubMode) {
+        return {};
+    }
+    
+    // Process single frame (legacy D3D11 interface)
     // TODO: 
     // 1. Copy texture to TensorRT input buffer
     // 2. Run inference
@@ -48,21 +97,6 @@ std::vector<Detection> YOLOProcessor::ProcessFrame(ID3D11Texture2D* texture, int
     // 4. Convert to Detection structures
     
     std::vector<Detection> detections;
-    
-    // Placeholder detection for demonstration
-    Detection det;
-    det.cameraID = cameraID;
-    det.objectID = 0;
-    det.x = 0.5f;
-    det.y = 0.5f;
-    det.width = 0.1f;
-    det.height = 0.1f;
-    det.label = "person";
-    det.confidence = 0.95f;
-    det.timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch()
-    ).count();
-    
     return detections;
 }
 
@@ -77,6 +111,11 @@ std::vector<Detection> YOLOProcessor::ProcessBatch(
     Logger::Debug("Processing batch of " + std::to_string(textures.size()) + " frames");
     
     m_detections.clear();
+    
+    // In stub mode, return empty detections
+    if (m_stubMode) {
+        return m_detections;
+    }
     
     // TODO: Batch processing for maximum GPU utilization
     // 1. Combine all textures into single batch tensor
