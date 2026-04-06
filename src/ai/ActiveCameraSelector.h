@@ -158,6 +158,70 @@ private:
         unsigned int height;
         size_t frameSize;
         bool hasHistory;
+        
+        // Default constructor
+        CameraState() 
+            : previousFrame(nullptr)
+            , currentFrame(nullptr)
+            , motionBuffer(nullptr)
+            , hostMotionScore(nullptr)
+            , processingComplete(nullptr)
+            , width(0)
+            , height(0)
+            , frameSize(0)
+            , hasHistory(false)
+        {}
+        
+        // Delete copy constructor and copy assignment
+        CameraState(const CameraState&) = delete;
+        CameraState& operator=(const CameraState&) = delete;
+        
+        // Move constructor - required for vector resize()
+        CameraState(CameraState&& other) noexcept
+            : previousFrame(other.previousFrame)
+            , currentFrame(other.currentFrame)
+            , motionBuffer(other.motionBuffer)
+            , hostMotionScore(other.hostMotionScore)
+            , processingComplete(other.processingComplete)
+            , metrics(other.metrics)
+            , frameMutex()  // std::mutex cannot be moved, create new
+            , width(other.width)
+            , height(other.height)
+            , frameSize(other.frameSize)
+            , hasHistory(other.hasHistory)
+        {
+            // Nullify source pointers to prevent double-free
+            other.previousFrame = nullptr;
+            other.currentFrame = nullptr;
+            other.motionBuffer = nullptr;
+            other.hostMotionScore = nullptr;
+            other.processingComplete = nullptr;
+        }
+        
+        // Move assignment operator
+        CameraState& operator=(CameraState&& other) noexcept {
+            if (this != &other) {
+                previousFrame = other.previousFrame;
+                currentFrame = other.currentFrame;
+                motionBuffer = other.motionBuffer;
+                hostMotionScore = other.hostMotionScore;
+                processingComplete = other.processingComplete;
+                metrics = other.metrics;
+                // Note: std::mutex cannot be moved, keep existing one
+                width = other.width;
+                height = other.height;
+                frameSize = other.frameSize;
+                hasHistory = other.hasHistory;
+                
+                // Nullify source pointers
+                other.previousFrame = nullptr;
+                other.currentFrame = nullptr;
+                other.motionBuffer = nullptr;
+                other.hostMotionScore = nullptr;
+                other.processingComplete = nullptr;
+            }
+            return *this;
+        }
     };
     
     std::vector<CameraState> m_cameraStates;
