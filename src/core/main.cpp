@@ -311,7 +311,7 @@ int main(int argc, char* argv[]) {
         
         // Log vMix configuration tips
         Logger::Info("=== vMix Configuration Tips ===");
-        Logger::Info("1. Enable 'High Input Performance Mode' for >8 cameras (requires GPU with >3GB VRAM)");
+        Logger::Info("1. Enable 'High Input Performance Mode' for 9+ cameras (requires GPU with >3GB VRAM)");
         Logger::Info("2. Disable 'Show preview thumbnails for NDI sources' to reduce network traffic");
         Logger::Info("3. NDI sources will appear as 'VIB_CAM_01' through 'VIB_CAM_12'");
         

@@ -85,9 +85,10 @@
 #endif
 
 namespace {
-    // Constants for 4K@30fps
+    // Constants for 4K@30fps (NTSC standard: 29.97fps = 30000/1001)
+    // Industry standard: "30fps" commonly refers to 29.97fps NTSC
     constexpr int kFrameRateNumerator = 30000;
-    constexpr int kFrameRateDenominator = 1001;  // 29.97fps NTSC standard
+    constexpr int kFrameRateDenominator = 1001;  // Results in 29.97fps (NTSC drop-frame)
     constexpr float kAspectRatio = 16.0f / 9.0f;
     
     // Bytes per pixel for different formats
