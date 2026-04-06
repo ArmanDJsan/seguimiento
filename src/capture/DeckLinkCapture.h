@@ -30,11 +30,12 @@
 #include <functional>
 
 // Forward declarations for Blackmagic SDK
-class IDeckLink;
-class IDeckLinkInput;
-class IDeckLinkVideoInputFrame;
-class IDeckLinkAudioInputPacket;
-class IDeckLinkInputCallback;
+struct IDeckLink;
+struct IDeckLinkInput;
+struct IDeckLinkVideoInputFrame;
+struct IDeckLinkAudioInputPacket;
+struct IDeckLinkInputCallback;
+struct IDeckLinkVideoBuffer; // Añadir esta nueva interfaz
 
 /**
  * Video channel structure for managing each capture input

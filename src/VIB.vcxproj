@@ -86,7 +86,7 @@
       <PreprocessorDefinitions>WIN32_LEAN_AND_MEAN;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir);C:\vs\BDLink-SDK-15.3\Win\include;C:\Program Files\NDI\NDI 5 SDK\Include;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.2\include;C:\Program Files\NVIDIA\TensorRT-10.16.0.72\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.2\include;C:\Program Files\NDI\NDI 6 SDK\Include;C:\vs\BDLink-SDK-15.3\Win\include;C:\Program Files\NVIDIA\TensorRT-10.16.0.72\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -94,7 +94,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalDependencies>cudart.lib;d3d11.lib;dxgi.lib;Ws2_32.lib;Winhttp.lib;Processing.NDI.Lib.x64.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.2\lib\x64;C:\Program Files\NVIDIA\TensorRT-10.16.0.72\lib;C:\Program Files\NDI\NDI 5 SDK\Lib\x64;$(CudaToolkitLibDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.2\lib\x64;C:\Program Files\NVIDIA\TensorRT-10.16.0.72\lib;C:\Program Files\NDI\NDI 6 SDK\Lib\x64;$(CudaToolkitLibDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <FxCompile>
       <ShaderModel>5.0</ShaderModel>
