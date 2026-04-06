@@ -40,55 +40,109 @@ while (deckLinkIterator->Next(&deckLink) == S_OK) {
 }
 ```
 
-## 2. Spout SDK
+## 2. NDI SDK (Network Device Interface)
+
+NDI is used for sending video to vMix. It provides native support in vMix without any plugins.
 
 ### Download
 
-```bash
-git clone https://github.com/leadedge/Spout2.git
-```
+1. Visit [NDI SDK Downloads](https://ndi.video/for-developers/ndi-sdk/)
+2. Register for a free developer account (requires name, email, and organization info)
+3. Download "NDI 5 SDK" for Windows
 
 ### Installation
 
-1. Navigate to `Spout2/SPOUTSDK/SpoutSDK`
-2. Copy the following to your project:
-   - `Spout.h`
-   - `Spout.cpp`
-   - `SpoutSender.h`
-   - `SpoutSender.cpp`
-
-3. Or link against pre-built library:
-   - Build the Spout SDK project
-   - Link `SpoutLibrary.lib` in your project
+1. Run the NDI SDK installer
+2. Default installation path: `C:\Program Files\NDI\NDI 5 SDK`
 
 ### Visual Studio Configuration
 
+#### Include Directories
+Project Properties → C/C++ → Additional Include Directories:
+- Add: `C:\Program Files\NDI\NDI 5 SDK\Include`
+
+#### Library Directories
+Project Properties → Linker → General → Additional Library Directories:
+- Add: `C:\Program Files\NDI\NDI 5 SDK\Lib\x64`
+
+#### Additional Dependencies
 Project Properties → Linker → Input → Additional Dependencies:
-- Add: `SpoutLibrary.lib`
+- Add: `Processing.NDI.Lib.x64.lib`
+
+### Runtime DLL
+
+The NDI runtime DLL must be available at runtime:
+- `Processing.NDI.Lib.x64.dll`
+
+Options:
+1. Install NDI Tools (includes runtime): https://ndi.video/tools/
+2. Copy DLL to application directory
+3. Add NDI bin directory to PATH
 
 ### Integration in Code
 
 ```cpp
-#include "SpoutSender.h"
+#include "Processing.NDI.Lib.h"
 
-SpoutSender sender;
-sender.CreateSender("MyCameraName", 3840, 2160);
+// Initialize NDI
+if (!NDIlib_initialize()) {
+    // Error: NDI not available
+    return false;
+}
 
-// Send texture
-sender.SendTexture(textureID, GL_TEXTURE_2D, 3840, 2160);
+// Create sender
+NDIlib_send_create_t send_desc;
+send_desc.p_ndi_name = "VIB_CAM_01";
+send_desc.p_groups = nullptr;
+send_desc.clock_video = true;
+send_desc.clock_audio = false;
+
+NDIlib_send_instance_t pNDI_send = NDIlib_send_create(&send_desc);
+
+// Send video frame (UYVY format for optimal performance)
+NDIlib_video_frame_v2_t video_frame;
+video_frame.xres = 3840;
+video_frame.yres = 2160;
+video_frame.FourCC = NDIlib_FourCC_type_UYVY;
+video_frame.frame_rate_N = 30000;
+video_frame.frame_rate_D = 1001;
+video_frame.picture_aspect_ratio = 16.0f / 9.0f;
+video_frame.line_stride_in_bytes = 3840 * 2;  // UYVY = 2 bytes per pixel
+video_frame.p_data = frameData;
+
+NDIlib_send_send_video_v2(pNDI_send, &video_frame);
+
+// Cleanup
+NDIlib_send_destroy(pNDI_send);
+NDIlib_destroy();
 ```
 
-### Note: DirectX 11 Support
+### Zero-Copy Async Sending
 
-Spout supports both OpenGL and DirectX 11. For DirectX 11:
+For maximum performance, use async sending with completion callbacks:
 
 ```cpp
-#include "SpoutDirectX.h"
+// Set up async completion callback
+NDIlib_send_set_video_async_completion(pNDI_send,
+    [](void* instance, const NDIlib_video_frame_v2_t* frame, void* user_data) {
+        // Frame is no longer needed - can reuse buffer
+        FramePool* pool = static_cast<FramePool*>(user_data);
+        pool->ReleaseFrame(frame->p_data);
+    },
+    &framePool);
 
-spoutDirectX spout;
-spout.CreateSender("MyCameraName", 3840, 2160);
-spout.SendTexture(d3d11Texture);
+// Send asynchronously (returns immediately)
+NDIlib_send_send_video_async_v2(pNDI_send, &video_frame);
 ```
+
+### vMix Configuration for Multiple NDI Sources
+
+When using 12 cameras with vMix:
+
+| Option | Setting | Reason |
+|--------|---------|--------|
+| High Input Performance Mode | ✅ ENABLE | Required for >8 cameras, needs GPU with >3GB VRAM |
+| Show preview thumbnails for NDI sources | ❌ DISABLE | Reduces network traffic with many sources |
 
 ## 3. Redis C++ Client
 
@@ -248,10 +302,11 @@ if (doc.HasMember("detections")) {
 - [ ] Visual Studio 2022 installed with C++ workload
 - [ ] Windows 10/11 SDK installed
 - [ ] Blackmagic DeckLink SDK installed and path configured
-- [ ] Spout SDK integrated or library linked
+- [ ] NDI 5 SDK installed and path configured
+- [ ] NDI Tools installed (for runtime DLL) or DLL copied to app directory
 - [ ] Redis C++ client (redis-plus-plus) installed
 - [ ] CUDA Toolkit 12.x installed
-- [ ] TensorRT 8.x installed and configured
+- [ ] TensorRT 8.x+ installed and configured
 - [ ] All include paths added to project
 - [ ] All library paths added to project
 - [ ] All required .lib files added to linker input
@@ -266,13 +321,18 @@ Create a simple test program:
 
 ```cpp
 #include <iostream>
+#include <windows.h>
+#include <objbase.h>
 #include "DeckLinkAPI_h.h"
-#include "SpoutSender.h"
+#include "Processing.NDI.Lib.h"
 #include <sw/redis++/redis++.h>
 #include <NvInfer.h>
 
 int main() {
     std::cout << "Testing SDK integration..." << std::endl;
+    
+    // Initialize COM
+    CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     
     // Test DeckLink
     IDeckLinkIterator* iter;
@@ -280,10 +340,29 @@ int main() {
                                    CLSCTX_ALL, IID_IDeckLinkIterator, 
                                    (void**)&iter);
     std::cout << "DeckLink SDK: " << (SUCCEEDED(hr) ? "OK" : "FAILED") << std::endl;
+    if (iter) iter->Release();
     
-    // Test Spout
-    SpoutSender spout;
-    std::cout << "Spout SDK: OK" << std::endl;
+    // Test NDI
+    if (NDIlib_initialize()) {
+        std::cout << "NDI SDK: OK" << std::endl;
+        
+        // Create a test sender
+        NDIlib_send_create_t send_desc;
+        send_desc.p_ndi_name = "VIB_Test";
+        send_desc.p_groups = nullptr;
+        send_desc.clock_video = false;
+        send_desc.clock_audio = false;
+        
+        NDIlib_send_instance_t sender = NDIlib_send_create(&send_desc);
+        if (sender) {
+            std::cout << "NDI Sender: OK" << std::endl;
+            NDIlib_send_destroy(sender);
+        }
+        
+        NDIlib_destroy();
+    } else {
+        std::cout << "NDI SDK: FAILED" << std::endl;
+    }
     
     // Test Redis
     try {
@@ -294,9 +373,9 @@ int main() {
     }
     
     // Test TensorRT
-    nvinfer1::ILogger* logger;
     std::cout << "TensorRT SDK: OK" << std::endl;
     
+    CoUninitialize();
     return 0;
 }
 ```
@@ -311,17 +390,28 @@ If all tests pass, your environment is ready for development!
 - Verify SDK installation path
 - Check include directories in project properties
 
+**"Cannot open include file: 'Processing.NDI.Lib.h'"**
+- Verify NDI SDK installation path
+- Check include directories (should be `C:\Program Files\NDI\NDI 5 SDK\Include`)
+
 **"Unresolved external symbol"**
 - Check that required .lib files are in linker input
 - Verify library directories are correct
+- For NDI: ensure `Processing.NDI.Lib.x64.lib` is linked
 
 **Runtime errors with DLLs**
 - Ensure DLL files are in the same directory as executable
 - Or add DLL directories to system PATH
+- For NDI: install NDI Tools or copy `Processing.NDI.Lib.x64.dll`
 
 **CUDA errors**
 - Update NVIDIA drivers to latest version
 - Verify GPU supports required compute capability
+
+**NDI sender not visible in vMix**
+- Ensure NDI Tools runtime is installed
+- Check Windows Firewall settings (NDI uses network discovery)
+- Verify sender name doesn't conflict with existing sources
 
 ### Support Resources
 
