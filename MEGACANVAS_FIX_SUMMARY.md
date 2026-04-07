@@ -46,7 +46,7 @@ The system now initializes either MegaCanvas OR NDI based on configuration:
 **When `mega_canvas.enabled: true`:**
 - Creates `MegaCanvasManager` instance
 - Initializes 16K (15360x6480) virtual canvas
-- Creates Ghost Window at coordinates (20000, 0) - invisible to operator
+- Creates Ghost Window at coordinates (-15360, 0) - positioned off-screen left for vMix WGC detection
 - Uses DXGI presentation for vMix WGC capture
 - Implements VRAM bifurcation (Atlas + TensorRT in single pass)
 
