@@ -5,7 +5,7 @@
 After merging PR #24, two issues were reported:
 
 1. **vMix WGC Window Not Appearing**: The virtual window "VIB MegaCanvas 16K (vMix WGC)" was not appearing in vMix's Windows Desktop Capture selection list
-2. **VideoHub Routing Misalignment**: Need to align VideoHub inputs with outputs (1→1, 2→2, ..., 16→16) during test phase
+2. **VideoHub Routing Misalignment**: Need to align VideoHub inputs with outputs (0→0, 1→1, ..., 15→15, which corresponds to physical ports 1-16) during test phase
 
 ## Root Causes
 
@@ -13,7 +13,7 @@ After merging PR #24, two issues were reported:
 The MegaCanvas window was positioned at virtual coordinates (20000, 0), which is too far off-screen for vMix's Windows Graphics Capture API to enumerate. While the window was created successfully and was technically WGC-compatible, vMix couldn't detect it because it was beyond the reasonable virtual desktop bounds that WGC scans for windows.
 
 ### Issue 2: No VideoHub Bulk Routing Function
-The VideoHub client could route individual outputs to inputs, but lacked a bulk routing function to efficiently set up aligned routing (1→1, 2→2, etc.) needed during system testing.
+The VideoHub client could route individual outputs to inputs, but lacked a bulk routing function to efficiently set up aligned routing (0→0, 1→1, ..., 15→15, corresponding to physical ports 1-16) needed during system testing.
 
 ## Solutions Implemented
 
@@ -67,7 +67,7 @@ bool VideoHubClient::RouteAllOutputsToMatchingInputs(int count) {
 **Integration:**
 The routing setup is now called at the beginning of Phase 1 testing:
 1. Check vMix inputs health
-2. **Set up aligned VideoHub routing (1-16)** ← NEW
+2. **Set up aligned VideoHub routing (ports 0-15, physical 1-16)** ← NEW
 3. Validate streaming cameras (1-12)
 4. Validate tracking cameras (13-16)
 5. Execute ESP32 mechanical test
@@ -93,10 +93,11 @@ The routing setup is now called at the beginning of Phase 1 testing:
 2. Run Phase 1 testing (the startup test sequence)
 3. Look for log message:
    ```
-   [INFO] VideoHub: Setting up aligned routing (input N -> output N) for 1-16
-   [INFO] VideoHub: Aligned routing (1-16) configured successfully
+   [INFO] VideoHub: Setting up aligned routing (input N -> output N, 0-indexed) for ports 0-15
+   [INFO] VideoHub: Aligned routing configured successfully (ports 0-15 -> 0-15)
    ```
 4. Verify all 16 outputs are routed to their matching inputs (can check with VideoHub control software)
+   Note: Port 0 in the protocol corresponds to physical port 1 on the device
 
 ## Expected Log Output
 
@@ -119,12 +120,14 @@ The routing setup is now called at the beginning of Phase 1 testing:
 ### Successful VideoHub Routing
 ```
 [INFO] VideoHub connected at 192.168.1.50:9990
-[INFO] VideoHub: Setting up aligned routing (input N -> output N) for 1-16
-[INFO] VideoHub: Aligned routing (1-16) configured successfully
+[INFO] VideoHub: Setting up aligned routing (input N -> output N, 0-indexed) for ports 0-15
+[INFO] VideoHub: Aligned routing configured successfully (ports 0-15 -> 0-15)
 [INFO] Barrido Streaming (1-12) OK
 [INFO] Barrido Seguimiento (13-16) OK
 [INFO] Fase 1 completada correctamente
 ```
+
+Note: Port indices in logs are 0-based (0-15) which correspond to physical ports 1-16 on the VideoHub device.
 
 ## Technical Details
 
