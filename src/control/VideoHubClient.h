@@ -28,6 +28,9 @@ public:
     bool RouteInputToOutput(int outputIndex, int sourceIndex);
     bool RouteInputToOutput(int outputIndex, const std::string& sourceName);
 
+    // Route all outputs to matching inputs (1->1, 2->2, ..., count->count)
+    bool RouteAllOutputsToMatchingInputs(int count = 16);
+
     bool RefreshInputLabels(const std::unordered_map<int, std::string>& labels);
 
 private:

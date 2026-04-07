@@ -165,6 +165,36 @@ bool VideoHubClient::RouteInputToOutput(int outputIndex, const std::string& sour
     return RouteInputToOutput(outputIndex, it->second);
 }
 
+bool VideoHubClient::RouteAllOutputsToMatchingInputs(int count) {
+    if (count < 1) {
+        Logger::Error("[TECH ERROR] Invalid count for routing: must be positive (got " + 
+                      std::to_string(count) + ")");
+        return false;
+    }
+
+    Logger::Info("VideoHub: Setting up aligned routing (input N -> output N) for 1-" + 
+                 std::to_string(count));
+
+    std::ostringstream command;
+    command << kRoutingHeader << "\n";
+    
+    // Route each output to its matching input (0-based indexing)
+    // Output 0 -> Input 0, Output 1 -> Input 1, etc.
+    for (int i = 0; i < count; ++i) {
+        command << i << " " << i << "\n";
+    }
+    command << "\n";
+
+    if (!SendCommand(command.str())) {
+        Logger::Error("[TECH ERROR] Failed to send aligned routing command");
+        return false;
+    }
+
+    Logger::Info("VideoHub: Aligned routing (1-" + std::to_string(count) + 
+                 ") configured successfully");
+    return true;
+}
+
 bool VideoHubClient::RefreshInputLabels(const std::unordered_map<int, std::string>& labels) {
     std::vector<std::pair<int, std::string>> ordered(labels.begin(), labels.end());
     std::sort(ordered.begin(), ordered.end(),

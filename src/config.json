@@ -84,10 +84,10 @@
       "hide_from_taskbar": true,
       "exclude_from_standard_capture": false,
       "virtual_coordinates": {
-        "x": 20000,
+        "x": -15360,
         "y": 0
       },
-      "description": "Ghost window mode - invisible to operator, only vMix sees it via WGC. exclude_from_standard_capture=false recommended to avoid vMix issues."
+      "description": "Ghost window mode - positioned off-screen at -15360,0 for vMix WGC detection. exclude_from_standard_capture=false recommended to avoid vMix issues."
     },
     "fallback_to_ndi": false
   },
