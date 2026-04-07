@@ -144,6 +144,8 @@
     <ClInclude Include="telemetry\PerformanceMonitor.h" />
     <ClInclude Include="redis\RedisWorker.h" />
     <ClInclude Include="utils\Logger.h" />
+    <ClInclude Include="utils\ThreadOptimizer.h" />
+    <ClInclude Include="utils\GPUDiagnostics.h" />
     <ClInclude Include="control\TrackPhysicalController.h" />
     <ClInclude Include="control\VideoHubClient.h" />
     <ClInclude Include="control\VMixController.h" />

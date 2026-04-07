@@ -38,6 +38,8 @@
 #include "../redis/RedisWorker.h"
 #include "../telemetry/PerformanceMonitor.h"
 #include "../utils/Logger.h"
+#include "../utils/ThreadOptimizer.h"
+#include "../utils/GPUDiagnostics.h"
 #include "../control/VideoHubClient.h"
 #include "../control/TrackPhysicalController.h"
 #include "../control/VMixController.h"
@@ -357,6 +359,18 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     Logger::Info("COM initialized successfully for DeckLink SDK");
+    
+    // ============================================================================
+    // System Optimization Diagnostics (Threadripper PRO + RTX 5080)
+    // ============================================================================
+    Logger::Info("=== System Optimization Check ===");
+    Logger::Info(ThreadOptimizer::GetCPUInfo());
+    bool systemOptimal = GPUDiagnostics::RunFullDiagnostics();
+    if (!systemOptimal) {
+        Logger::Warning("System is not optimally configured. Performance may be degraded.");
+        Logger::Warning("Refer to OPTIMIZATION_GUIDE.md for setup instructions.");
+    }
+    Logger::Info("==================================");
     
     try {
         // Load configuration from JSON
