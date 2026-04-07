@@ -172,8 +172,8 @@ bool VideoHubClient::RouteAllOutputsToMatchingInputs(int count) {
         return false;
     }
 
-    Logger::Info("VideoHub: Setting up aligned routing (input N -> output N) for 1-" + 
-                 std::to_string(count));
+    Logger::Info("VideoHub: Setting up aligned routing (input N -> output N, 0-indexed) for ports 0-" + 
+                 std::to_string(count - 1));
 
     std::ostringstream command;
     command << kRoutingHeader << "\n";
@@ -190,8 +190,8 @@ bool VideoHubClient::RouteAllOutputsToMatchingInputs(int count) {
         return false;
     }
 
-    Logger::Info("VideoHub: Aligned routing (1-" + std::to_string(count) + 
-                 ") configured successfully");
+    Logger::Info("VideoHub: Aligned routing configured successfully (ports 0-" + 
+                 std::to_string(count - 1) + " -> 0-" + std::to_string(count - 1) + ")");
     return true;
 }
 
