@@ -40,6 +40,90 @@
       "decay_factor": 0.98
     }
   },
+  "mega_canvas": {
+    "enabled": true,
+    "description": "16K Virtual Canvas for vMix WGC capture",
+    "grid_layout": {
+      "columns": 4,
+      "rows": 3
+    },
+    "cell_resolution": {
+      "width": 3840,
+      "height": 2160,
+      "description": "Native 4K per cell for maximum quality"
+    },
+    "canvas_resolution": {
+      "width": 15360,
+      "height": 6480,
+      "description": "Total 16K virtual resolution (4x3 grid)"
+    },
+    "tensorrt": {
+      "width": 640,
+      "height": 640,
+      "high_priority_stream": true,
+      "description": "Downscaled buffer for YOLO inference - uses separate stream"
+    },
+    "presentation": {
+      "flip_model": true,
+      "vsync": false,
+      "tearing_allowed": true,
+      "max_frame_latency": 1,
+      "description": "DXGI_SWAP_EFFECT_FLIP_DISCARD for DWM bypass"
+    },
+    "window": {
+      "borderless": true,
+      "no_redirection_bitmap": true,
+      "topmost": false,
+      "x": 0,
+      "y": 0,
+      "description": "WS_POPUP + WS_EX_NOREDIRECTIONBITMAP for optimal WGC capture"
+    },
+    "hidden_mode": {
+      "enabled": true,
+      "mouse_passthrough": true,
+      "hide_from_taskbar": true,
+      "exclude_from_standard_capture": false,
+      "virtual_coordinates": {
+        "x": 20000,
+        "y": 0
+      },
+      "description": "Ghost window mode - invisible to operator, only vMix sees it via WGC. exclude_from_standard_capture=false recommended to avoid vMix issues."
+    },
+    "fallback_to_ndi": false
+  },
+  "performance_optimization": {
+    "cpu_affinity": {
+      "enabled": true,
+      "capture_threads_cores": "2-3",
+      "processing_threads_cores": "4-5",
+      "tensorrt_cores": "8-11",
+      "render_thread_core": "12",
+      "atlas_compositor_core": "13",
+      "description": "CCD0 for video capture, CCD1 for render/AI to minimize inter-CCD latency"
+    },
+    "gpu_scheduling": {
+      "hardware_accelerated_scheduling": "required",
+      "check_on_startup": true,
+      "pcie_bandwidth_monitoring": true,
+      "description": "Requires Windows Hardware Accelerated GPU Scheduling enabled in Graphics Settings"
+    },
+    "cuda_optimization": {
+      "multi_buffering_ndi": true,
+      "event_pooling": false,
+      "stream_priority_high": true,
+      "vram_bifurcation": true,
+      "description": "Enable multi-buffering and VRAM bifurcation for Atlas + TensorRT"
+    },
+    "telemetry_targets": {
+      "cap_max_ms": 15.0,
+      "sel_max_ms": 5.0,
+      "ndi_max_ms": 10.0,
+      "canvas_max_ms": 5.0,
+      "present_max_ms": 2.0,
+      "total_max_ms": 32.0,
+      "description": "Performance KPIs - total must be <33.3ms for 30fps"
+    }
+  },
   "ports": [
     { "index": 1, "name": "CAM_01", "role": "stream", "is_output": true },
     { "index": 2, "name": "CAM_02", "role": "stream" },

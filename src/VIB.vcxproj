@@ -115,6 +115,9 @@
     <ClCompile Include="capture\DeckLinkSource.cpp" />
     <ClCompile Include="DeckLinkAPI_i.c" />
     <ClCompile Include="ndi\NDIManager.cpp" />
+    <ClCompile Include="canvas\MegaCanvasManager.cpp" />
+    <ClCompile Include="canvas\DXGIPresenter.cpp" />
+    <ClCompile Include="canvas\NDIFallback.cpp" />
     <ClCompile Include="ai\YOLOProcessor.cpp" />
     <ClCompile Include="ai\ActiveCameraSelector.cpp" />
     <ClCompile Include="redis\RedisWorker.cpp" />
@@ -131,6 +134,9 @@
     <CudaCompile Include="ai\MotionDetection.cu">
       <CudaArch>compute_100,sm_100</CudaArch>
     </CudaCompile>
+    <CudaCompile Include="canvas\AtlasCompositor.cu">
+      <CudaArch>compute_100,sm_100</CudaArch>
+    </CudaCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="capture\CudaColorConversion.h" />
@@ -139,11 +145,17 @@
     <ClInclude Include="DeckLinkAPI_h.h" />
     <ClInclude Include="json.hpp" />
     <ClInclude Include="ndi\NDIManager.h" />
+    <ClInclude Include="canvas\MegaCanvasManager.h" />
+    <ClInclude Include="canvas\DXGIPresenter.h" />
+    <ClInclude Include="canvas\AtlasCompositor.h" />
+    <ClInclude Include="canvas\NDIFallback.h" />
     <ClInclude Include="ai\YOLOProcessor.h" />
     <ClInclude Include="ai\ActiveCameraSelector.h" />
     <ClInclude Include="telemetry\PerformanceMonitor.h" />
     <ClInclude Include="redis\RedisWorker.h" />
     <ClInclude Include="utils\Logger.h" />
+    <ClInclude Include="utils\ThreadOptimizer.h" />
+    <ClInclude Include="utils\GPUDiagnostics.h" />
     <ClInclude Include="control\TrackPhysicalController.h" />
     <ClInclude Include="control\VideoHubClient.h" />
     <ClInclude Include="control\VMixController.h" />
