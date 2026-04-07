@@ -277,9 +277,9 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         
-        // Test VideoHub routing alignment (1->1, 2->2, 6->6, etc.)
-        // Align inputs 1, 2, and 6 to their corresponding outputs for testing
-        std::vector<int> testIndices = {0, 1, 5}; // 0-based indices: maps to inputs 1, 2, 6
+        // Test VideoHub routing alignment (1->1, 2->2, ..., 16->16)
+        // Align all inputs 1-16 to their corresponding outputs for testing
+        std::vector<int> testIndices = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}; // 0-based indices: maps to inputs 1-16
         if (!TestVideoHubAlignment(videoHub, testIndices)) {
             Logger::Warning("VideoHub alignment test had issues, but continuing...");
         }
