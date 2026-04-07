@@ -628,7 +628,7 @@ int main(int argc, char* argv[]) {
                 }
                 
                 // Frame ready handler: Non-blocking pipeline with strict priority order
-                // Canvas/NDI → Selector → YOLO (async) → Redis (async)
+                // PRIORITY ORDER: Video Output (Canvas/NDI) → Selector → YOLO (async) → Redis (async)
                 capture->SetFrameReadyHandler([ndiManager, canvasManager, cameraSelector, yoloProcessor, &redisWorker, 
                                               perfMonitor, &config, yoloReady, yoloStream]
                                              (const VideoChannel& channel, cudaStream_t stream) {
@@ -652,10 +652,7 @@ int main(int argc, char* argv[]) {
                             stream
                         );
                     } else if (ndiManager) {
-                        // NDI mode: Send individual camera stream
-                        // NDI sends async - does NOT block for GPU completion
-                        // NDI mode: Send individual camera stream
-                        // NDI sends async - does NOT block for GPU completion
+                        // NDI mode: Send individual camera stream (async - does NOT block for GPU completion)
                         ndiManager->SendUYVYFrame(
                             channel.channelID,
                             channel.cudaYUVBuffer,
