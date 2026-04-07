@@ -499,8 +499,7 @@ int main(int argc, char* argv[]) {
                 throw std::runtime_error("NDI sender creation failed");
             }
         }
-        
-        if (!config.megaCanvasEnabled) {
+            
             Logger::Info("NDI senders initialized successfully");
             
             // Log vMix configuration tips for NDI mode
