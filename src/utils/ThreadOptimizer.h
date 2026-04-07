@@ -8,25 +8,38 @@
 /**
  * ThreadOptimizer - CPU Core Affinity and Thread Priority Management
  * 
- * Optimized for AMD Threadripper PRO 9955WX (16-Core/32-Thread)
+ * Optimized for AMD Threadripper PRO 9955WX (Zen 5, 16-Core/32-Thread)
  * 
  * Architecture:
  * - CCD 0: Cores 0-7  (Physical cores 0-7, logical threads 0-15)
  * - CCD 1: Cores 8-15 (Physical cores 8-15, logical threads 16-31)
  * 
- * Strategy:
- * - Video pipeline threads (Cap/Sel/NDI) pinned to CCD 0 (cores 0-7)
- * - Avoids inter-CCD latency (~30ns penalty for memory access)
- * - High priority for time-critical video processing
+ * Mega-Canvas Strategy:
+ * - CCD 0 (Cores 0-7): Video capture pipeline (DeckLink callbacks, color conversion)
+ * - CCD 1 (Cores 8-15): Render loop, Atlas composition, TensorRT inference
+ * 
+ * Inter-CCD Latency: ~30ns penalty for memory access across CCDs
+ * Keep related workloads on same CCD to minimize cache misses
  */
 class ThreadOptimizer {
 public:
     // Thread affinity profiles for different workload types
+    // Extended for Mega-Canvas architecture with render/AI separation
     enum class AffinityProfile {
-        VIDEO_CAPTURE,      // Cores 0-3 (High priority, low latency)
-        VIDEO_PROCESSING,   // Cores 4-7 (High priority, CCD 0)
-        BACKGROUND,         // Cores 8-15 (Normal priority, CCD 1)
-        UNRESTRICTED        // All cores (default OS scheduling)
+        // CCD 0 - Video Pipeline (Latency Critical)
+        DECKLINK_INTERRUPTS,    // Cores 0-1: DeckLink IRQ handlers
+        VIDEO_CAPTURE,          // Cores 2-3: DeckLinkCapture threads
+        VIDEO_PROCESSING,       // Cores 4-5: Motion detection, color conversion
+        NDI_FALLBACK,           // Cores 6-7: NDI output (if enabled)
+        
+        // CCD 1 - Render/AI Pipeline
+        TENSORRT_INFERENCE,     // Cores 8-11: YOLO batch inference
+        RENDER_DEDICATED,       // Core 12: Render loop (exclusive)
+        ATLAS_COMPOSITOR,       // Core 13: Atlas composition (exclusive)
+        REDIS_WORKER,           // Core 14: Data publishing
+        BACKGROUND,             // Core 15: Background tasks
+        
+        UNRESTRICTED            // All cores (default OS scheduling)
     };
 
     // Thread priority levels
@@ -98,6 +111,36 @@ public:
     }
 
     /**
+     * Optimize the current thread for TensorRT inference
+     * Sets affinity to TENSORRT_INFERENCE and priority to HIGH
+     */
+    static bool OptimizeForTensorRT() {
+        bool affinityOk = SetThreadAffinity(AffinityProfile::TENSORRT_INFERENCE);
+        bool priorityOk = SetThreadPriority(Priority::HIGH);
+        return affinityOk && priorityOk;
+    }
+
+    /**
+     * Optimize the current thread for render loop (Mega-Canvas)
+     * Sets affinity to RENDER_DEDICATED and priority to REALTIME
+     */
+    static bool OptimizeForRender() {
+        bool affinityOk = SetThreadAffinity(AffinityProfile::RENDER_DEDICATED);
+        bool priorityOk = SetThreadPriority(Priority::REALTIME);
+        return affinityOk && priorityOk;
+    }
+
+    /**
+     * Optimize the current thread for Atlas composition
+     * Sets affinity to ATLAS_COMPOSITOR and priority to HIGH
+     */
+    static bool OptimizeForAtlasComposition() {
+        bool affinityOk = SetThreadAffinity(AffinityProfile::ATLAS_COMPOSITOR);
+        bool priorityOk = SetThreadPriority(Priority::HIGH);
+        return affinityOk && priorityOk;
+    }
+
+    /**
      * Get CPU information for logging
      */
     static std::string GetCPUInfo() {
@@ -112,20 +155,43 @@ public:
 private:
     static DWORD_PTR GetAffinityMask(AffinityProfile profile) {
         switch (profile) {
+            // CCD 0 - Video Pipeline (Threads 0-15)
+            case AffinityProfile::DECKLINK_INTERRUPTS:
+                // Cores 0-1 (threads 0-3 on SMT) - Reserved for IRQ handlers
+                return 0x0000000F;
+                
             case AffinityProfile::VIDEO_CAPTURE:
-                // Cores 0-3 (threads 0-7 on SMT)
-                // 0x000000FF = bits 0-7 set
-                return 0x000000FF;
+                // Cores 2-3 (threads 4-7 on SMT) - DeckLink capture
+                return 0x000000F0;
                 
             case AffinityProfile::VIDEO_PROCESSING:
-                // Cores 4-7 (threads 8-15 on SMT)
-                // 0x0000FF00 = bits 8-15 set
-                return 0x0000FF00;
+                // Cores 4-5 (threads 8-11 on SMT) - Motion, color conversion
+                return 0x00000F00;
+                
+            case AffinityProfile::NDI_FALLBACK:
+                // Cores 6-7 (threads 12-15 on SMT) - NDI backup output
+                return 0x0000F000;
+                
+            // CCD 1 - Render/AI Pipeline (Threads 16-31)
+            case AffinityProfile::TENSORRT_INFERENCE:
+                // Cores 8-11 (threads 16-23 on SMT) - YOLO batch processing
+                return 0x00FF0000;
+                
+            case AffinityProfile::RENDER_DEDICATED:
+                // Core 12 only (thread 24, no SMT sibling) - Render loop
+                return 0x01000000;
+                
+            case AffinityProfile::ATLAS_COMPOSITOR:
+                // Core 13 only (thread 26, no SMT sibling) - Atlas composition
+                return 0x04000000;
+                
+            case AffinityProfile::REDIS_WORKER:
+                // Core 14 only (thread 28, no SMT sibling) - Data publishing
+                return 0x10000000;
                 
             case AffinityProfile::BACKGROUND:
-                // Cores 8-15 (threads 16-31 on SMT)
-                // 0xFFFF0000 = bits 16-31 set
-                return 0xFFFF0000;
+                // Core 15 (threads 30-31 on SMT) - Background tasks
+                return 0xC0000000;
                 
             case AffinityProfile::UNRESTRICTED:
             default:
@@ -150,9 +216,15 @@ private:
 
     static std::string GetProfileName(AffinityProfile profile) {
         switch (profile) {
-            case AffinityProfile::VIDEO_CAPTURE: return "VIDEO_CAPTURE (cores 0-3)";
-            case AffinityProfile::VIDEO_PROCESSING: return "VIDEO_PROCESSING (cores 4-7)";
-            case AffinityProfile::BACKGROUND: return "BACKGROUND (cores 8-15)";
+            case AffinityProfile::DECKLINK_INTERRUPTS: return "DECKLINK_INTERRUPTS (cores 0-1)";
+            case AffinityProfile::VIDEO_CAPTURE: return "VIDEO_CAPTURE (cores 2-3)";
+            case AffinityProfile::VIDEO_PROCESSING: return "VIDEO_PROCESSING (cores 4-5)";
+            case AffinityProfile::NDI_FALLBACK: return "NDI_FALLBACK (cores 6-7)";
+            case AffinityProfile::TENSORRT_INFERENCE: return "TENSORRT_INFERENCE (cores 8-11)";
+            case AffinityProfile::RENDER_DEDICATED: return "RENDER_DEDICATED (core 12)";
+            case AffinityProfile::ATLAS_COMPOSITOR: return "ATLAS_COMPOSITOR (core 13)";
+            case AffinityProfile::REDIS_WORKER: return "REDIS_WORKER (core 14)";
+            case AffinityProfile::BACKGROUND: return "BACKGROUND (core 15)";
             case AffinityProfile::UNRESTRICTED: return "UNRESTRICTED (all cores)";
             default: return "UNKNOWN";
         }
