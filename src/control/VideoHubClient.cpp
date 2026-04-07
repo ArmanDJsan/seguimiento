@@ -184,8 +184,9 @@ bool VideoHubClient::AlignInputsToOutputs(const std::vector<int>& indices) {
             continue;
         }
         
-        // Route input N to output N (1-based, but internally 0-based)
-        // VideoHub protocol uses 0-based indexing
+        // Route input N to output N
+        // VideoHub protocol uses 0-based indexing, and the indices parameter is also 0-based
+        // Example: index=0 routes input 0 to output 0 (which is Input 1 -> Output 1 in 1-based UI terms)
         command << index << " " << index << "\n";
     }
     command << "\n";
