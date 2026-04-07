@@ -178,16 +178,16 @@ private:
                 return 0x00FF0000;
                 
             case AffinityProfile::RENDER_DEDICATED:
-                // Core 12 only (thread 24, no SMT sibling) - Render loop
-                return 0x01000000;
+                // Core 12 (threads 24-25 with SMT) - Render loop
+                return 0x03000000;
                 
             case AffinityProfile::ATLAS_COMPOSITOR:
-                // Core 13 only (thread 26, no SMT sibling) - Atlas composition
-                return 0x04000000;
+                // Core 13 (threads 26-27 with SMT) - Atlas composition
+                return 0x0C000000;
                 
             case AffinityProfile::REDIS_WORKER:
-                // Core 14 only (thread 28, no SMT sibling) - Data publishing
-                return 0x10000000;
+                // Core 14 (threads 28-29 with SMT) - Data publishing
+                return 0x30000000;
                 
             case AffinityProfile::BACKGROUND:
                 // Core 15 (threads 30-31 on SMT) - Background tasks

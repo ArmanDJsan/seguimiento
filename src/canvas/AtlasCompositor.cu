@@ -14,6 +14,8 @@
  * - Combined bifurcation: <0.6ms total per camera
  */
 
+// Workaround for conflict between CUDA headers and C++17 std::byte
+// CUDA defines its own byte type which conflicts with std::byte
 #define _HAS_STD_BYTE 0
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>

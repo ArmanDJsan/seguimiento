@@ -488,7 +488,7 @@ void MegaCanvasManager::RenderThreadFunc(std::stop_token stopToken) {
 
     // Pin to CCD1 (cores 8-15) for render/AI workloads
     // This keeps video capture on CCD0 and render on CCD1
-    ThreadOptimizer::SetThreadAffinity(ThreadOptimizer::AffinityProfile::BACKGROUND);
+    ThreadOptimizer::SetThreadAffinity(ThreadOptimizer::AffinityProfile::RENDER_DEDICATED);
     ThreadOptimizer::SetThreadPriority(ThreadOptimizer::Priority::REALTIME);
 
     using namespace std::chrono;

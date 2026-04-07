@@ -16,6 +16,7 @@
 
 #include <string>
 #include <sstream>
+#include <iomanip>
 
 // Link required libraries
 #pragma comment(lib, "d3d11.lib")
@@ -25,6 +26,13 @@
 namespace {
     // Window class name for the borderless window
     constexpr wchar_t kWindowClassName[] = L"VIB_MegaCanvas_WGC";
+    
+    // Helper to format HRESULT as hexadecimal
+    std::string HResultToHex(HRESULT hr) {
+        std::ostringstream oss;
+        oss << "0x" << std::hex << std::uppercase << std::setfill('0') << std::setw(8) << static_cast<unsigned long>(hr);
+        return oss.str();
+    }
 }
 
 DXGIPresenter::DXGIPresenter() {
@@ -140,7 +148,7 @@ bool DXGIPresenter::CreateDevice() {
 
     HRESULT hr = CreateDXGIFactory2(factoryFlags, IID_PPV_ARGS(&m_factory));
     if (FAILED(hr)) {
-        Logger::Error("DXGIPresenter: CreateDXGIFactory2 failed: 0x" + std::to_string(hr));
+        Logger::Error("DXGIPresenter: CreateDXGIFactory2 failed: " + HResultToHex(hr));
         return false;
     }
 
@@ -203,7 +211,7 @@ bool DXGIPresenter::CreateDevice() {
     );
 
     if (FAILED(hr)) {
-        Logger::Error("DXGIPresenter: D3D11CreateDevice failed: 0x" + std::to_string(hr));
+        Logger::Error("DXGIPresenter: D3D11CreateDevice failed: " + HResultToHex(hr));
         return false;
     }
 
@@ -350,7 +358,7 @@ bool DXGIPresenter::CreateSwapChain() {
     );
 
     if (FAILED(hr)) {
-        Logger::Error("DXGIPresenter: CreateSwapChainForHwnd failed: 0x" + std::to_string(hr));
+        Logger::Error("DXGIPresenter: CreateSwapChainForHwnd failed: " + HResultToHex(hr));
         return false;
     }
 
@@ -388,14 +396,14 @@ bool DXGIPresenter::CreateRenderTarget() {
     // Get backbuffer
     HRESULT hr = m_swapChain->GetBuffer(0, IID_PPV_ARGS(&m_backBuffer));
     if (FAILED(hr)) {
-        Logger::Error("DXGIPresenter: GetBuffer failed: 0x" + std::to_string(hr));
+        Logger::Error("DXGIPresenter: GetBuffer failed: " + HResultToHex(hr));
         return false;
     }
 
     // Create render target view
     hr = m_device->CreateRenderTargetView(m_backBuffer.Get(), nullptr, &m_rtv);
     if (FAILED(hr)) {
-        Logger::Error("DXGIPresenter: CreateRenderTargetView failed: 0x" + std::to_string(hr));
+        Logger::Error("DXGIPresenter: CreateRenderTargetView failed: " + HResultToHex(hr));
         return false;
     }
 
@@ -467,7 +475,7 @@ bool DXGIPresenter::Present() {
             return true;
         }
         
-        Logger::Warning("DXGIPresenter: Present failed: 0x" + std::to_string(hr));
+        Logger::Warning("DXGIPresenter: Present failed: " + HResultToHex(hr));
         return false;
     }
 
@@ -507,7 +515,7 @@ bool DXGIPresenter::Resize(int width, int height) {
     );
 
     if (FAILED(hr)) {
-        Logger::Error("DXGIPresenter: ResizeBuffers failed: 0x" + std::to_string(hr));
+        Logger::Error("DXGIPresenter: ResizeBuffers failed: " + HResultToHex(hr));
         return false;
     }
 
