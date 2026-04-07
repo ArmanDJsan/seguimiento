@@ -165,6 +165,42 @@ bool VideoHubClient::RouteInputToOutput(int outputIndex, const std::string& sour
     return RouteInputToOutput(outputIndex, it->second);
 }
 
+bool VideoHubClient::AlignInputsToOutputs(const std::vector<int>& indices) {
+    if (indices.empty()) {
+        Logger::Error("[TECH ERROR] AlignInputsToOutputs called with empty indices");
+        return false;
+    }
+    
+    Logger::Info("Aligning VideoHub inputs to outputs for testing...");
+    
+    std::ostringstream command;
+    command << kRoutingHeader << "\n";
+    
+    bool allValid = true;
+    for (int index : indices) {
+        if (index < 0) {
+            Logger::Error("[TECH ERROR] Invalid index in alignment: " + std::to_string(index));
+            allValid = false;
+            continue;
+        }
+        
+        // Route input N to output N (1-based, but internally 0-based)
+        // VideoHub protocol uses 0-based indexing
+        command << index << " " << index << "\n";
+    }
+    command << "\n";
+    
+    if (!allValid) {
+        return false;
+    }
+    
+    bool success = SendCommand(command.str());
+    if (success) {
+        Logger::Info("VideoHub routing aligned successfully");
+    }
+    return success;
+}
+
 bool VideoHubClient::RefreshInputLabels(const std::unordered_map<int, std::string>& labels) {
     std::vector<std::pair<int, std::string>> ordered(labels.begin(), labels.end());
     std::sort(ordered.begin(), ordered.end(),

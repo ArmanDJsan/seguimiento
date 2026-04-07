@@ -10,6 +10,7 @@
 
 #include <string>
 #include <unordered_map>
+#include <vector>
 #include <cstdint>
 // winsock2.h must be included before windows.h to avoid conflicts with winsock.h
 #include <winsock2.h>
@@ -27,6 +28,9 @@ public:
 
     bool RouteInputToOutput(int outputIndex, int sourceIndex);
     bool RouteInputToOutput(int outputIndex, const std::string& sourceName);
+    
+    // Align inputs to outputs for testing (1->1, 2->2, 3->3, etc.)
+    bool AlignInputsToOutputs(const std::vector<int>& indices);
 
     bool RefreshInputLabels(const std::unordered_map<int, std::string>& labels);
 

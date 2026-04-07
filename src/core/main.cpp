@@ -198,6 +198,21 @@ bool RunPhase1(VMixController& vmix,
     return true;
 }
 
+// Test function to align VideoHub inputs to outputs for diagnostics
+bool TestVideoHubAlignment(VideoHubClient& videoHub, const std::vector<int>& indices) {
+    Logger::Info("=== VideoHub Routing Alignment Test ===");
+    if (!videoHub.AlignInputsToOutputs(indices)) {
+        Logger::Error("VideoHub alignment test failed");
+        return false;
+    }
+    Logger::Info("VideoHub alignment test completed successfully");
+    Logger::Info("Indices aligned:");
+    for (int idx : indices) {
+        Logger::Info("  Input " + std::to_string(idx + 1) + " -> Output " + std::to_string(idx + 1));
+    }
+    return true;
+}
+
 bool RunPhase2(VideoHubClient& videoHub, int targetSpheres) {
     if (!videoHub.RouteInputToOutput(kVideoHubPrimaryOutput, "CAM_01")) {
         Logger::Error("[HW/SW ERROR]: No se pudo fijar CAM_01 en la salida");
@@ -260,6 +275,13 @@ int main(int argc, char* argv[]) {
         if (!RunPhase1(vmix, videoHub, deckLinkSource, trackController)) {
             Logger::Error("Ignición abortada durante Fase 1");
             return 1;
+        }
+        
+        // Test VideoHub routing alignment (1->1, 2->2, 6->6, etc.)
+        // Align first 6 inputs to their corresponding outputs for testing
+        std::vector<int> testIndices = {0, 1, 5}; // 0-based: input 1, 2, 6
+        if (!TestVideoHubAlignment(videoHub, testIndices)) {
+            Logger::Warning("VideoHub alignment test had issues, but continuing...");
         }
 
         // Fase 2: Escena (YOLO check)
