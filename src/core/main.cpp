@@ -33,6 +33,7 @@
 #include "../capture/DeckLinkCapture.h"
 #include "../capture/DeckLinkSource.h"
 #include "../ndi/NDIManager.h"
+#include "../canvas/MegaCanvasManager.h"
 #include "../ai/YOLOProcessor.h"
 #include "../ai/ActiveCameraSelector.h"
 #include "../redis/RedisWorker.h"
@@ -116,6 +117,10 @@ struct Config {
     float hysteresisSwitchThreshold;
     int hysteresisMinActiveFrames;
     float hysteresisDecayFactor;
+    
+    // MegaCanvas configuration
+    bool megaCanvasEnabled;
+    bool fallbackToNDI;
 };
 
 Config LoadConfig(const std::string& path) {
@@ -151,6 +156,10 @@ Config LoadConfig(const std::string& path) {
     config.hysteresisSwitchThreshold = 0.15f;
     config.hysteresisMinActiveFrames = 10;
     config.hysteresisDecayFactor = 0.98f;
+    
+    // MegaCanvas defaults
+    config.megaCanvasEnabled = false;
+    config.fallbackToNDI = false;
 
     std::ifstream file(path);
     if (!file.is_open()) {
@@ -252,6 +261,17 @@ Config LoadConfig(const std::string& path) {
                 if (hyst.contains("decay_factor") && hyst["decay_factor"].is_number()) {
                     config.hysteresisDecayFactor = hyst["decay_factor"].get<float>();
                 }
+            }
+        }
+
+        // Parse mega_canvas section
+        if (j.contains("mega_canvas") && j["mega_canvas"].is_object()) {
+            auto& mc = j["mega_canvas"];
+            if (mc.contains("enabled") && mc["enabled"].is_boolean()) {
+                config.megaCanvasEnabled = mc["enabled"].get<bool>();
+            }
+            if (mc.contains("fallback_to_ndi") && mc["fallback_to_ndi"].is_boolean()) {
+                config.fallbackToNDI = mc["fallback_to_ndi"].get<bool>();
             }
         }
 
@@ -408,36 +428,69 @@ int main(int argc, char* argv[]) {
         }
 
         // ============================================================================
-        // NDI Initialization (replaced Spout for vMix compatibility)
+        // Video Output Initialization - MegaCanvas OR NDI
         // ============================================================================
-        // NDI provides:
-        // - Native vMix support (no plugins needed)
-        // - Zero-copy async sending via completion callbacks
-        // - UYVY format support (native DeckLink format, optimal for vMix)
-        // - Network transparency (works across machines if needed)
-        //
-        // Note: D3D11 device creation is no longer required for video output.
-        //       DeckLinkCapture uses CUDA-only pipeline for zero-copy DMA.
-        // ============================================================================
+        std::shared_ptr<NDIManager> ndiManager;
+        std::shared_ptr<MegaCanvasManager> canvasManager;
         
-        Logger::Info("Initializing NDI output for vMix...");
-        
-        // Initialize NDI Manager
-        auto ndiManager = std::make_shared<NDIManager>();
-        if (!ndiManager->Initialize()) {
-            Logger::Error("Failed to initialize NDI library");
-            throw std::runtime_error("NDI initialization failed");
+        if (config.megaCanvasEnabled) {
+            // ============================================================================
+            // MegaCanvas Mode - 16K Atlas for vMix Windows Graphics Capture (WGC)
+            // ============================================================================
+            Logger::Info("Initializing MegaCanvas (16K Atlas) for vMix WGC...");
+            Logger::Info("MegaCanvas provides:");
+            Logger::Info("  - 16K Virtual Canvas (15360x6480) - 4x3 grid of native 4K cells");
+            Logger::Info("  - DXGI presentation for direct Windows Graphics Capture by vMix");
+            Logger::Info("  - Ghost Window mode - invisible to operator, WGC-only");
+            Logger::Info("  - VRAM bifurcation: Atlas + TensorRT downscale in single pass");
+            
+            canvasManager = std::make_shared<MegaCanvasManager>();
+            if (!canvasManager->Initialize()) {
+                Logger::Error("Failed to initialize MegaCanvas");
+                
+                if (config.fallbackToNDI) {
+                    Logger::Warning("Falling back to NDI mode...");
+                    config.megaCanvasEnabled = false;  // Switch to NDI
+                } else {
+                    throw std::runtime_error("MegaCanvas initialization failed and fallback disabled");
+                }
+            } else {
+                Logger::Info("MegaCanvas initialized successfully");
+                Logger::Info("=== vMix Configuration (WGC Mode) ===");
+                Logger::Info("1. Add Input -> More -> Windows Desktop Capture");
+                Logger::Info("2. Select window: 'VIB MegaCanvas 16K (vMix WGC)'");
+                Logger::Info("3. Enable 'High Input Performance Mode' in vMix settings");
+                Logger::Info("4. Canvas shows 12 cameras in 4x3 grid (native 4K per cell)");
+            }
         }
         
-        // Pre-create all 12 NDI senders to maintain stable source names for vMix
-        // vMix will see these as "VIB_CAM_01" through "VIB_CAM_12"
-        Logger::Info("Creating NDI senders for " + std::to_string(kMaxNDIChannels) + " channels...");
-        for (int channel = 0; channel < kMaxNDIChannels; ++channel) {
-            std::ostringstream oss;
-            oss << "VIB_CAM_" << std::setw(2) << std::setfill('0') << (channel + 1);
-            const std::string senderName = oss.str();
+        if (!config.megaCanvasEnabled) {
+            // ============================================================================
+            // NDI Mode - Individual camera streams (legacy/fallback)
+            // ============================================================================
+            Logger::Info("Initializing NDI output for vMix...");
+            Logger::Info("NDI provides:");
+            Logger::Info("  - Native vMix support (no plugins needed)");
+            Logger::Info("  - Zero-copy async sending via completion callbacks");
+            Logger::Info("  - UYVY format support (native DeckLink format)");
+            Logger::Info("  - 12 individual camera sources");
             
-            // Use UYVY format for optimal performance:
+            // Initialize NDI Manager
+            ndiManager = std::make_shared<NDIManager>();
+            if (!ndiManager->Initialize()) {
+                Logger::Error("Failed to initialize NDI library");
+                throw std::runtime_error("NDI initialization failed");
+            }
+            
+            // Pre-create all 12 NDI senders to maintain stable source names for vMix
+            // vMix will see these as "VIB_CAM_01" through "VIB_CAM_12"
+            Logger::Info("Creating NDI senders for " + std::to_string(kMaxNDIChannels) + " channels...");
+            for (int channel = 0; channel < kMaxNDIChannels; ++channel) {
+                std::ostringstream oss;
+                oss << "VIB_CAM_" << std::setw(2) << std::setfill('0') << (channel + 1);
+                const std::string senderName = oss.str();
+                
+                // Use UYVY format for optimal performance:
             // - DeckLink outputs UYVY natively
             // - vMix expects UYVY and converts internally to 32-bit float 4:4:4
             // - Avoids YUV→BGRA conversion for vMix path (saves ~1-2ms per frame)
@@ -446,13 +499,16 @@ int main(int argc, char* argv[]) {
                 throw std::runtime_error("NDI sender creation failed");
             }
         }
-        Logger::Info("NDI senders initialized successfully");
         
-        // Log vMix configuration tips
-        Logger::Info("=== vMix Configuration Tips ===");
-        Logger::Info("1. Enable 'High Input Performance Mode' for 9+ cameras (requires GPU with >3GB VRAM)");
-        Logger::Info("2. Disable 'Show preview thumbnails for NDI sources' to reduce network traffic");
-        Logger::Info("3. NDI sources will appear as 'VIB_CAM_01' through 'VIB_CAM_12'");
+        if (!config.megaCanvasEnabled) {
+            Logger::Info("NDI senders initialized successfully");
+            
+            // Log vMix configuration tips for NDI mode
+            Logger::Info("=== vMix Configuration Tips (NDI Mode) ===");
+            Logger::Info("1. Enable 'High Input Performance Mode' for 9+ cameras (requires GPU with >3GB VRAM)");
+            Logger::Info("2. Disable 'Show preview thumbnails for NDI sources' to reduce network traffic");
+            Logger::Info("3. NDI sources will appear as 'VIB_CAM_01' through 'VIB_CAM_12'");
+        }
         
         // ============================================================================
         // Initialize AI Pipeline Components
@@ -566,9 +622,14 @@ int main(int argc, char* argv[]) {
             auto capture = std::make_unique<DeckLinkCapture>();
             const std::string channelName = "Channel_" + std::to_string(i + 1);
             if (capture->Initialize(i, channelName)) {
+                // Register camera with MegaCanvas if enabled
+                if (config.megaCanvasEnabled && canvasManager) {
+                    canvasManager->RegisterCamera(i, kDefaultWidth, kDefaultHeight);
+                }
+                
                 // Frame ready handler: Non-blocking pipeline with strict priority order
-                // ORDEN 2: NON-BLOCKING PIPELINE - NDI → Selector → YOLO (async) → Redis (async)
-                capture->SetFrameReadyHandler([ndiManager, cameraSelector, yoloProcessor, &redisWorker, 
+                // Canvas/NDI → Selector → YOLO (async) → Redis (async)
+                capture->SetFrameReadyHandler([ndiManager, canvasManager, cameraSelector, yoloProcessor, &redisWorker, 
                                               perfMonitor, &config, yoloReady, yoloStream]
                                              (const VideoChannel& channel, cudaStream_t stream) {
                     auto frameStart = std::chrono::high_resolution_clock::now();
@@ -576,18 +637,36 @@ int main(int argc, char* argv[]) {
                     
                     // ============================================================================
                     // PRIORITY 1: Video Output to vMix (ALWAYS happens FIRST - sacred video)
-                    // NDI sends async - does NOT block for GPU completion
                     // ============================================================================
-                    auto ndiStart = std::chrono::high_resolution_clock::now();
-                    ndiManager->SendUYVYFrame(
-                        channel.channelID,
-                        channel.cudaYUVBuffer,
-                        channel.width,
-                        channel.height,
-                        stream  // Uses capture stream, returns immediately
-                    );
-                    auto ndiEnd = std::chrono::high_resolution_clock::now();
-                    telemetry.ndi_ms = std::chrono::duration<double, std::milli>(ndiEnd - ndiStart).count();
+                    auto outputStart = std::chrono::high_resolution_clock::now();
+                    
+                    if (config.megaCanvasEnabled && canvasManager) {
+                        // MegaCanvas mode: Update Atlas with VRAM bifurcation
+                        // - Copies BGRA to Atlas cell (1:1 native 4K)
+                        // - Simultaneously downscales to 640x640 for TensorRT
+                        canvasManager->UpdateCameraFrame(
+                            channel.channelID,
+                            channel.cudaBGRABuffer,
+                            channel.width,
+                            channel.height,
+                            stream
+                        );
+                    } else if (ndiManager) {
+                        // NDI mode: Send individual camera stream
+                        // NDI sends async - does NOT block for GPU completion
+                        // NDI mode: Send individual camera stream
+                        // NDI sends async - does NOT block for GPU completion
+                        ndiManager->SendUYVYFrame(
+                            channel.channelID,
+                            channel.cudaYUVBuffer,
+                            channel.width,
+                            channel.height,
+                            stream  // Uses capture stream, returns immediately
+                        );
+                    }
+                    
+                    auto outputEnd = std::chrono::high_resolution_clock::now();
+                    telemetry.ndi_ms = std::chrono::duration<double, std::milli>(outputEnd - outputStart).count();
                     
                     // ============================================================================
                     // PRIORITY 2: Motion Analysis (if selector enabled)
@@ -673,9 +752,19 @@ int main(int argc, char* argv[]) {
             }
         }
         
+        // Start MegaCanvas render thread if enabled
+        if (config.megaCanvasEnabled && canvasManager) {
+            canvasManager->StartRenderThread();
+            Logger::Info("MegaCanvas render thread started (30Hz fixed rate)");
+        }
+        
         // Main monitoring loop
         Logger::Info("=== System Status ===");
-        Logger::Info("Video Pipeline: " + std::to_string(kMaxNDIChannels) + " NDI channels active");
+        if (config.megaCanvasEnabled) {
+            Logger::Info("Video Pipeline: MegaCanvas 16K Atlas (12 cameras in 4x3 grid)");
+        } else {
+            Logger::Info("Video Pipeline: " + std::to_string(kMaxNDIChannels) + " NDI channels active");
+        }
         Logger::Info("Camera Selector: " + std::string(config.selectorEnabled ? "Enabled (Top-" + std::to_string(config.selectorTopK) + ")" : "Disabled"));
         Logger::Info("YOLO Inference: " + std::string(yoloReady ? (yoloProcessor->IsStubMode() ? "Stub mode" : "Active") : "Disabled"));
         Logger::Info("Redis Publishing: " + std::string(config.redisEnabled ? (redisWorker.IsConnected() ? "Connected" : "Retrying") : "Disabled"));
@@ -793,6 +882,12 @@ int main(int argc, char* argv[]) {
         // Cleanup
         Logger::Info("Shutting down...");
         
+        // Stop MegaCanvas render thread if active
+        if (config.megaCanvasEnabled && canvasManager) {
+            canvasManager->StopRenderThread();
+            Logger::Info("MegaCanvas render thread stopped");
+        }
+        
         // Destroy YOLO CUDA stream
         if (yoloStream) {
             cudaStreamDestroy(yoloStream);
@@ -801,14 +896,20 @@ int main(int argc, char* argv[]) {
         
         redisWorker.Stop();
         
-        // Stop all capture channels before releasing NDI
+        // Stop all capture channels before releasing video output
         for (auto& capture : captureChannels) {
             capture->Stop();
         }
         captureChannels.clear();
         
-        // Release NDI senders
-        ndiManager->ReleaseAll();
+        // Cleanup video output systems
+        if (config.megaCanvasEnabled && canvasManager) {
+            canvasManager->Shutdown();
+            Logger::Info("MegaCanvas shutdown complete");
+        } else if (ndiManager) {
+            ndiManager->ReleaseAll();
+            Logger::Info("NDI shutdown complete");
+        }
         
         Logger::Info("Visual Intelligence Bypass shutdown complete");
         
