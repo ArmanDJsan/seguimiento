@@ -95,97 +95,60 @@ public:
      * @param deviceId CUDA device ID
      * @return PCIe information
      */
+     /**
+       * Get PCIe link information from CUDA using hardware IDs
+       */
     static PCIeInfo GetPCIeInfo(int deviceId = 0) {
-        PCIeInfo info = {0, 0, 0.0, false};
-        
-        cudaDeviceProp props;
-        cudaError_t err = cudaGetDeviceProperties(&props, deviceId);
-        if (err != cudaSuccess) {
-            Logger::Error("Failed to get CUDA device properties: " + 
-                         std::string(cudaGetErrorString(err)));
-            return info;
-        }
-        
-        // Get PCIe link width (number of lanes)
+        PCIeInfo info = { 0, 0, 0.0, false };
+
         int linkWidth = 0;
-        err = cudaDeviceGetAttribute(&linkWidth, cudaDevAttrPciMaxLinkWidth, deviceId);
-        if (err == cudaSuccess) {
+        int linkGen = 0;
+
+        // 56 = cudaDevAttrPciMaxLinkWidth
+        if (cudaDeviceGetAttribute(&linkWidth, (cudaDeviceAttr)56, deviceId) == cudaSuccess) {
             info.linkWidth = linkWidth;
         }
-        
-        // Get PCIe generation (3, 4, 5, 6)
-        int linkGen = 0;
-        err = cudaDeviceGetAttribute(&linkGen, cudaDevAttrPciMaxLinkGeneration, deviceId);
-        if (err == cudaSuccess) {
+
+        // 57 = cudaDevAttrPciMaxLinkGeneration
+        if (cudaDeviceGetAttribute(&linkGen, (cudaDeviceAttr)57, deviceId) == cudaSuccess) {
             info.linkGen = linkGen;
         }
-        
-        // Calculate theoretical bandwidth
-        // PCIe bandwidth per lane per direction (GB/s):
-        // Gen 3: ~1.0 GB/s
-        // Gen 4: ~2.0 GB/s
-        // Gen 5: ~4.0 GB/s
+
         double bandwidthPerLane = 0.0;
         switch (info.linkGen) {
-            case 3: bandwidthPerLane = 0.985; break;  // ~1 GB/s
-            case 4: bandwidthPerLane = 1.969; break;  // ~2 GB/s
-            case 5: bandwidthPerLane = 3.938; break;  // ~4 GB/s
-            case 6: bandwidthPerLane = 7.877; break;  // ~8 GB/s (future)
-            default: bandwidthPerLane = 0.0; break;
+        case 3: bandwidthPerLane = 0.985; break;
+        case 4: bandwidthPerLane = 1.969; break;
+        case 5: bandwidthPerLane = 3.938; break; // RTX 5080 / Gen 5
+        default: bandwidthPerLane = 0.0; break;
         }
-        
+
         info.bandwidth_gbps = bandwidthPerLane * info.linkWidth;
         info.isOptimal = (info.linkWidth == 16 && info.linkGen >= 4);
-        
-        // Log PCIe information
-        std::ostringstream oss;
-        oss << "PCIe Link: Gen" << info.linkGen << " x" << info.linkWidth 
-            << " (" << info.bandwidth_gbps << " GB/s bidirectional)";
-        
-        if (info.isOptimal) {
-            Logger::Info(oss.str() + " - OPTIMAL");
-        } else {
-            Logger::Warning(oss.str() + " - SUBOPTIMAL (expected x16 Gen4+)");
-            if (info.linkWidth < 16) {
-                Logger::Warning("  PCIe link negotiated at x" + std::to_string(info.linkWidth) + 
-                               " instead of x16. Check motherboard slot.");
-            }
-            if (info.linkGen < 4) {
-                Logger::Warning("  PCIe Gen" + std::to_string(info.linkGen) + 
-                               " detected. RTX 5080 supports Gen5.");
-            }
-        }
-        
+
         return info;
     }
 
     /**
-     * Get comprehensive GPU information
+     * Get comprehensive GPU information using hardware IDs
      */
     static std::string GetGPUInfo(int deviceId = 0) {
         cudaDeviceProp props;
-        cudaError_t err = cudaGetDeviceProperties(&props, deviceId);
-        if (err != cudaSuccess) {
-            return "Failed to get GPU info: " + std::string(cudaGetErrorString(err));
+        if (cudaGetDeviceProperties(&props, deviceId) != cudaSuccess) {
+            return "Failed to get GPU info";
         }
-        
+
+        // 15 = cudaDevAttrMemoryClockRate
+        int memClockKHz = 0;
+        cudaDeviceGetAttribute(&memClockKHz, (cudaDeviceAttr)15, deviceId);
+
         std::ostringstream oss;
         oss << "GPU: " << props.name << "\n";
-        oss << "  Compute Capability: " << props.major << "." << props.minor << "\n";
-        oss << "  Total VRAM: " << (props.totalGlobalMem / (1024*1024*1024)) << " GB\n";
-        oss << "  CUDA Cores: " << props.multiProcessorCount * 128 << " (estimated)\n";
-        oss << "  Memory Clock: " << (props.memoryClockRate / 1000) << " MHz\n";
-        oss << "  Memory Bus Width: " << props.memoryBusWidth << "-bit\n";
-        
-        // Get free VRAM
-        size_t freeMem = 0, totalMem = 0;
-        cudaMemGetInfo(&freeMem, &totalMem);
-        oss << "  VRAM Free: " << (freeMem / (1024*1024*1024)) << " GB / " 
-            << (totalMem / (1024*1024*1024)) << " GB";
-        
+        oss << "  Compute: " << props.major << "." << props.minor << "\n";
+        oss << "  VRAM: " << (props.totalGlobalMem / (1024 * 1024 * 1024)) << " GB\n";
+        oss << "  Memory Clock: " << (memClockKHz / 1000) << " MHz\n";
+
         return oss.str();
     }
-
     /**
      * Run full diagnostics and log results
      */

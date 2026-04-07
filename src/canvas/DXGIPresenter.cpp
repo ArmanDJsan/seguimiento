@@ -504,15 +504,8 @@ bool DXGIPresenter::Present() {
     UINT presentFlags = 0;
 
     if (m_tearingSupported && m_config.enableTearing) {
-        // Tearing mode: sync interval 0 + ALLOW_TEARING flag
         presentFlags = DXGI_PRESENT_ALLOW_TEARING;
         syncInterval = 0;
-    } else if (!m_config.vsync) {
-        // No VSync, no tearing support: just present immediately
-        syncInterval = 0;
-    } else {
-        // VSync enabled
-        syncInterval = 1;
     }
 
     HRESULT hr = m_swapChain->Present(syncInterval, presentFlags);
