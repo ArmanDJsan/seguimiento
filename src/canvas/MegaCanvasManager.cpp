@@ -73,7 +73,7 @@ bool MegaCanvasManager::Initialize() {
     presenterConfig.mousePassthrough = true;     // Click-through
     presenterConfig.hideFromTaskbar = true;      // Not visible in taskbar/Alt+Tab
     presenterConfig.excludeFromCapture = false;  // Keep false - vMix needs WGC access
-    presenterConfig.virtualX = 20000;            // Off-screen X
+    presenterConfig.virtualX = -15360;           // Off-screen left (WGC compatible)
     presenterConfig.virtualY = 0;                // Off-screen Y
 
     if (!m_presenter->Initialize(presenterConfig)) {

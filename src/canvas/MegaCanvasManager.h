@@ -277,7 +277,7 @@ struct MegaCanvasConfig {
     bool hideFromTaskbar = true;    // WS_EX_TOOLWINDOW
     bool excludeFromCapture = false;// SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)
                                     // WARNING: Keep false to ensure vMix WGC works
-    int virtualX = 20000;           // Virtual X coordinate (off-screen)
+    int virtualX = -15360;          // Virtual X coordinate (off-screen left, WGC compatible)
     int virtualY = 0;               // Virtual Y coordinate
 };
 

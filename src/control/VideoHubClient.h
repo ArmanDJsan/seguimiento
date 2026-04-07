@@ -28,6 +28,10 @@ public:
     bool RouteInputToOutput(int outputIndex, int sourceIndex);
     bool RouteInputToOutput(int outputIndex, const std::string& sourceName);
 
+    // Route all outputs to matching inputs (0->0, 1->1, ..., (count-1)->(count-1))
+    // Note: Uses 0-based indexing; port 0 = physical port 1 on device
+    bool RouteAllOutputsToMatchingInputs(int count = 16);
+
     bool RefreshInputLabels(const std::unordered_map<int, std::string>& labels);
 
 private:

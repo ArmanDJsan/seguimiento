@@ -294,10 +294,10 @@ HWND DXGIPresenter::CreateBorderlessWindow() {
     int windowX = m_config.windowX;
     int windowY = m_config.windowY;
     if (m_config.hiddenMode) {
-        windowX = m_config.virtualX;  // Default: 20000 (off any physical monitor)
+        windowX = m_config.virtualX;  // Default: -15360 (off-screen left, WGC compatible)
         windowY = m_config.virtualY;  // Default: 0
         Logger::Info("DXGIPresenter: Hidden mode enabled - window at virtual coordinates (" +
-                     std::to_string(windowX) + ", " + std::to_string(windowY) + ")");
+                     std::to_string(windowX) + ", " + std::to_string(windowY) + ") for WGC compatibility");
     }
     
     // Create the window

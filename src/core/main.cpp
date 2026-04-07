@@ -328,6 +328,13 @@ bool RunPhase1(VMixController& vmix,
         return false;
     }
 
+    // Set up VideoHub routing: align inputs with outputs (0->0, 1->1, ..., 15->15)
+    // Note: Protocol uses 0-based indexing; port 0 = physical port 1
+    if (!videoHub.RouteAllOutputsToMatchingInputs(16)) {
+        Logger::Error("[HW/SW ERROR] Failed to set up aligned VideoHub routing");
+        return false;
+    }
+
     if (!ValidateSignalGroup(videoHub, deckLinkSource, RangeInclusive(1, 12), "Streaming (1-12)")) {
         return false;
     }
