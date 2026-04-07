@@ -53,6 +53,15 @@ public:
         int windowX = 0;                // Window X position
         int windowY = 0;                // Window Y position
         std::wstring windowTitle = L"VIB MegaCanvas 16K"; // Window title
+        
+        // Headless mode options (Ghost Window)
+        bool hiddenMode = false;        // Enable headless/ghost window mode
+        bool mousePassthrough = false;  // WS_EX_TRANSPARENT + WS_EX_LAYERED for click-through
+        bool hideFromTaskbar = false;   // WS_EX_TOOLWINDOW to hide from taskbar/Alt+Tab
+        bool excludeFromCapture = false;// SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)
+                                        // WARNING: May affect some capture methods - test carefully
+        int virtualX = 20000;           // Virtual X coordinate for hidden mode
+        int virtualY = 0;               // Virtual Y coordinate for hidden mode
     };
 
     DXGIPresenter();

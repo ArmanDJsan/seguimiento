@@ -253,6 +253,7 @@ struct MegaCanvasConfig {
     // TensorRT downscale
     int tensorRTWidth = 640;
     int tensorRTHeight = 640;
+    bool tensorRTHighPriorityStream = true;  // Use high-priority stream for inference
     
     // Presentation settings
     bool flipModel = true;          // DXGI_SWAP_EFFECT_FLIP_DISCARD
@@ -269,6 +270,15 @@ struct MegaCanvasConfig {
     bool topmost = false;           // HWND_TOPMOST (optional)
     int windowX = 0;                // Window position X
     int windowY = 0;                // Window position Y
+    
+    // Hidden mode (Ghost Window)
+    bool hiddenMode = true;         // Enable headless/virtual window mode
+    bool mousePassthrough = true;   // WS_EX_TRANSPARENT + WS_EX_LAYERED
+    bool hideFromTaskbar = true;    // WS_EX_TOOLWINDOW
+    bool excludeFromCapture = false;// SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)
+                                    // WARNING: Keep false to ensure vMix WGC works
+    int virtualX = 20000;           // Virtual X coordinate (off-screen)
+    int virtualY = 0;               // Virtual Y coordinate
 };
 
 /**

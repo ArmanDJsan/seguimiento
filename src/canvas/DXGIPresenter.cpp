@@ -264,14 +264,41 @@ HWND DXGIPresenter::CreateBorderlessWindow() {
 
     // Extended window style for WGC optimization
     // WS_EX_NOREDIRECTIONBITMAP: Critical for efficient WGC capture
-    // WS_EX_APPWINDOW: Ensures window appears in taskbar
     DWORD exStyle = WS_EX_APPWINDOW;
     if (m_config.noRedirectionBitmap) {
         exStyle |= WS_EX_NOREDIRECTIONBITMAP;
     }
+    
+    // Hidden mode styles (Ghost Window)
+    if (m_config.hiddenMode) {
+        // Mouse passthrough: WS_EX_TRANSPARENT + WS_EX_LAYERED
+        // Makes window click-through so operator can't accidentally interact
+        if (m_config.mousePassthrough) {
+            exStyle |= WS_EX_TRANSPARENT | WS_EX_LAYERED;
+        }
+        
+        // Hide from taskbar and Alt+Tab
+        // WS_EX_TOOLWINDOW: Prevents appearance in taskbar and task switcher
+        if (m_config.hideFromTaskbar) {
+            exStyle &= ~WS_EX_APPWINDOW;  // Remove from taskbar
+            exStyle |= WS_EX_TOOLWINDOW;   // Hide from Alt+Tab
+        }
+    }
 
     // Window style: WS_POPUP for borderless
+    // MUST keep WS_VISIBLE - required for WGC to capture frames
     DWORD style = WS_POPUP | WS_VISIBLE;
+    
+    // Determine window position
+    // In hidden mode, use virtual coordinates (off-screen)
+    int windowX = m_config.windowX;
+    int windowY = m_config.windowY;
+    if (m_config.hiddenMode) {
+        windowX = m_config.virtualX;  // Default: 20000 (off any physical monitor)
+        windowY = m_config.virtualY;  // Default: 0
+        Logger::Info("DXGIPresenter: Hidden mode enabled - window at virtual coordinates (" +
+                     std::to_string(windowX) + ", " + std::to_string(windowY) + ")");
+    }
     
     // Create the window
     HWND hwnd = CreateWindowExW(
@@ -279,8 +306,8 @@ HWND DXGIPresenter::CreateBorderlessWindow() {
         m_windowClassName.c_str(),
         m_config.windowTitle.c_str(),
         style,
-        m_config.windowX,
-        m_config.windowY,
+        windowX,
+        windowY,
         m_config.width,
         m_config.height,
         nullptr,
@@ -295,8 +322,8 @@ HWND DXGIPresenter::CreateBorderlessWindow() {
         return nullptr;
     }
 
-    // Set topmost if configured
-    if (m_config.topmost) {
+    // Set topmost if configured (not recommended for hidden mode)
+    if (m_config.topmost && !m_config.hiddenMode) {
         SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, 
                      SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
@@ -308,10 +335,37 @@ HWND DXGIPresenter::CreateBorderlessWindow() {
     // For Windows 11: Try to disable rounded corners
     DWM_WINDOW_CORNER_PREFERENCE cornerPref = DWMWCP_DONOTROUND;
     DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &cornerPref, sizeof(cornerPref));
+    
+    // SetWindowDisplayAffinity for privacy/security
+    // WDA_EXCLUDEFROMCAPTURE: Hides from OBS, Zoom, PrintScreen, etc.
+    // WARNING: May affect vMix capture depending on capture method - test carefully!
+    if (m_config.excludeFromCapture) {
+        if (SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)) {
+            Logger::Info("DXGIPresenter: SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE) - window hidden from standard capture");
+        } else {
+            DWORD error = GetLastError();
+            Logger::Warning("DXGIPresenter: SetWindowDisplayAffinity failed: " + std::to_string(error) + 
+                           " (requires Windows 10 2004+)");
+        }
+    }
+    
+    // For layered windows with transparency, we need to set attributes
+    // Using full opacity since we just want click-through, not visual transparency
+    if (m_config.mousePassthrough && (exStyle & WS_EX_LAYERED)) {
+        // Set full opacity (255) - window is visually opaque but clicks pass through
+        SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
+    }
 
     Logger::Info("DXGIPresenter: Borderless window created at (" + 
-                 std::to_string(m_config.windowX) + "," + std::to_string(m_config.windowY) + 
+                 std::to_string(windowX) + "," + std::to_string(windowY) + 
                  ") size " + std::to_string(m_config.width) + "x" + std::to_string(m_config.height));
+    
+    if (m_config.hiddenMode) {
+        Logger::Info("  Hidden mode: ENABLED");
+        Logger::Info("  Mouse passthrough: " + std::string(m_config.mousePassthrough ? "YES" : "NO"));
+        Logger::Info("  Hidden from taskbar: " + std::string(m_config.hideFromTaskbar ? "YES" : "NO"));
+        Logger::Info("  Excluded from capture: " + std::string(m_config.excludeFromCapture ? "YES" : "NO"));
+    }
     
     return hwnd;
 }

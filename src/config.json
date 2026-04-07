@@ -60,7 +60,8 @@
     "tensorrt": {
       "width": 640,
       "height": 640,
-      "description": "Downscaled buffer for YOLO inference"
+      "high_priority_stream": true,
+      "description": "Downscaled buffer for YOLO inference - uses separate stream"
     },
     "presentation": {
       "flip_model": true,
@@ -76,6 +77,17 @@
       "x": 0,
       "y": 0,
       "description": "WS_POPUP + WS_EX_NOREDIRECTIONBITMAP for optimal WGC capture"
+    },
+    "hidden_mode": {
+      "enabled": true,
+      "mouse_passthrough": true,
+      "hide_from_taskbar": true,
+      "exclude_from_standard_capture": false,
+      "virtual_coordinates": {
+        "x": 20000,
+        "y": 0
+      },
+      "description": "Ghost window mode - invisible to operator, only vMix sees it via WGC. exclude_from_standard_capture=false recommended to avoid vMix issues."
     },
     "fallback_to_ndi": false
   },

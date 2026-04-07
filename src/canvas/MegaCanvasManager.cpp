@@ -65,6 +65,16 @@ bool MegaCanvasManager::Initialize() {
     presenterConfig.borderless = true;
     presenterConfig.noRedirectionBitmap = true;
     presenterConfig.windowTitle = L"VIB MegaCanvas 16K (vMix WGC)";
+    
+    // Hidden mode (Ghost Window) configuration
+    // Window positioned off-screen at virtual coordinates
+    // Invisible to operator but vMix captures via WGC
+    presenterConfig.hiddenMode = true;
+    presenterConfig.mousePassthrough = true;     // Click-through
+    presenterConfig.hideFromTaskbar = true;      // Not visible in taskbar/Alt+Tab
+    presenterConfig.excludeFromCapture = false;  // Keep false - vMix needs WGC access
+    presenterConfig.virtualX = 20000;            // Off-screen X
+    presenterConfig.virtualY = 0;                // Off-screen Y
 
     if (!m_presenter->Initialize(presenterConfig)) {
         Logger::Error("MegaCanvasManager: Failed to initialize DXGI presenter");
@@ -599,6 +609,7 @@ MegaCanvasConfig LoadMegaCanvasConfig(const std::string& configPath) {
                 auto& trt = mc["tensorrt"];
                 if (trt.contains("width")) config.tensorRTWidth = trt["width"].get<int>();
                 if (trt.contains("height")) config.tensorRTHeight = trt["height"].get<int>();
+                if (trt.contains("high_priority_stream")) config.tensorRTHighPriorityStream = trt["high_priority_stream"].get<bool>();
             }
             
             if (mc.contains("presentation")) {
@@ -618,6 +629,21 @@ MegaCanvasConfig LoadMegaCanvasConfig(const std::string& configPath) {
                 if (win.contains("topmost")) config.topmost = win["topmost"].get<bool>();
                 if (win.contains("x")) config.windowX = win["x"].get<int>();
                 if (win.contains("y")) config.windowY = win["y"].get<int>();
+            }
+            
+            // Hidden mode (Ghost Window) configuration
+            if (mc.contains("hidden_mode")) {
+                auto& hm = mc["hidden_mode"];
+                if (hm.contains("enabled")) config.hiddenMode = hm["enabled"].get<bool>();
+                if (hm.contains("mouse_passthrough")) config.mousePassthrough = hm["mouse_passthrough"].get<bool>();
+                if (hm.contains("hide_from_taskbar")) config.hideFromTaskbar = hm["hide_from_taskbar"].get<bool>();
+                if (hm.contains("exclude_from_standard_capture")) config.excludeFromCapture = hm["exclude_from_standard_capture"].get<bool>();
+                
+                if (hm.contains("virtual_coordinates")) {
+                    auto& vc = hm["virtual_coordinates"];
+                    if (vc.contains("x")) config.virtualX = vc["x"].get<int>();
+                    if (vc.contains("y")) config.virtualY = vc["y"].get<int>();
+                }
             }
         }
     } catch (const std::exception& e) {
