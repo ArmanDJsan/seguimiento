@@ -207,15 +207,15 @@ bool VideoHubClient::ConsumeInitialState() {
     // The device sends PROTOCOL PREAMBLE, VERSION, VIDEO OUTPUT LOCKS, VIDEO OUTPUT ROUTING, etc.
     char buffer[4096];
     int totalBytesRead = 0;
-    // Max attempts: 10 attempts * 10ms = 100ms additional wait after initial sleep
-    constexpr int kMaxReadAttempts = 10;
+    // After 100ms initial wait, make up to 10 additional attempts (10ms each) = 200ms total max
+    constexpr int kReadAttemptsAfterInitialWait = 10;
     int attempts = 0;
     bool loggedPreview = false;
 
     // Wait briefly for data to arrive, then consume it
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    while (attempts < kMaxReadAttempts) {
+    while (attempts < kReadAttemptsAfterInitialWait) {
         int bytesRead = recv(m_socket, buffer, sizeof(buffer) - 1, 0);
         
         if (bytesRead > 0) {

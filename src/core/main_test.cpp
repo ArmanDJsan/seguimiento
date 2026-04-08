@@ -26,7 +26,7 @@ std::unordered_map<std::string, int> BuildInputLookup() {
     // VideoHub uses 0-based indexing for inputs
     for (int i = 1; i <= 12; ++i) {
         char name[16];
-        sprintf_s(name, "CAM_%02d", i);
+        sprintf_s(name, sizeof(name), "CAM_%02d", i);
         lookup[name] = i - 1;  // Convert to 0-based (CAM_01 = input 0, etc.)
     }
     return lookup;
