@@ -2,7 +2,7 @@
  * DXGIPresenter.cpp
  * 
  * Implementation of low-latency DXGI presentation
- * Optimized for 16K Mega-Canvas with WGC capture
+ * Optimized for 4K Mega-Canvas with WGC capture (TEST)
  * 
  * Key Implementation Details:
  * - DXGI_SWAP_EFFECT_FLIP_DISCARD bypasses DWM for minimum latency
@@ -301,7 +301,7 @@ HWND DXGIPresenter::CreateBorderlessWindow() {
         
         // Position window so that only 1 pixel is visible in the bottom-right corner
         // This keeps the window 99.99% off-screen while remaining WGC-capturable
-        // NOTE: Window (15360×6480) will extend far beyond screen to right and bottom
+        // NOTE: Window (3840×2160) will extend beyond screen to right and bottom (TEST: 4K)
         //       This is intentional - we want maximum off-screen area
         windowX = screenWidth - 1;   // 1 pixel visible horizontally
         windowY = screenHeight - 1;  // 1 pixel visible vertically

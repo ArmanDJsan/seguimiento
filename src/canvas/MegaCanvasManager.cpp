@@ -1,7 +1,7 @@
 /**
  * MegaCanvasManager.cpp
  * 
- * Implementation of 16K Mega-Canvas compositor
+ * Implementation of 4K Mega-Canvas compositor (TEST)
  * Handles VRAM bifurcation, atlas composition, and DXGI presentation
  */
 
@@ -35,7 +35,7 @@ namespace {
 
 MegaCanvasManager::MegaCanvasManager() {
     Logger::Info("MegaCanvasManager: Created");
-    Logger::Info("  Canvas: " + std::to_string(CANVAS_WIDTH) + "x" + std::to_string(CANVAS_HEIGHT) + " (16K)");
+    Logger::Info("  Canvas: " + std::to_string(CANVAS_WIDTH) + "x" + std::to_string(CANVAS_HEIGHT) + " (4K TEST)");
     Logger::Info("  Cell: " + std::to_string(CELL_WIDTH) + "x" + std::to_string(CELL_HEIGHT) + " (4K native)");
     Logger::Info("  Grid: " + std::to_string(GRID_COLS) + "x" + std::to_string(GRID_ROWS));
     Logger::Info("  TensorRT: " + std::to_string(TENSORRT_WIDTH) + "x" + std::to_string(TENSORRT_HEIGHT));
@@ -64,7 +64,7 @@ bool MegaCanvasManager::Initialize() {
     presenterConfig.enableWaitableObject = true;
     presenterConfig.borderless = true;
     presenterConfig.noRedirectionBitmap = true;
-    presenterConfig.windowTitle = L"VIB MegaCanvas 16K (vMix WGC)";
+    presenterConfig.windowTitle = L"VIB MegaCanvas 4K TEST (vMix WGC)";
     
     // Hidden mode (Ghost Window) configuration
     // Window positioned off-screen with 1 pixel visible for vMix WGC detection
@@ -73,7 +73,7 @@ bool MegaCanvasManager::Initialize() {
     presenterConfig.mousePassthrough = true;     // Click-through
     presenterConfig.hideFromTaskbar = true;      // Not visible in taskbar/Alt+Tab
     presenterConfig.excludeFromCapture = false;  // Keep false - vMix needs WGC access
-    presenterConfig.virtualX = -15360;           // IGNORED: Auto-positioned at screenWidth-1
+    presenterConfig.virtualX = -3840;            // IGNORED: Auto-positioned at screenWidth-1 (TEST: 4K)
     presenterConfig.virtualY = 0;                // IGNORED: Auto-positioned at screenHeight-1
 
     if (!m_presenter->Initialize(presenterConfig)) {
@@ -104,7 +104,7 @@ bool MegaCanvasManager::Initialize() {
         return false;
     }
 
-    // Allocate 16K Atlas buffer
+    // Allocate 4K Atlas buffer (TEST: reduced from 16K)
     m_atlasBufferSize = kAtlasSize;
     err = cudaMalloc(&m_atlasBuffer, m_atlasBufferSize);
     if (err != cudaSuccess) {

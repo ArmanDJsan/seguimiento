@@ -1,10 +1,10 @@
 /**
  * AtlasCompositor.cu
  * 
- * CUDA kernels for 16K Mega-Canvas composition
+ * CUDA kernels for 4K Mega-Canvas composition (TEST)
  * 
  * Key Operations:
- * 1. BlitToAtlas: Copy 4K frame to Atlas position (1:1 native)
+ * 1. BlitToAtlas: Copy HD frame to Atlas position (1:1 native) - TEST: reduced from 4K
  * 2. DownscaleForTensorRT: Bilinear downscale to 640x640
  * 3. BifurcatedCopy: Combined blit + downscale in single kernel launch
  * 
@@ -134,10 +134,10 @@ __global__ void BifurcatedCopyKernel(
     const uchar4* __restrict__ source,
     uchar4* __restrict__ atlas,
     uchar4* __restrict__ tensorRT,
-    int sourceWidth,           // 3840
-    int sourceHeight,          // 2160
+    int sourceWidth,           // 1920 - TEST: reduced from 3840
+    int sourceHeight,          // 1080 - TEST: reduced from 2160
     int sourcePitch,           // In uchar4 elements
-    int atlasWidth,            // 15360
+    int atlasWidth,            // 3840 - TEST: reduced from 15360
     int destX,                 // Atlas offset X
     int destY,                 // Atlas offset Y
     int tensorRTWidth,         // 640
@@ -279,9 +279,9 @@ bool BifurcatedCopy(
     const void* sourceBuffer,
     void* atlasBuffer,
     void* tensorRTBuffer,
-    int sourceWidth,           // 3840
-    int sourceHeight,          // 2160
-    int atlasWidth,            // 15360
+    int sourceWidth,           // 1920 - TEST: reduced from 3840
+    int sourceHeight,          // 1080 - TEST: reduced from 2160
+    int atlasWidth,            // 3840 - TEST: reduced from 15360
     int destX,                 // Atlas offset X
     int destY,                 // Atlas offset Y
     int tensorRTWidth,         // 640

@@ -442,14 +442,16 @@ int main(int argc, char* argv[]) {
         
         if (config.megaCanvasEnabled) {
             // ============================================================================
-            // MegaCanvas Mode - 16K Atlas for vMix Windows Graphics Capture (WGC)
+            // MegaCanvas Mode - 4K Atlas for vMix Windows Graphics Capture (WGC) - TEST
             // ============================================================================
-            Logger::Info("Initializing MegaCanvas (16K Atlas) for vMix WGC...");
+            Logger::Info("** TEST CONFIGURATION: 4K Canvas **");
+            Logger::Info("Initializing MegaCanvas (4K Atlas TEST) for vMix WGC...");
             Logger::Info("MegaCanvas provides:");
-            Logger::Info("  - 16K Virtual Canvas (15360x6480) - 4x3 grid of native 4K cells");
+            Logger::Info("  - 4K Virtual Canvas (3840x2160) - 2x2 grid of HD cells");
             Logger::Info("  - DXGI presentation for direct Windows Graphics Capture by vMix");
             Logger::Info("  - Ghost Window mode - invisible to operator, WGC-only");
             Logger::Info("  - VRAM bifurcation: Atlas + TensorRT downscale in single pass");
+            Logger::Info("  - TEST: Reduced from 16K to 4K to prevent vMix hanging");
             
             canvasManager = std::make_shared<MegaCanvasManager>();
             if (!canvasManager->Initialize()) {
@@ -465,9 +467,9 @@ int main(int argc, char* argv[]) {
                 Logger::Info("MegaCanvas initialized successfully");
                 Logger::Info("=== vMix Configuration (WGC Mode) ===");
                 Logger::Info("1. Add Input -> More -> Windows Desktop Capture");
-                Logger::Info("2. Select window: 'VIB MegaCanvas 16K (vMix WGC)'");
+                Logger::Info("2. Select window: 'VIB MegaCanvas 4K TEST (vMix WGC)'");
                 Logger::Info("3. Enable 'High Input Performance Mode' in vMix settings");
-                Logger::Info("4. Canvas shows 12 cameras in 4x3 grid (native 4K per cell)");
+                Logger::Info("4. Canvas shows 4 cameras in 2x2 grid (HD per cell) - TEST");
             }
         }
         
@@ -764,7 +766,7 @@ int main(int argc, char* argv[]) {
         // Main monitoring loop
         Logger::Info("=== System Status ===");
         if (config.megaCanvasEnabled) {
-            Logger::Info("Video Pipeline: MegaCanvas 16K Atlas (12 cameras in 4x3 grid)");
+            Logger::Info("Video Pipeline: MegaCanvas 4K Atlas TEST (4 cameras in 2x2 grid)");
         } else {
             Logger::Info("Video Pipeline: " + std::to_string(kMaxNDIChannels) + " NDI channels active");
         }

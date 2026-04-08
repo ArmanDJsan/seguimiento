@@ -1,12 +1,12 @@
 /**
  * MegaCanvasManager.h
  * 
- * High-performance 16K Mega-Canvas compositor for vMix integration
+ * High-performance 4K Mega-Canvas compositor for vMix integration (TEST)
  * Replaces NDI output with direct DXGI SwapChain presentation
  * 
  * Architecture:
- * - 15360x6480 (4x3 grid of native 4K cells) - 16K Virtual Canvas
- * - VRAM Bifurcation: SDI → Atlas 4K + TensorRT 640x640 downscale
+ * - 3840x2160 (2x2 grid of HD cells) - 4K Virtual Canvas - TEST CONFIGURATION
+ * - VRAM Bifurcation: SDI → Atlas HD + TensorRT 640x640 downscale
  * - DXGI FLIP_DISCARD for DWM bypass and sub-frame latency
  * - WGC-friendly borderless window for vMix capture
  * 
@@ -37,38 +37,38 @@ using Microsoft::WRL::ComPtr;
 class DXGIPresenter;
 
 /**
- * MegaCanvasManager - 16K Atlas Compositor
+ * MegaCanvasManager - 4K Atlas Compositor (TEST)
  * 
  * Key Features:
  * - Latest-Frame-Available: Never blocks waiting for cameras
  * - GPU Fence synchronization: No CPU stalls
- * - Dual output: 4K to Atlas + 640x640 to TensorRT batch
+ * - Dual output: HD to Atlas + 640x640 to TensorRT batch
  */
 class MegaCanvasManager {
 public:
-    // Canvas specifications for 4K native per cell (4x3 grid)
-    static constexpr int NUM_CAMERAS = 12;
-    static constexpr int GRID_COLS = 4;
-    static constexpr int GRID_ROWS = 3;
-    static constexpr int CELL_WIDTH = 3840;     // Native 4K width
-    static constexpr int CELL_HEIGHT = 2160;    // Native 4K height
-    static constexpr int CANVAS_WIDTH = GRID_COLS * CELL_WIDTH;   // 15360 (16K)
-    static constexpr int CANVAS_HEIGHT = GRID_ROWS * CELL_HEIGHT; // 6480
+    // Canvas specifications for HD per cell (2x2 grid) - TEST CONFIGURATION
+    static constexpr int NUM_CAMERAS = 4;       // Reduced from 12 to 4 for testing
+    static constexpr int GRID_COLS = 2;         // Reduced from 4 to 2
+    static constexpr int GRID_ROWS = 2;         // Reduced from 3 to 2
+    static constexpr int CELL_WIDTH = 1920;     // HD width (reduced from 4K)
+    static constexpr int CELL_HEIGHT = 1080;    // HD height (reduced from 4K)
+    static constexpr int CANVAS_WIDTH = GRID_COLS * CELL_WIDTH;   // 3840 (4K)
+    static constexpr int CANVAS_HEIGHT = GRID_ROWS * CELL_HEIGHT; // 2160
     
     // TensorRT inference dimensions
     static constexpr int TENSORRT_WIDTH = 640;
     static constexpr int TENSORRT_HEIGHT = 640;
     
-    // VRAM estimation (BGRA32 format)
-    // Atlas: 15360 × 6480 × 4 bytes = ~398 MB
-    // 12x TensorRT buffers: 12 × 640 × 640 × 4 = ~20 MB
-    // Total: ~420 MB (well within 16GB)
+    // VRAM estimation (BGRA32 format) - TEST CONFIGURATION
+    // Atlas: 3840 × 2160 × 4 bytes = ~33 MB
+    // 4x TensorRT buffers: 4 × 640 × 640 × 4 = ~6.5 MB
+    // Total: ~40 MB (minimal VRAM usage)
     
     /**
      * Camera slot for Latest-Frame-Available pattern
      */
     struct CameraSlot {
-        // 4K BGRA buffer for Atlas composition
+        // HD BGRA buffer for Atlas composition (TEST: reduced from 4K)
         void* cudaBGRABuffer = nullptr;         // CUDA device pointer
         size_t bgraBufferSize = 0;
         
@@ -117,10 +117,10 @@ public:
 
     /**
      * Register a camera for Atlas composition
-     * Allocates 4K buffer + 640x640 TensorRT buffer in VRAM
-     * @param cameraID Camera index (0-11)
-     * @param width Source frame width (typically 3840)
-     * @param height Source frame height (typically 2160)
+     * Allocates HD buffer + 640x640 TensorRT buffer in VRAM (TEST: reduced from 4K)
+     * @param cameraID Camera index (0-3) - TEST: reduced from 12 cameras to 4
+     * @param width Source frame width (typically 1920) - TEST: reduced from 3840
+     * @param height Source frame height (typically 1080) - TEST: reduced from 2160
      * @return true if registration successful
      */
     bool RegisterCamera(int cameraID, unsigned int width, unsigned int height);
@@ -131,7 +131,7 @@ public:
      * - Simultaneously downscales to 640x640 for TensorRT
      * Non-blocking: Only updates pointers and signals events
      * 
-     * @param cameraID Camera index (0-11)
+     * @param cameraID Camera index (0-3) - TEST: reduced from 12 to 4
      * @param cudaBGRASource Source BGRA buffer from DeckLinkCapture
      * @param width Source width
      * @param height Source height
@@ -144,13 +144,13 @@ public:
     /**
      * Get TensorRT buffer for batch inference
      * Returns the 640x640 downscaled buffer for the specified camera
-     * @param cameraID Camera index (0-11)
+     * @param cameraID Camera index (0-3) - TEST: reduced from 12 to 4
      * @return CUDA device pointer to 640x640 BGRA buffer, or nullptr
      */
     void* GetTensorRTBuffer(int cameraID) const;
 
     /**
-     * Compose the 16K Atlas from Latest-Frame-Available
+     * Compose the 4K Atlas from Latest-Frame-Available (TEST)
      * Uses GPU fences - does not block waiting for cameras
      * @param compositeStream CUDA stream for composition
      * @return true if composition submitted successfully
@@ -202,10 +202,10 @@ private:
     // Render thread function
     void RenderThreadFunc(std::stop_token stopToken);
 
-    // Camera slots (12 cameras)
+    // Camera slots (4 cameras - TEST: reduced from 12)
     std::array<CameraSlot, NUM_CAMERAS> m_cameras;
     
-    // 16K Atlas buffer in VRAM
+    // 4K Atlas buffer in VRAM (TEST: reduced from 16K)
     void* m_atlasBuffer = nullptr;              // CUDA device memory
     size_t m_atlasBufferSize = 0;
     cudaSurfaceObject_t m_atlasSurface = 0;     // For surface writes
@@ -246,9 +246,9 @@ struct MegaCanvasConfig {
     int gridCols = 4;
     int gridRows = 3;
     
-    // Cell resolution (native 4K)
-    int cellWidth = 3840;
-    int cellHeight = 2160;
+    // Cell resolution (HD - TEST: reduced from 4K)
+    int cellWidth = 1920;
+    int cellHeight = 1080;
     
     // TensorRT downscale
     int tensorRTWidth = 640;
@@ -277,7 +277,7 @@ struct MegaCanvasConfig {
     bool hideFromTaskbar = true;    // WS_EX_TOOLWINDOW
     bool excludeFromCapture = false;// SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)
                                     // WARNING: Keep false to ensure vMix WGC works
-    int virtualX = -15360;          // DEPRECATED: Auto-positioned at screenWidth-1 for vMix WGC
+    int virtualX = -3840;           // DEPRECATED: Auto-positioned at screenWidth-1 for vMix WGC (TEST: updated for 4K)
     int virtualY = 0;               // DEPRECATED: Auto-positioned at screenHeight-1 for vMix WGC
                                     // vMix requires >=1 pixel visible to detect window
 };

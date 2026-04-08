@@ -1,7 +1,7 @@
 /**
  * AtlasCompositor.h
  * 
- * CUDA kernel declarations for 16K Mega-Canvas composition
+ * CUDA kernel declarations for 4K Mega-Canvas composition (TEST)
  * Header for AtlasCompositor.cu
  */
 
@@ -19,9 +19,9 @@ extern "C" {
  * 
  * @param sourceBuffer Source BGRA buffer (device memory)
  * @param atlasBuffer Atlas BGRA buffer (device memory)
- * @param sourceWidth Source frame width (3840)
- * @param sourceHeight Source frame height (2160)
- * @param atlasWidth Atlas total width (15360)
+ * @param sourceWidth Source frame width (1920) - TEST: reduced from 3840
+ * @param sourceHeight Source frame height (1080) - TEST: reduced from 2160
+ * @param atlasWidth Atlas total width (3840) - TEST: reduced from 15360
  * @param destX Destination X offset in atlas
  * @param destY Destination Y offset in atlas
  * @param stream CUDA stream for async execution
@@ -68,9 +68,9 @@ bool DownscaleForTensorRT(
  * @param sourceBuffer Source BGRA buffer (device memory)
  * @param atlasBuffer Atlas destination (device memory)
  * @param tensorRTBuffer TensorRT destination 640x640 (device memory)
- * @param sourceWidth Source width (3840)
- * @param sourceHeight Source height (2160)
- * @param atlasWidth Atlas total width (15360)
+ * @param sourceWidth Source width (1920) - TEST: reduced from 3840
+ * @param sourceHeight Source height (1080) - TEST: reduced from 2160
+ * @param atlasWidth Atlas total width (3840) - TEST: reduced from 15360
  * @param destX Atlas destination X offset
  * @param destY Atlas destination Y offset
  * @param tensorRTWidth TensorRT output width (640)
@@ -96,7 +96,7 @@ bool BifurcatedCopy(
  * Clear Atlas buffer to black
  * 
  * @param atlasBuffer Atlas buffer (device memory)
- * @param width Atlas width (15360)
+ * @param width Atlas width (3840) - TEST: reduced from 15360
  * @param height Atlas height (6480)
  * @param stream CUDA stream
  * @return true if successful

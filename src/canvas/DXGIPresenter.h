@@ -13,7 +13,7 @@
  * Window Configuration:
  * - WS_POPUP (borderless, no decorations)
  * - Off-screen positioning allowed (vMix reads GPU texture directly)
- * - No physical 16K monitor required
+ * - No physical 4K monitor required (TEST: reduced from 16K)
  */
 
 #pragma once
@@ -31,7 +31,7 @@
 using Microsoft::WRL::ComPtr;
 
 /**
- * DXGI Presenter for 16K Mega-Canvas
+ * DXGI Presenter for 4K Mega-Canvas (TEST)
  * 
  * Provides direct GPU presentation bypassing the Windows compositor
  * Optimized for vMix Windows Graphics Capture integration
@@ -42,8 +42,8 @@ public:
      * Configuration for the presenter
      */
     struct Config {
-        int width = 15360;              // Canvas width (16K)
-        int height = 6480;              // Canvas height
+        int width = 3840;               // Canvas width (4K) - TEST: reduced from 16K
+        int height = 2160;              // Canvas height (4K) - TEST: reduced from 16K
         int bufferCount = 2;            // Double-buffer for FLIP model
         bool enableTearing = true;      // VRR/FreeSync support
         bool enableWaitableObject = true;// Frame latency control
@@ -52,7 +52,7 @@ public:
         bool topmost = false;           // HWND_TOPMOST
         int windowX = 0;                // Window X position
         int windowY = 0;                // Window Y position
-        std::wstring windowTitle = L"VIB MegaCanvas 16K"; // Window title
+        std::wstring windowTitle = L"VIB MegaCanvas 4K TEST"; // Window title - TEST
         
         // Headless mode options (Ghost Window)
         bool hiddenMode = false;        // Enable headless/ghost window mode
@@ -60,7 +60,7 @@ public:
         bool hideFromTaskbar = false;   // WS_EX_TOOLWINDOW to hide from taskbar/Alt+Tab
         bool excludeFromCapture = false;// SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)
                                         // WARNING: May affect some capture methods - test carefully
-        int virtualX = -15360;          // DEPRECATED: Window now auto-positioned at screenWidth-1 for vMix WGC
+        int virtualX = -3840;           // DEPRECATED: Window now auto-positioned at screenWidth-1 for vMix WGC (TEST: 4K)
         int virtualY = 0;               // DEPRECATED: Window now auto-positioned at screenHeight-1 for vMix WGC
                                         // vMix WGC requires >=1 pixel visible on primary monitor to detect window
     };

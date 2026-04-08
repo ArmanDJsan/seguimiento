@@ -42,20 +42,20 @@
   },
   "mega_canvas": {
     "enabled": true,
-    "description": "16K Virtual Canvas for vMix WGC capture",
+    "description": "4K Virtual Canvas for vMix WGC capture - TEST CONFIGURATION",
     "grid_layout": {
-      "columns": 4,
-      "rows": 3
+      "columns": 2,
+      "rows": 2
     },
     "cell_resolution": {
-      "width": 3840,
-      "height": 2160,
-      "description": "Native 4K per cell for maximum quality"
+      "width": 1920,
+      "height": 1080,
+      "description": "HD per cell (2x2 grid = 4K total)"
     },
     "canvas_resolution": {
-      "width": 15360,
-      "height": 6480,
-      "description": "Total 16K virtual resolution (4x3 grid)"
+      "width": 3840,
+      "height": 2160,
+      "description": "Total 4K resolution (2x2 grid) - TEST"
     },
     "tensorrt": {
       "width": 640,
@@ -84,7 +84,7 @@
       "hide_from_taskbar": true,
       "exclude_from_standard_capture": false,
       "virtual_coordinates": {
-        "x": -15360,
+        "x": -3840,
         "y": 0,
         "note": "DEPRECATED: These coordinates are ignored for backward compatibility. Window is now auto-positioned at (screenWidth-1, screenHeight-1) to keep 1 pixel visible for vMix WGC."
       },
