@@ -207,24 +207,27 @@ bool VideoHubClient::ConsumeInitialState() {
     // The device sends PROTOCOL PREAMBLE, VERSION, VIDEO OUTPUT LOCKS, VIDEO OUTPUT ROUTING, etc.
     char buffer[4096];
     int totalBytesRead = 0;
-    const int maxAttempts = 10;
+    // Max attempts: 10 attempts * 10ms = 100ms additional wait after initial sleep
+    constexpr int kMaxReadAttempts = 10;
     int attempts = 0;
+    bool loggedPreview = false;
 
     // Wait briefly for data to arrive, then consume it
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    while (attempts < maxAttempts) {
+    while (attempts < kMaxReadAttempts) {
         int bytesRead = recv(m_socket, buffer, sizeof(buffer) - 1, 0);
         
         if (bytesRead > 0) {
             totalBytesRead += bytesRead;
             buffer[bytesRead] = '\0';
             // Log first chunk for debugging
-            if (attempts == 0) {
+            if (!loggedPreview) {
                 std::string preview(buffer, std::min(bytesRead, 200));
                 Logger::Info("VideoHub initial state preview: " + preview + "...");
+                loggedPreview = true;
             }
-            attempts = 0;  // Reset counter when data is received
+            // Continue reading while data is available
         } else if (bytesRead == 0) {
             // Connection closed
             Logger::Warning("VideoHub closed connection during initial state read");
