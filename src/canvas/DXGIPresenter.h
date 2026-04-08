@@ -60,8 +60,9 @@ public:
         bool hideFromTaskbar = false;   // WS_EX_TOOLWINDOW to hide from taskbar/Alt+Tab
         bool excludeFromCapture = false;// SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)
                                         // WARNING: May affect some capture methods - test carefully
-        int virtualX = -15360;          // Virtual X coordinate for hidden mode (off-screen left)
-        int virtualY = 0;               // Virtual Y coordinate for hidden mode
+        int virtualX = -15360;          // DEPRECATED: Window now auto-positioned at screenWidth-1 for vMix WGC
+        int virtualY = 0;               // DEPRECATED: Window now auto-positioned at screenHeight-1 for vMix WGC
+                                        // vMix WGC requires >=1 pixel visible on primary monitor to detect window
     };
 
     DXGIPresenter();
