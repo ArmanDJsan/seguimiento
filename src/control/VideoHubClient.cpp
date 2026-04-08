@@ -207,7 +207,9 @@ bool VideoHubClient::ConsumeInitialState() {
     // The device sends PROTOCOL PREAMBLE, VERSION, VIDEO OUTPUT LOCKS, VIDEO OUTPUT ROUTING, etc.
     char buffer[4096];
     int totalBytesRead = 0;
-    // After 100ms initial wait, make up to 10 additional attempts (10ms each) = 200ms total max
+    // After 100ms initial wait, make up to 10 additional attempts (10ms each)
+    // This provides a 200ms maximum wait time when no data is available (WSAEWOULDBLOCK)
+    // Note: If data continues arriving, recv will keep reading until all data is consumed
     constexpr int kReadAttemptsAfterInitialWait = 10;
     int attempts = 0;
     bool loggedPreview = false;
@@ -229,9 +231,9 @@ bool VideoHubClient::ConsumeInitialState() {
             }
             // Continue reading while data is available
         } else if (bytesRead == 0) {
-            // Connection closed
-            Logger::Warning("VideoHub closed connection during initial state read");
-            break;
+            // Connection closed unexpectedly during initial state read
+            Logger::Error("[TECH ERROR] VideoHub closed connection during initial state read");
+            return false;
         } else {
             // WSAEWOULDBLOCK means no more data available
             int error = WSAGetLastError();
