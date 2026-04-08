@@ -67,14 +67,14 @@ bool MegaCanvasManager::Initialize() {
     presenterConfig.windowTitle = L"VIB MegaCanvas 16K (vMix WGC)";
     
     // Hidden mode (Ghost Window) configuration
-    // Window positioned off-screen at virtual coordinates
-    // Invisible to operator but vMix captures via WGC
+    // Window positioned off-screen with 1 pixel visible for vMix WGC detection
+    // Position is auto-calculated based on primary monitor resolution
     presenterConfig.hiddenMode = true;
     presenterConfig.mousePassthrough = true;     // Click-through
     presenterConfig.hideFromTaskbar = true;      // Not visible in taskbar/Alt+Tab
     presenterConfig.excludeFromCapture = false;  // Keep false - vMix needs WGC access
-    presenterConfig.virtualX = -15360;           // Off-screen left (WGC compatible)
-    presenterConfig.virtualY = 0;                // Off-screen Y
+    presenterConfig.virtualX = -15360;           // IGNORED: Auto-positioned at screenWidth-1
+    presenterConfig.virtualY = 0;                // IGNORED: Auto-positioned at screenHeight-1
 
     if (!m_presenter->Initialize(presenterConfig)) {
         Logger::Error("MegaCanvasManager: Failed to initialize DXGI presenter");

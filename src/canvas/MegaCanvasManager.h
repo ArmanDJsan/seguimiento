@@ -277,8 +277,9 @@ struct MegaCanvasConfig {
     bool hideFromTaskbar = true;    // WS_EX_TOOLWINDOW
     bool excludeFromCapture = false;// SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)
                                     // WARNING: Keep false to ensure vMix WGC works
-    int virtualX = -15360;          // Virtual X coordinate (off-screen left, WGC compatible)
-    int virtualY = 0;               // Virtual Y coordinate
+    int virtualX = -15360;          // DEPRECATED: Auto-positioned at screenWidth-1 for vMix WGC
+    int virtualY = 0;               // DEPRECATED: Auto-positioned at screenHeight-1 for vMix WGC
+                                    // vMix requires >=1 pixel visible to detect window
 };
 
 /**

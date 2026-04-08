@@ -294,10 +294,22 @@ HWND DXGIPresenter::CreateBorderlessWindow() {
     int windowX = m_config.windowX;
     int windowY = m_config.windowY;
     if (m_config.hiddenMode) {
-        windowX = m_config.virtualX;  // Default: -15360 (off-screen left, WGC compatible)
-        windowY = m_config.virtualY;  // Default: 0
-        Logger::Info("DXGIPresenter: Hidden mode enabled - window at virtual coordinates (" +
-                     std::to_string(windowX) + ", " + std::to_string(windowY) + ") for WGC compatibility");
+        // vMix WGC requires at least 1 pixel visible on screen to detect the window
+        // Get primary monitor resolution to calculate proper positioning
+        int screenWidth = GetSystemMetrics(SM_CXSCREEN);
+        int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+        
+        // Position window so that only 1 pixel is visible in the bottom-right corner
+        // This keeps the window 99.99% off-screen while remaining WGC-capturable
+        // NOTE: Window (15360×6480) will extend far beyond screen to right and bottom
+        //       This is intentional - we want maximum off-screen area
+        windowX = screenWidth - 1;   // 1 pixel visible horizontally
+        windowY = screenHeight - 1;  // 1 pixel visible vertically
+        
+        Logger::Info("DXGIPresenter: Hidden mode enabled - primary monitor " +
+                     std::to_string(screenWidth) + "x" + std::to_string(screenHeight));
+        Logger::Info("DXGIPresenter: Window positioned at (" + std::to_string(windowX) + ", " +
+                     std::to_string(windowY) + ") with 1px visible for vMix WGC capture");
     }
     
     // Create the window
