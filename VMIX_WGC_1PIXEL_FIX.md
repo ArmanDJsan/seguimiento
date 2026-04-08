@@ -129,19 +129,35 @@ if (m_config.hiddenMode) {
 
 ## Expected Behavior
 
+### Window Position and Overflow
+
+The window intentionally **extends far beyond the screen boundaries**:
+
+**For 1920x1080 Primary Monitor:**
+- Window position: **(1919, 1079)**
+- Window size: **15360 × 6480**
+- Top-left corner: (1919, 1079) ← 1 pixel visible here
+- Bottom-right corner: (17279, 7559) ← extends 15358 pixels right, 6478 pixels down
+- **This is correct behavior** - Windows handles off-screen rendering correctly
+
+### Position by Monitor Resolution
+
 ### Primary Monitor: 1920x1080
 - Window position: (1919, 1079)
 - Visible: 1 pixel in bottom-right corner
+- Extends: 15358px right, 6478px down (off-screen)
 
 ### Primary Monitor: 2560x1440
 - Window position: (2559, 1439)
 - Visible: 1 pixel in bottom-right corner
+- Extends: 14799px right, 5039px down (off-screen)
 
 ### Primary Monitor: 3840x2160 (4K)
 - Window position: (3839, 2159)
 - Visible: 1 pixel in bottom-right corner
+- Extends: 11519px right, 4319px down (off-screen)
 
-The positioning adapts automatically to any primary monitor resolution.
+The positioning adapts automatically to any primary monitor resolution. The massive off-screen extension is **intentional and safe** - Windows handles it correctly, and vMix can capture the entire window area even though most of it is off-screen.
 
 ## Backward Compatibility
 

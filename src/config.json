@@ -86,7 +86,7 @@
       "virtual_coordinates": {
         "x": -15360,
         "y": 0,
-        "note": "These coordinates are now ignored. Window is automatically positioned with 1 pixel visible for vMix WGC capture."
+        "note": "DEPRECATED: These coordinates are ignored for backward compatibility. Window is now auto-positioned at (screenWidth-1, screenHeight-1) to keep 1 pixel visible for vMix WGC."
       },
       "description": "Ghost window mode - window positioned at (screenWidth-1, screenHeight-1) to keep 1 pixel visible. vMix WGC requires at least 1 pixel on-screen to detect the window. exclude_from_standard_capture=false recommended."
     },
