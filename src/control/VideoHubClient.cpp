@@ -14,6 +14,8 @@
 #include <sstream>
 #include <vector>
 #include <algorithm>
+#include <thread>
+#include <chrono>
 
 #pragma comment(lib, "Ws2_32.lib")
 
@@ -94,6 +96,12 @@ bool VideoHubClient::Connect() {
     }
 
     Logger::Info("VideoHub connected at " + m_host + ":" + std::to_string(m_port));
+    
+    // Consume initial state data sent by VideoHub upon connection
+    if (!ConsumeInitialState()) {
+        Logger::Warning("Failed to consume VideoHub initial state; continuing anyway");
+    }
+    
     return true;
 }
 
@@ -185,4 +193,72 @@ void VideoHubClient::LogSocketError(const std::string& context) {
     int code = WSAGetLastError();
     Logger::Error("[TECH ERROR] VideoHub socket error during " + context +
                   ": code " + std::to_string(code));
+}
+
+bool VideoHubClient::ConsumeInitialState() {
+    // Set socket to non-blocking mode to read available data
+    u_long mode = 1;  // 1 = non-blocking
+    if (ioctlsocket(m_socket, FIONBIO, &mode) != 0) {
+        LogSocketError("setting non-blocking mode");
+        return false;
+    }
+
+    // Read and discard initial state data sent by VideoHub
+    // The device sends PROTOCOL PREAMBLE, VERSION, VIDEO OUTPUT LOCKS, VIDEO OUTPUT ROUTING, etc.
+    char buffer[4096];
+    int totalBytesRead = 0;
+    // After 100ms initial wait, make up to 10 additional attempts (10ms each)
+    // This provides a 200ms maximum wait time when no data is available (WSAEWOULDBLOCK)
+    // Note: If data continues arriving, recv will keep reading until all data is consumed
+    constexpr int kReadAttemptsAfterInitialWait = 10;
+    int attempts = 0;
+    bool loggedPreview = false;
+
+    // Wait briefly for data to arrive, then consume it
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    while (attempts < kReadAttemptsAfterInitialWait) {
+        int bytesRead = recv(m_socket, buffer, sizeof(buffer) - 1, 0);
+        
+        if (bytesRead > 0) {
+            totalBytesRead += bytesRead;
+            buffer[bytesRead] = '\0';
+            // Log first chunk for debugging
+            if (!loggedPreview) {
+                std::string preview(buffer, std::min(bytesRead, 200));
+                Logger::Info("VideoHub initial state preview: " + preview + "...");
+                loggedPreview = true;
+            }
+            // Continue reading while data is available
+        } else if (bytesRead == 0) {
+            // Connection closed unexpectedly during initial state read
+            Logger::Error("[TECH ERROR] VideoHub closed connection during initial state read");
+            return false;
+        } else {
+            // WSAEWOULDBLOCK means no more data available
+            int error = WSAGetLastError();
+            if (error == WSAEWOULDBLOCK) {
+                attempts++;
+                if (totalBytesRead > 0) {
+                    // We got some data, that's good enough
+                    break;
+                }
+                // Wait a bit and try again
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            } else {
+                LogSocketError("reading initial state");
+                break;
+            }
+        }
+    }
+
+    // Restore socket to blocking mode for normal operation
+    mode = 0;  // 0 = blocking
+    if (ioctlsocket(m_socket, FIONBIO, &mode) != 0) {
+        LogSocketError("restoring blocking mode");
+        return false;
+    }
+
+    Logger::Info("VideoHub initial state consumed (" + std::to_string(totalBytesRead) + " bytes)");
+    return totalBytesRead > 0;
 }

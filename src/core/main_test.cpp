@@ -13,6 +13,8 @@
 #include <vector>
 #include <unordered_map>
 #include <numeric>
+#include <sstream>
+#include <iomanip>
 
 #include "../control/VMixController.h"
 #include "../control/VideoHubClient.h"
@@ -23,10 +25,11 @@ constexpr int kPrimaryOutput = 0;
 
 std::unordered_map<std::string, int> BuildInputLookup() {
     std::unordered_map<std::string, int> lookup;
+    // VideoHub uses 0-based indexing for inputs
     for (int i = 1; i <= 12; ++i) {
-        char name[16];
-        sprintf_s(name, "CAM_%02d", i);
-        lookup[name] = i;
+        std::stringstream ss;
+        ss << "CAM_" << std::setw(2) << std::setfill('0') << i;
+        lookup[ss.str()] = i - 1;  // Convert to 0-based (CAM_01 = input 0, etc.)
     }
     return lookup;
 }
@@ -60,7 +63,9 @@ int main() {
     // Sweep ports 1..12 on primary output and query signal status
     auto ports = RangeInclusive(1, 12);
     for (int port : ports) {
-        if (!videoHub.RouteInputToOutput(kPrimaryOutput, port)) {
+        // VideoHub uses 0-based indexing, so convert port (1-based) to 0-based
+        int videoHubInput = port - 1;
+        if (!videoHub.RouteInputToOutput(kPrimaryOutput, videoHubInput)) {
             std::cout << "[VideoHub] Routing failed for port " << port << std::endl;
             return 1;
         }

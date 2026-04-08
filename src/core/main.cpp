@@ -67,15 +67,16 @@ constexpr int kVideoHubPrimaryOutput = 0;
 namespace {
 std::unordered_map<std::string, int> BuildInputLookup() {
     std::unordered_map<std::string, int> lookup;
+    // VideoHub uses 0-based indexing for inputs
     for (int i = 1; i <= 12; ++i) {
         std::stringstream ss;
         ss << "CAM_" << std::setw(2) << std::setfill('0') << i;
-        lookup[ss.str()] = i;
+        lookup[ss.str()] = i - 1;  // Convert to 0-based (CAM_01 = input 0, CAM_02 = input 1, etc.)
     }
-    lookup["RADAR_01"] = 13;
-    lookup["RADAR_02"] = 14;
-    lookup["RADAR_03"] = 15;
-    lookup["RADAR_04"] = 16;
+    lookup["RADAR_01"] = 12;  // 0-based index
+    lookup["RADAR_02"] = 13;
+    lookup["RADAR_03"] = 14;
+    lookup["RADAR_04"] = 15;
     return lookup;
 }
 
@@ -279,7 +280,9 @@ bool ValidateSignalGroup(VideoHubClient& videoHub,
                          const std::vector<int>& ports,
                          const std::string& label) {
     for (int port : ports) {
-        if (!videoHub.RouteInputToOutput(kVideoHubPrimaryOutput, port)) {
+        // VideoHub uses 0-based indexing, so convert port (1-based) to 0-based
+        int videoHubInput = port - 1;
+        if (!videoHub.RouteInputToOutput(kVideoHubPrimaryOutput, videoHubInput)) {
             Logger::Error("[HW/SW ERROR]: No se pudo conmutar VideoHub para puerto " + std::to_string(port));
             return false;
         }

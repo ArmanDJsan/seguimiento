@@ -34,6 +34,7 @@ private:
     bool InitializeWinsock();
     bool SendCommand(const std::string& payload);
     void LogSocketError(const std::string& context);
+    bool ConsumeInitialState();
 
     std::string m_host;
     uint16_t m_port;
