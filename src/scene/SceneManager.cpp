@@ -139,8 +139,8 @@ void SceneManager::UpdateLeaderPosition(float Xg, float Yg) {
         ApplyGroupConfig(desiredConfig);
     }
     
-    // Process any pending mute timeouts
-    ProcessMuteTimeouts();
+    // Process any pending mute timeouts (use internal version since we already hold the mutex)
+    ProcessMuteTimeoutsInternal();
 }
 
 bool SceneManager::TriggerGroupSwitch(int configIndex) {
@@ -161,8 +161,14 @@ bool SceneManager::TriggerGroupSwitch(int configIndex) {
 }
 
 void SceneManager::ProcessMuteTimeouts() {
-    // Acquire mutex to safely read and modify slot assignments
+    // Acquire mutex and delegate to internal implementation
     std::lock_guard<std::mutex> lock(m_mutex);
+    ProcessMuteTimeoutsInternal();
+}
+
+void SceneManager::ProcessMuteTimeoutsInternal() {
+    // NOTE: This method assumes m_mutex is already held by the caller.
+    // Do NOT acquire the mutex here to avoid recursive lock deadlock.
     
     int64_t now = GetCurrentTimeMs();
     
