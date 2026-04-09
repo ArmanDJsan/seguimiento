@@ -115,7 +115,6 @@
     <ClCompile Include="capture\DeckLinkSource.cpp" />
     <ClCompile Include="DeckLinkAPI_i.c" />
     <ClCompile Include="ndi\NDIManager.cpp" />
-    <ClCompile Include="ai\YOLOProcessor.cpp" />
     <ClCompile Include="ai\ActiveCameraSelector.cpp" />
     <ClCompile Include="ai\InferenceEngine.cpp" />
     <ClCompile Include="tracking\PositionMapper.cpp" />
@@ -147,7 +146,6 @@
     <ClInclude Include="DeckLinkAPI_h.h" />
     <ClInclude Include="json.hpp" />
     <ClInclude Include="ndi\NDIManager.h" />
-    <ClInclude Include="ai\YOLOProcessor.h" />
     <ClInclude Include="ai\ActiveCameraSelector.h" />
     <ClInclude Include="ai\InferenceEngine.h" />
     <ClInclude Include="tracking\PositionMapper.h" />

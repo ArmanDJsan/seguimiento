@@ -33,7 +33,6 @@
 #include "../capture/DeckLinkCapture.h"
 #include "../capture/DeckLinkSource.h"
 #include "../ndi/NDIManager.h"
-#include "../ai/YOLOProcessor.h"
 #include "../ai/ActiveCameraSelector.h"
 #include "../ai/InferenceEngine.h"
 #include "../tracking/PositionMapper.h"
@@ -102,15 +101,6 @@ struct Config {
     bool redisEnabled;
     std::string redisHost;
     uint16_t redisPort;
-    
-    // YOLO configuration
-    bool yoloEnabled;
-    std::string yoloModelPath;
-    std::string yoloFallback;
-    int yoloBatchSize;
-    float yoloConfidenceThreshold;
-    float yoloNmsThreshold;
-    bool yoloUseFP16;
     
     // Camera selector configuration
     bool selectorEnabled;
@@ -220,15 +210,6 @@ Config LoadConfig(const std::string& path) {
     config.redisHost = "127.0.0.1";
     config.redisPort = 6379;
     
-    // YOLO defaults
-    config.yoloEnabled = true;
-    config.yoloModelPath = "models/yolov8n.engine";
-    config.yoloFallback = "stub";
-    config.yoloBatchSize = 4;
-    config.yoloConfidenceThreshold = 0.5f;
-    config.yoloNmsThreshold = 0.4f;
-    config.yoloUseFP16 = true;
-    
     // Camera selector defaults
     config.selectorEnabled = true;
     config.selectorTopK = 4;
@@ -280,32 +261,6 @@ Config LoadConfig(const std::string& path) {
             }
             if (j["redis"].contains("port") && j["redis"]["port"].is_number()) {
                 config.redisPort = j["redis"]["port"].get<uint16_t>();
-            }
-        }
-        
-        // Parse YOLO section
-        if (j.contains("yolo") && j["yolo"].is_object()) {
-            auto& yolo = j["yolo"];
-            if (yolo.contains("enabled") && yolo["enabled"].is_boolean()) {
-                config.yoloEnabled = yolo["enabled"].get<bool>();
-            }
-            if (yolo.contains("model_path") && yolo["model_path"].is_string()) {
-                config.yoloModelPath = yolo["model_path"].get<std::string>();
-            }
-            if (yolo.contains("fallback") && yolo["fallback"].is_string()) {
-                config.yoloFallback = yolo["fallback"].get<std::string>();
-            }
-            if (yolo.contains("batch_size") && yolo["batch_size"].is_number()) {
-                config.yoloBatchSize = yolo["batch_size"].get<int>();
-            }
-            if (yolo.contains("confidence_threshold") && yolo["confidence_threshold"].is_number()) {
-                config.yoloConfidenceThreshold = yolo["confidence_threshold"].get<float>();
-            }
-            if (yolo.contains("nms_threshold") && yolo["nms_threshold"].is_number()) {
-                config.yoloNmsThreshold = yolo["nms_threshold"].get<float>();
-            }
-            if (yolo.contains("use_fp16") && yolo["use_fp16"].is_boolean()) {
-                config.yoloUseFP16 = yolo["use_fp16"].get<bool>();
             }
         }
         
@@ -749,45 +704,18 @@ int main(int argc, char* argv[]) {
             Logger::Info("ActiveCameraSelector disabled by configuration");
         }
         
-        // Initialize YOLO/TensorRT processor
-        Logger::Info("Initializing YOLO processor...");
-        auto yoloProcessor = std::make_shared<YOLOProcessor>(
-            config.yoloBatchSize,
-            config.yoloUseFP16
-        );
-        
-        // Create dedicated CUDA stream for YOLO processing (non-blocking)
-        cudaStream_t yoloStream = nullptr;
-        cudaError_t err = cudaStreamCreate(&yoloStream);
-        if (err != cudaSuccess) {
-            Logger::Error("Failed to create YOLO CUDA stream: " + std::string(cudaGetErrorString(err)));
-            throw std::runtime_error("CUDA stream creation failed");
-        }
-        Logger::Info("Created dedicated CUDA stream for YOLO (non-blocking pipeline)");
-        
-        bool yoloReady = false;
-        if (config.yoloEnabled) {
-            bool useFallback = (config.yoloFallback == "stub");
-            if (yoloProcessor->Initialize(config.yoloModelPath, useFallback)) {
-                yoloProcessor->SetConfidenceThreshold(config.yoloConfidenceThreshold);
-                yoloProcessor->SetNMSThreshold(config.yoloNmsThreshold);
-                yoloReady = true;
-                
-                if (yoloProcessor->IsStubMode()) {
-                    Logger::Warning("YOLO running in STUB mode - no real inference");
-                } else {
-                    Logger::Info("YOLO initialized successfully with TensorRT");
-                }
-            } else {
-                Logger::Warning("YOLO initialization failed - inference disabled");
-            }
-        } else {
-            Logger::Info("YOLO disabled by configuration");
-        }
-        
         // ============================================================================
         // Initialize New Tracking Pipeline Components
         // ============================================================================
+        
+        // Create dedicated CUDA stream for inference processing (non-blocking)
+        cudaStream_t inferenceStream = nullptr;
+        cudaError_t err = cudaStreamCreate(&inferenceStream);
+        if (err != cudaSuccess) {
+            Logger::Error("Failed to create inference CUDA stream: " + std::string(cudaGetErrorString(err)));
+            throw std::runtime_error("CUDA stream creation failed");
+        }
+        Logger::Info("Created dedicated CUDA stream for inference (non-blocking pipeline)");
         
         // Initialize InferenceEngine (TensorRT-based ball detection)
         Logger::Info("Initializing InferenceEngine...");
@@ -860,7 +788,10 @@ int main(int argc, char* argv[]) {
         
         // ============================================================================
         
-        // Initialize Redis worker
+        // Redis worker disabled - was only used with legacy YOLOProcessor
+        // New architecture uses RankingPublisher for vMix output
+        // TODO: Re-enable with BallDetection if Redis publishing is needed
+        /*
         Logger::Info("Initializing Redis worker...");
         RedisWorker redisWorker(config.redisHost, config.redisPort, config.redisEnabled);
         if (config.redisEnabled) {
@@ -873,6 +804,7 @@ int main(int argc, char* argv[]) {
         } else {
             Logger::Info("Redis worker disabled by configuration");
         }
+        */
         
         // Initialize capture channels
         // Note: DeckLinkCapture uses CUDA-only pipeline (no D3D11 dependency)
@@ -898,9 +830,9 @@ int main(int argc, char* argv[]) {
             const std::string channelName = "Channel_" + std::to_string(i + 1);
             if (capture->Initialize(i, channelName)) {
                 // Frame ready handler: Non-blocking pipeline with strict priority order
-                // ORDEN 2: NON-BLOCKING PIPELINE - NDI → Selector → YOLO (async) → Tracking → Redis (async)
-                capture->SetFrameReadyHandler([ndiManager, cameraSelector, yoloProcessor, &redisWorker, 
-                                              perfMonitor, &config, yoloReady, yoloStream,
+                // ORDEN 2: NON-BLOCKING PIPELINE - NDI → Selector → Inference → Tracking
+                capture->SetFrameReadyHandler([ndiManager, cameraSelector, 
+                                              perfMonitor, &config, inferenceStream,
                                               inferenceEngine, positionMapper, ballTracker, 
                                               sceneManager, rankingPublisher, inferenceReady]
                                              (const VideoChannel& channel, cudaStream_t stream) {
@@ -952,7 +884,7 @@ int main(int argc, char* argv[]) {
                             channel.channelID,
                             channel.width,
                             channel.height,
-                            yoloStream
+                            inferenceStream
                         );
                     }
                     
@@ -991,55 +923,8 @@ int main(int argc, char* argv[]) {
                         }
                     }
                     
-                    // Legacy YOLO processing path (for backward compatibility)
-                    if (yoloReady && config.yoloEnabled) {
-                        // Get active camera selection
-                        std::vector<int> selectedCameras;
-                        
-                        if (cameraSelector && config.selectorEnabled) {
-                            auto selection = cameraSelector->GetActiveSelection();
-                            selectedCameras = selection.selectedCameraIDs;
-                            
-                            // Adaptive quality: respect both performance monitor AND config.selectorTopK
-                            int recommended = perfMonitor->GetRecommendedActiveCameras();
-                            int maxAllowed = (std::min)(recommended, config.selectorTopK);
-                            if (static_cast<int>(selectedCameras.size()) > maxAllowed) {
-                                selectedCameras.resize(maxAllowed);
-                            }
-                        } else {
-                            // If selector disabled, process this camera only
-                            selectedCameras.push_back(channel.channelID);
-                        }
-                        
-                        // Only process if this camera is selected
-                        bool isSelected = std::find(selectedCameras.begin(), selectedCameras.end(), 
-                                                    channel.channelID) != selectedCameras.end();
-                        
-                        if (isSelected) {
-                            // Process frame in YOLO's dedicated stream (async, non-blocking)
-                            // Note: ProcessFrame launches kernels but does NOT wait for completion
-                            auto detections = yoloProcessor->ProcessFrame(
-                                channel.cudaBGRABuffer,
-                                channel.channelID,
-                                channel.width,
-                                channel.height,
-                                yoloStream  // Separate stream - does NOT block capture stream
-                            );
-                            
-                            // ============================================================
-                            // PRIORITY 4: Redis Publishing (async, can be 1 frame late)
-                            // ============================================================
-                            auto redisStart = std::chrono::high_resolution_clock::now();
-                            if (!detections.empty() && config.redisEnabled) {
-                                // Non-blocking update - Redis worker publishes async
-                                redisWorker.UpdateDetections(detections);
-                            }
-                            auto redisEnd = std::chrono::high_resolution_clock::now();
-                            telemetry.redis_ms = std::chrono::duration<double, std::milli>(redisEnd - redisStart).count();
-                        }
-                    }
-                    auto yoloEnd = std::chrono::high_resolution_clock::now();
-                    telemetry.yolo_ms = std::chrono::duration<double, std::milli>(yoloEnd - yoloStart).count();
+                    auto inferenceEnd = std::chrono::high_resolution_clock::now();
+                    telemetry.yolo_ms = std::chrono::duration<double, std::milli>(inferenceEnd - yoloStart).count();
                     
                     // Record telemetry for performance monitoring and auto-adjust
                     auto frameEnd = std::chrono::high_resolution_clock::now();
@@ -1058,13 +943,11 @@ int main(int argc, char* argv[]) {
         Logger::Info("=== System Status ===");
         Logger::Info("Video Pipeline: " + std::to_string(kMaxNDIChannels) + " NDI channels active");
         Logger::Info("Camera Selector: " + std::string(config.selectorEnabled ? "Enabled (Top-" + std::to_string(config.selectorTopK) + ")" : "Disabled"));
-        Logger::Info("YOLO Inference: " + std::string(yoloReady ? (yoloProcessor->IsStubMode() ? "Stub mode" : "Active") : "Disabled"));
         Logger::Info("InferenceEngine: " + std::string(inferenceReady ? (inferenceEngine->IsStubMode() ? "Stub mode" : "Active") : "Disabled"));
         Logger::Info("PositionMapper: " + std::string(positionMapper->IsCalibrated() ? "Calibrated" : "Identity"));
         Logger::Info("BallTracker: " + std::string(ballTracker->IsInitialized() ? "Initialized (" + std::to_string(config.ballTrackerConfig.numBalls) + " balls)" : "Disabled"));
         Logger::Info("SceneManager: " + std::string(config.sceneManagerEnabled ? "Enabled (" + std::to_string(config.sceneManagerGroups.size()) + " groups)" : "Disabled"));
         Logger::Info("RankingPublisher: " + std::string(config.rankingConfig.enabled ? (rankingPublisher->IsConnected() ? "Connected" : "Disconnected") : "Disabled"));
-        Logger::Info("Redis Publishing: " + std::string(config.redisEnabled ? (redisWorker.IsConnected() ? "Connected" : "Retrying") : "Disabled"));
         Logger::Info("=====================");
         Logger::Info("=== Keyboard Shortcuts ===");
         Logger::Info("ESC - Exit application");
@@ -1195,11 +1078,6 @@ int main(int argc, char* argv[]) {
                                 ", Failed=" + std::to_string(rankingPublisher->GetFailCount()));
                 }
                 
-                if (config.redisEnabled) {
-                    Logger::Info("[STATUS] Redis: " + std::string(redisWorker.IsConnected() ? "Connected" : "Disconnected") +
-                                ", Retry count: " + std::to_string(redisWorker.GetRetryCount()));
-                }
-                
                 // Process scene manager mute timeouts
                 if (sceneManager && sceneManager->IsEnabled()) {
                     sceneManager->ProcessMuteTimeouts();
@@ -1226,7 +1104,8 @@ int main(int argc, char* argv[]) {
             Logger::Info("YOLO CUDA stream destroyed");
         }
         
-        redisWorker.Stop();
+        // Redis worker was disabled (legacy)
+        // redisWorker.Stop();
         
         // Stop all capture channels before releasing NDI
         for (auto& capture : captureChannels) {
