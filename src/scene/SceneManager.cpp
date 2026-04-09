@@ -283,9 +283,10 @@ void SceneManager::ApplyGroupConfig(int configIndex) {
 
 bool SceneManager::SendVideoHubRouting(int slotIndex, int cameraID) {
     if (!m_videoHub || !m_videoHub->IsConnected()) {
-        Logger::Error("SceneManager: Cannot send routing command - VideoHub not connected (slot G" + 
-                     std::to_string(slotIndex + 1) + " -> CAM_" + 
-                     std::setfill('0') << std::setw(2) + std::to_string(cameraID) + ")");
+        std::ostringstream errOss;
+        errOss << "SceneManager: Cannot send routing command - VideoHub not connected (slot G" 
+               << (slotIndex + 1) << " -> CAM_" << std::setw(2) << std::setfill('0') << cameraID << ")";
+        Logger::Error(errOss.str());
         return false;
     }
     
