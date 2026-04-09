@@ -142,6 +142,70 @@ struct Config {
     RankingPublisherConfig rankingConfig;
 };
 
+/**
+ * Validate SceneManager configuration
+ * Returns true if configuration is valid, false otherwise
+ */
+bool ValidateSceneManagerConfig(const Config& config) {
+    if (!config.sceneManagerEnabled) {
+        return true;  // No validation needed when disabled
+    }
+    
+    bool valid = true;
+    
+    // Validate that we have at least one group
+    if (config.sceneManagerGroups.empty()) {
+        Logger::Error("SceneManager validation failed: No group configurations defined");
+        valid = false;
+    }
+    
+    // Validate each group
+    for (size_t i = 0; i < config.sceneManagerGroups.size(); ++i) {
+        const auto& group = config.sceneManagerGroups[i];
+        
+        // Validate camera IDs in G1-G4 (range 1-12)
+        for (int j = 0; j < 4; ++j) {
+            int cameraID = group.slotsG1_G4[j];
+            if (cameraID < 1 || cameraID > 12) {
+                Logger::Error("SceneManager validation failed: Group '" + group.configName + 
+                             "' has invalid camera ID " + std::to_string(cameraID) + 
+                             " in G1-G4[" + std::to_string(j) + "] (must be 1-12)");
+                valid = false;
+            }
+        }
+        
+        // Validate camera IDs in G5-G8 (range 1-12)
+        for (int j = 0; j < 4; ++j) {
+            int cameraID = group.slotsG5_G8[j];
+            if (cameraID < 1 || cameraID > 12) {
+                Logger::Error("SceneManager validation failed: Group '" + group.configName + 
+                             "' has invalid camera ID " + std::to_string(cameraID) + 
+                             " in G5-G8[" + std::to_string(j) + "] (must be 1-12)");
+                valid = false;
+            }
+        }
+        
+        // Validate trigger thresholds are in ascending order
+        if (i > 0) {
+            float prevThreshold = config.sceneManagerGroups[i - 1].triggerThreshold;
+            float currThreshold = group.triggerThreshold;
+            if (currThreshold <= prevThreshold) {
+                Logger::Warning("SceneManager: Group '" + group.configName + 
+                               "' threshold (" + std::to_string(currThreshold) + 
+                               "m) is not greater than previous group threshold (" + 
+                               std::to_string(prevThreshold) + "m)");
+            }
+        }
+    }
+    
+    if (valid) {
+        Logger::Info("SceneManager configuration validated successfully (" + 
+                    std::to_string(config.sceneManagerGroups.size()) + " groups)");
+    }
+    
+    return valid;
+}
+
 Config LoadConfig(const std::string& path) {
     Config config;
     // Set defaults
@@ -296,30 +360,87 @@ Config LoadConfig(const std::string& path) {
                 config.sceneManagerMuteTimeoutMs = sm["mute_timeout_ms"].get<int>();
             }
             if (sm.contains("groups") && sm["groups"].is_object()) {
-                for (auto& [key, value] : sm["groups"].items()) {
-                    GroupConfig gc;
-                    gc.configName = key;
-                    if (value.contains("g1_g4") && value["g1_g4"].is_array()) {
-                        for (size_t i = 0; i < 4 && i < value["g1_g4"].size(); ++i) {
-                            gc.slotsG1_G4[i] = value["g1_g4"][i].get<int>();
+                try {
+                    for (auto& [key, value] : sm["groups"].items()) {
+                        GroupConfig gc;
+                        gc.configName = key;
+                        
+                        // Parse G1-G4 cameras (required)
+                        if (value.contains("g1_g4") && value["g1_g4"].is_array()) {
+                            if (value["g1_g4"].size() >= 4) {
+                                for (size_t i = 0; i < 4; ++i) {
+                                    gc.slotsG1_G4[i] = value["g1_g4"][i].get<int>();
+                                }
+                            } else {
+                                Logger::Warning("SceneManager config: Group '" + key + 
+                                               "' g1_g4 array has fewer than 4 elements, using defaults");
+                            }
+                        } else {
+                            Logger::Warning("SceneManager config: Group '" + key + 
+                                           "' missing g1_g4 field, using defaults");
                         }
-                    }
-                    if (value.contains("g5_g8") && value["g5_g8"].is_array()) {
-                        for (size_t i = 0; i < 4 && i < value["g5_g8"].size(); ++i) {
-                            gc.slotsG5_G8[i] = value["g5_g8"][i].get<int>();
+                        
+                        // Parse G5-G8 cameras (required)
+                        if (value.contains("g5_g8") && value["g5_g8"].is_array()) {
+                            if (value["g5_g8"].size() >= 4) {
+                                for (size_t i = 0; i < 4; ++i) {
+                                    gc.slotsG5_G8[i] = value["g5_g8"][i].get<int>();
+                                }
+                            } else {
+                                Logger::Warning("SceneManager config: Group '" + key + 
+                                               "' g5_g8 array has fewer than 4 elements, using defaults");
+                            }
+                        } else {
+                            Logger::Warning("SceneManager config: Group '" + key + 
+                                           "' missing g5_g8 field, using defaults");
                         }
+                        
+                        // Parse trigger threshold (required)
+                        if (value.contains("trigger_threshold") && value["trigger_threshold"].is_number()) {
+                            gc.triggerThreshold = value["trigger_threshold"].get<float>();
+                        } else {
+                            Logger::Warning("SceneManager config: Group '" + key + 
+                                           "' missing trigger_threshold, using default 0.0");
+                        }
+                        
+                        // Log parsed group
+                        std::ostringstream oss;
+                        oss << "SceneManager config: Parsed group '" << key << "' - "
+                            << "G1-G4=[" << gc.slotsG1_G4[0] << "," << gc.slotsG1_G4[1] << ","
+                            << gc.slotsG1_G4[2] << "," << gc.slotsG1_G4[3] << "], "
+                            << "G5-G8=[" << gc.slotsG5_G8[0] << "," << gc.slotsG5_G8[1] << ","
+                            << gc.slotsG5_G8[2] << "," << gc.slotsG5_G8[3] << "], "
+                            << "threshold=" << gc.triggerThreshold << "m";
+                        Logger::Debug(oss.str());
+                        
+                        config.sceneManagerGroups.push_back(gc);
                     }
-                    if (value.contains("trigger_threshold") && value["trigger_threshold"].is_number()) {
-                        gc.triggerThreshold = value["trigger_threshold"].get<float>();
+                    
+                    // Sort by trigger threshold
+                    std::sort(config.sceneManagerGroups.begin(), config.sceneManagerGroups.end(),
+                              [](const GroupConfig& a, const GroupConfig& b) {
+                                  return a.triggerThreshold < b.triggerThreshold;
+                              });
+                    
+                    // Log sorted order
+                    if (!config.sceneManagerGroups.empty()) {
+                        std::ostringstream oss;
+                        oss << "SceneManager config: Sorted " << config.sceneManagerGroups.size() << " groups by threshold: ";
+                        for (size_t i = 0; i < config.sceneManagerGroups.size(); ++i) {
+                            if (i > 0) oss << " -> ";
+                            oss << config.sceneManagerGroups[i].configName 
+                                << "(" << config.sceneManagerGroups[i].triggerThreshold << "m)";
+                        }
+                        Logger::Info(oss.str());
                     }
-                    config.sceneManagerGroups.push_back(gc);
+                } catch (const std::exception& e) {
+                    Logger::Error("SceneManager config: Failed to parse groups - " + std::string(e.what()));
                 }
-                // Sort by trigger threshold
-                std::sort(config.sceneManagerGroups.begin(), config.sceneManagerGroups.end(),
-                          [](const GroupConfig& a, const GroupConfig& b) {
-                              return a.triggerThreshold < b.triggerThreshold;
-                          });
+            } else if (config.sceneManagerEnabled) {
+                Logger::Warning("SceneManager config: No 'groups' section found, using defaults from SceneManagerConfig");
             }
+        } else if (config.sceneManagerEnabled) {
+            Logger::Warning("SceneManager config: No 'scene_manager' section found, using defaults");
         }
         
         // Parse inference_engine section
@@ -501,6 +622,15 @@ int main(int argc, char* argv[]) {
     try {
         // Load configuration from JSON
         Config config = LoadConfig("config.json");
+        
+        // Validate SceneManager configuration
+        if (!ValidateSceneManagerConfig(config)) {
+            Logger::Error("SceneManager configuration validation failed. Please fix config.json");
+            if (config.sceneManagerEnabled) {
+                Logger::Error("SceneManager is enabled but configuration is invalid. Disabling SceneManager.");
+                config.sceneManagerEnabled = false;
+            }
+        }
 
         // Controllers for diagnostics and routing
         auto inputLookup = BuildInputLookup();
