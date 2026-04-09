@@ -35,6 +35,11 @@
 #include "../ndi/NDIManager.h"
 #include "../ai/YOLOProcessor.h"
 #include "../ai/ActiveCameraSelector.h"
+#include "../ai/InferenceEngine.h"
+#include "../tracking/PositionMapper.h"
+#include "../tracking/BallTracker.h"
+#include "../scene/SceneManager.h"
+#include "../output/RankingPublisher.h"
 #include "../redis/RedisWorker.h"
 #include "../telemetry/PerformanceMonitor.h"
 #include "../utils/Logger.h"
@@ -117,6 +122,24 @@ struct Config {
     float hysteresisSwitchThreshold;
     int hysteresisMinActiveFrames;
     float hysteresisDecayFactor;
+    
+    // Scene manager configuration
+    bool sceneManagerEnabled;
+    int sceneManagerMuteTimeoutMs;
+    std::vector<GroupConfig> sceneManagerGroups;
+    
+    // Inference engine configuration
+    InferenceEngineConfig inferenceConfig;
+    
+    // Position mapper configuration
+    std::string calibrationFile;
+    TrackBounds trackBounds;
+    
+    // Ball tracker configuration
+    BallTrackerConfig ballTrackerConfig;
+    
+    // Ranking publisher configuration
+    RankingPublisherConfig rankingConfig;
 };
 
 Config LoadConfig(const std::string& path) {
@@ -259,6 +282,106 @@ Config LoadConfig(const std::string& path) {
         // Parse target_spheres from root
         if (j.contains("target_spheres") && j["target_spheres"].is_number()) {
             config.targetSpheres = j["target_spheres"].get<int>();
+        }
+        
+        // Parse scene_manager section
+        config.sceneManagerEnabled = true;
+        config.sceneManagerMuteTimeoutMs = 200;
+        if (j.contains("scene_manager") && j["scene_manager"].is_object()) {
+            auto& sm = j["scene_manager"];
+            if (sm.contains("enabled") && sm["enabled"].is_boolean()) {
+                config.sceneManagerEnabled = sm["enabled"].get<bool>();
+            }
+            if (sm.contains("mute_timeout_ms") && sm["mute_timeout_ms"].is_number()) {
+                config.sceneManagerMuteTimeoutMs = sm["mute_timeout_ms"].get<int>();
+            }
+            if (sm.contains("groups") && sm["groups"].is_object()) {
+                for (auto& [key, value] : sm["groups"].items()) {
+                    GroupConfig gc;
+                    gc.configName = key;
+                    if (value.contains("g1_g4") && value["g1_g4"].is_array()) {
+                        for (size_t i = 0; i < 4 && i < value["g1_g4"].size(); ++i) {
+                            gc.slotsG1_G4[i] = value["g1_g4"][i].get<int>();
+                        }
+                    }
+                    if (value.contains("g5_g8") && value["g5_g8"].is_array()) {
+                        for (size_t i = 0; i < 4 && i < value["g5_g8"].size(); ++i) {
+                            gc.slotsG5_G8[i] = value["g5_g8"][i].get<int>();
+                        }
+                    }
+                    if (value.contains("trigger_threshold") && value["trigger_threshold"].is_number()) {
+                        gc.triggerThreshold = value["trigger_threshold"].get<float>();
+                    }
+                    config.sceneManagerGroups.push_back(gc);
+                }
+                // Sort by trigger threshold
+                std::sort(config.sceneManagerGroups.begin(), config.sceneManagerGroups.end(),
+                          [](const GroupConfig& a, const GroupConfig& b) {
+                              return a.triggerThreshold < b.triggerThreshold;
+                          });
+            }
+        }
+        
+        // Parse inference_engine section
+        if (j.contains("inference_engine") && j["inference_engine"].is_object()) {
+            auto& ie = j["inference_engine"];
+            if (ie.contains("model_path") && ie["model_path"].is_string()) {
+                config.inferenceConfig.modelPath = ie["model_path"].get<std::string>();
+            }
+            if (ie.contains("batch_size") && ie["batch_size"].is_number()) {
+                config.inferenceConfig.batchSize = ie["batch_size"].get<int>();
+            }
+            if (ie.contains("input_size") && ie["input_size"].is_number()) {
+                config.inferenceConfig.inputWidth = ie["input_size"].get<int>();
+                config.inferenceConfig.inputHeight = ie["input_size"].get<int>();
+            }
+            if (ie.contains("confidence_threshold") && ie["confidence_threshold"].is_number()) {
+                config.inferenceConfig.confidenceThreshold = ie["confidence_threshold"].get<float>();
+            }
+            if (ie.contains("nms_threshold") && ie["nms_threshold"].is_number()) {
+                config.inferenceConfig.nmsThreshold = ie["nms_threshold"].get<float>();
+            }
+            if (ie.contains("num_classes") && ie["num_classes"].is_number()) {
+                config.inferenceConfig.numClasses = ie["num_classes"].get<int>();
+            }
+        }
+        
+        // Parse position_mapper section
+        config.calibrationFile = "config/calibration.json";
+        if (j.contains("position_mapper") && j["position_mapper"].is_object()) {
+            auto& pm = j["position_mapper"];
+            if (pm.contains("calibration_file") && pm["calibration_file"].is_string()) {
+                config.calibrationFile = pm["calibration_file"].get<std::string>();
+            }
+            if (pm.contains("track_bounds") && pm["track_bounds"].is_object()) {
+                auto& tb = pm["track_bounds"];
+                if (tb.contains("x_min")) config.trackBounds.xMin = tb["x_min"].get<float>();
+                if (tb.contains("x_max")) config.trackBounds.xMax = tb["x_max"].get<float>();
+                if (tb.contains("y_min")) config.trackBounds.yMin = tb["y_min"].get<float>();
+                if (tb.contains("y_max")) config.trackBounds.yMax = tb["y_max"].get<float>();
+            }
+        }
+        
+        // Parse ball_tracker section
+        if (j.contains("ball_tracker") && j["ball_tracker"].is_object()) {
+            auto& bt = j["ball_tracker"];
+            if (bt.contains("num_balls")) config.ballTrackerConfig.numBalls = bt["num_balls"].get<int>();
+            if (bt.contains("kalman_process_noise_pos")) config.ballTrackerConfig.kalmanProcessNoisePos = bt["kalman_process_noise_pos"].get<float>();
+            if (bt.contains("kalman_process_noise_vel")) config.ballTrackerConfig.kalmanProcessNoiseVel = bt["kalman_process_noise_vel"].get<float>();
+            if (bt.contains("kalman_measurement_noise")) config.ballTrackerConfig.kalmanMeasurementNoise = bt["kalman_measurement_noise"].get<float>();
+            if (bt.contains("max_occlusion_frames")) config.ballTrackerConfig.maxOcclusionFrames = bt["max_occlusion_frames"].get<int>();
+            if (bt.contains("association_gate_distance")) config.ballTrackerConfig.associationGateDistance = bt["association_gate_distance"].get<float>();
+            if (bt.contains("min_confidence_threshold")) config.ballTrackerConfig.minConfidenceThreshold = bt["min_confidence_threshold"].get<float>();
+        }
+        
+        // Parse ranking_publisher section
+        if (j.contains("ranking_publisher") && j["ranking_publisher"].is_object()) {
+            auto& rp = j["ranking_publisher"];
+            if (rp.contains("enabled")) config.rankingConfig.enabled = rp["enabled"].get<bool>();
+            if (rp.contains("vmix_host")) config.rankingConfig.vmixHost = rp["vmix_host"].get<std::string>();
+            if (rp.contains("vmix_tcp_port")) config.rankingConfig.vmixTcpPort = rp["vmix_tcp_port"].get<uint16_t>();
+            if (rp.contains("publish_rate_hz")) config.rankingConfig.publishRateHz = rp["publish_rate_hz"].get<int>();
+            if (rp.contains("title_input_name")) config.rankingConfig.titleInputName = rp["title_input_name"].get<std::string>();
         }
 
         Logger::Info("Configuración cargada: VideoHub=" + config.videohubIp + ":" + 
@@ -532,6 +655,81 @@ int main(int argc, char* argv[]) {
             Logger::Info("YOLO disabled by configuration");
         }
         
+        // ============================================================================
+        // Initialize New Tracking Pipeline Components
+        // ============================================================================
+        
+        // Initialize InferenceEngine (TensorRT-based ball detection)
+        Logger::Info("Initializing InferenceEngine...");
+        auto inferenceEngine = std::make_shared<InferenceEngine>();
+        bool inferenceReady = false;
+        if (inferenceEngine->Initialize(config.inferenceConfig)) {
+            inferenceReady = true;
+            if (inferenceEngine->IsStubMode()) {
+                Logger::Warning("InferenceEngine running in STUB mode");
+            } else {
+                Logger::Info("InferenceEngine initialized with TensorRT");
+            }
+        } else {
+            Logger::Warning("InferenceEngine initialization failed");
+        }
+        
+        // Initialize PositionMapper (homography-based coordinate transformation)
+        Logger::Info("Initializing PositionMapper...");
+        auto positionMapper = std::make_shared<PositionMapper>();
+        if (positionMapper->LoadCalibration(config.calibrationFile)) {
+            positionMapper->SetTrackBounds(config.trackBounds);
+            Logger::Info("PositionMapper loaded calibration from " + config.calibrationFile);
+        } else {
+            Logger::Warning("PositionMapper using identity transform (no calibration)");
+        }
+        
+        // Initialize BallTracker (Kalman filter-based multi-ball tracking)
+        Logger::Info("Initializing BallTracker...");
+        auto ballTracker = std::make_shared<BallTracker>(config.ballTrackerConfig);
+        if (ballTracker->Initialize()) {
+            Logger::Info("BallTracker initialized with " + 
+                        std::to_string(config.ballTrackerConfig.numBalls) + " balls");
+        } else {
+            Logger::Error("BallTracker initialization failed");
+        }
+        
+        // Initialize SceneManager (leapfrogging group switching)
+        Logger::Info("Initializing SceneManager...");
+        SceneManagerConfig sceneConfig;
+        sceneConfig.enabled = config.sceneManagerEnabled;
+        sceneConfig.muteTimeoutMs = config.sceneManagerMuteTimeoutMs;
+        sceneConfig.groups = config.sceneManagerGroups;
+        
+        auto sceneManager = std::make_shared<SceneManager>(&videoHub, sceneConfig);
+        if (config.sceneManagerEnabled) {
+            if (sceneManager->Initialize()) {
+                Logger::Info("SceneManager initialized with " + 
+                            std::to_string(config.sceneManagerGroups.size()) + " group configurations");
+            } else {
+                Logger::Warning("SceneManager initialization failed");
+            }
+        } else {
+            Logger::Info("SceneManager disabled by configuration");
+        }
+        
+        // Initialize RankingPublisher (vMix ranking output)
+        Logger::Info("Initializing RankingPublisher...");
+        auto rankingPublisher = std::make_shared<RankingPublisher>(config.rankingConfig);
+        if (config.rankingConfig.enabled) {
+            if (rankingPublisher->Initialize()) {
+                Logger::Info("RankingPublisher initialized, target=" + 
+                            config.rankingConfig.vmixHost + ":" + 
+                            std::to_string(config.rankingConfig.vmixTcpPort));
+            } else {
+                Logger::Warning("RankingPublisher initialization failed");
+            }
+        } else {
+            Logger::Info("RankingPublisher disabled by configuration");
+        }
+        
+        // ============================================================================
+        
         // Initialize Redis worker
         Logger::Info("Initializing Redis worker...");
         RedisWorker redisWorker(config.redisHost, config.redisPort, config.redisEnabled);
@@ -570,9 +768,11 @@ int main(int argc, char* argv[]) {
             const std::string channelName = "Channel_" + std::to_string(i + 1);
             if (capture->Initialize(i, channelName)) {
                 // Frame ready handler: Non-blocking pipeline with strict priority order
-                // ORDEN 2: NON-BLOCKING PIPELINE - NDI → Selector → YOLO (async) → Redis (async)
+                // ORDEN 2: NON-BLOCKING PIPELINE - NDI → Selector → YOLO (async) → Tracking → Redis (async)
                 capture->SetFrameReadyHandler([ndiManager, cameraSelector, yoloProcessor, &redisWorker, 
-                                              perfMonitor, &config, yoloReady, yoloStream]
+                                              perfMonitor, &config, yoloReady, yoloStream,
+                                              inferenceEngine, positionMapper, ballTracker, 
+                                              sceneManager, rankingPublisher, inferenceReady]
                                              (const VideoChannel& channel, cudaStream_t stream) {
                     auto frameStart = std::chrono::high_resolution_clock::now();
                     Telemetry telemetry = {0, 0, 0, 0, 0};
@@ -610,10 +810,58 @@ int main(int argc, char* argv[]) {
                     telemetry.selector_ms = std::chrono::duration<double, std::milli>(selectorEnd - selectorStart).count();
                     
                     // ============================================================================
-                    // PRIORITY 3: AI Inference (if YOLO enabled and ready)
-                    // IMPORTANT: YOLO runs in SEPARATE CUDA STREAM - does NOT block NDI/Selector
+                    // PRIORITY 3: AI Inference + Ball Tracking Pipeline
                     // ============================================================================
                     auto yoloStart = std::chrono::high_resolution_clock::now();
+                    
+                    // Collect ball detections using InferenceEngine
+                    std::vector<BallDetection> ballDetections;
+                    if (inferenceReady && inferenceEngine) {
+                        ballDetections = inferenceEngine->ProcessFrame(
+                            channel.cudaBGRABuffer,
+                            channel.channelID,
+                            channel.width,
+                            channel.height,
+                            yoloStream
+                        );
+                    }
+                    
+                    // Transform to global coordinates via PositionMapper
+                    std::vector<GlobalPosition> globalPositions;
+                    if (!ballDetections.empty() && positionMapper && positionMapper->IsCalibrated()) {
+                        int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now().time_since_epoch()).count();
+                        
+                        std::vector<std::tuple<float, float, float, int>> pixelPositions;
+                        for (const auto& det : ballDetections) {
+                            pixelPositions.emplace_back(det.x, det.y, det.confidence, det.ballID);
+                        }
+                        
+                        auto transformed = positionMapper->BatchTransform(
+                            channel.channelID, pixelPositions, now);
+                        globalPositions = positionMapper->FuseOverlappingDetections(transformed);
+                    }
+                    
+                    // Update ball tracker with global positions
+                    if (!globalPositions.empty() && ballTracker && ballTracker->IsInitialized()) {
+                        int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now().time_since_epoch()).count();
+                        ballTracker->Update(globalPositions, now);
+                        
+                        // Update scene manager with leader position
+                        if (sceneManager && sceneManager->IsEnabled()) {
+                            auto leader = ballTracker->GetLeader();
+                            sceneManager->UpdateLeaderPosition(leader.Xg, leader.Yg);
+                        }
+                        
+                        // Publish ranking to vMix
+                        if (rankingPublisher && rankingPublisher->IsEnabled()) {
+                            auto ranking = ballTracker->GetRanking();
+                            rankingPublisher->PublishRanking(ranking);
+                        }
+                    }
+                    
+                    // Legacy YOLO processing path (for backward compatibility)
                     if (yoloReady && config.yoloEnabled) {
                         // Get active camera selection
                         std::vector<int> selectedCameras;
@@ -681,6 +929,11 @@ int main(int argc, char* argv[]) {
         Logger::Info("Video Pipeline: " + std::to_string(kMaxNDIChannels) + " NDI channels active");
         Logger::Info("Camera Selector: " + std::string(config.selectorEnabled ? "Enabled (Top-" + std::to_string(config.selectorTopK) + ")" : "Disabled"));
         Logger::Info("YOLO Inference: " + std::string(yoloReady ? (yoloProcessor->IsStubMode() ? "Stub mode" : "Active") : "Disabled"));
+        Logger::Info("InferenceEngine: " + std::string(inferenceReady ? (inferenceEngine->IsStubMode() ? "Stub mode" : "Active") : "Disabled"));
+        Logger::Info("PositionMapper: " + std::string(positionMapper->IsCalibrated() ? "Calibrated" : "Identity"));
+        Logger::Info("BallTracker: " + std::string(ballTracker->IsInitialized() ? "Initialized (" + std::to_string(config.ballTrackerConfig.numBalls) + " balls)" : "Disabled"));
+        Logger::Info("SceneManager: " + std::string(config.sceneManagerEnabled ? "Enabled (" + std::to_string(config.sceneManagerGroups.size()) + " groups)" : "Disabled"));
+        Logger::Info("RankingPublisher: " + std::string(config.rankingConfig.enabled ? (rankingPublisher->IsConnected() ? "Connected" : "Disconnected") : "Disabled"));
         Logger::Info("Redis Publishing: " + std::string(config.redisEnabled ? (redisWorker.IsConnected() ? "Connected" : "Retrying") : "Disabled"));
         Logger::Info("=====================");
         Logger::Info("=== Keyboard Shortcuts ===");
@@ -782,9 +1035,44 @@ int main(int argc, char* argv[]) {
                                 "Avg motion: " + std::to_string(selection.averageMotionScore));
                 }
                 
+                // Ball tracker status
+                if (ballTracker && ballTracker->IsInitialized()) {
+                    auto ranking = ballTracker->GetRanking();
+                    std::string rankingStr;
+                    for (size_t i = 0; i < ranking.size() && i < 3; ++i) {
+                        if (i > 0) rankingStr += ",";
+                        rankingStr += std::to_string(ranking[i]);
+                    }
+                    auto leader = ballTracker->GetLeader();
+                    Logger::Info("[STATUS] Tracking: " + std::to_string(ballTracker->GetVisibleBallCount()) + 
+                                " balls visible, Leader: ball " + std::to_string(leader.ballID) +
+                                " at X=" + std::to_string(leader.Xg) + "m, Top3: [" + rankingStr + "]");
+                }
+                
+                // Scene manager status
+                if (sceneManager && sceneManager->IsEnabled()) {
+                    auto mutedSlots = sceneManager->GetMutedSlots();
+                    Logger::Info("[STATUS] SceneManager: config=" + sceneManager->GetCurrentConfigName() +
+                                ", Leader X=" + std::to_string(sceneManager->GetLastLeaderX()) +
+                                "m, muted slots=" + std::to_string(mutedSlots.size()));
+                }
+                
+                // Ranking publisher status
+                if (rankingPublisher && config.rankingConfig.enabled) {
+                    Logger::Info("[STATUS] RankingPublisher: " + 
+                                std::string(rankingPublisher->IsConnected() ? "Connected" : "Disconnected") +
+                                ", Published=" + std::to_string(rankingPublisher->GetPublishCount()) +
+                                ", Failed=" + std::to_string(rankingPublisher->GetFailCount()));
+                }
+                
                 if (config.redisEnabled) {
                     Logger::Info("[STATUS] Redis: " + std::string(redisWorker.IsConnected() ? "Connected" : "Disconnected") +
                                 ", Retry count: " + std::to_string(redisWorker.GetRetryCount()));
+                }
+                
+                // Process scene manager mute timeouts
+                if (sceneManager && sceneManager->IsEnabled()) {
+                    sceneManager->ProcessMuteTimeouts();
                 }
                 
                 lastStatusLog = now;
@@ -795,6 +1083,12 @@ int main(int argc, char* argv[]) {
         
         // Cleanup
         Logger::Info("Shutting down...");
+        
+        // Shutdown new components
+        if (rankingPublisher) {
+            rankingPublisher->Shutdown();
+            Logger::Info("RankingPublisher shutdown");
+        }
         
         // Destroy YOLO CUDA stream
         if (yoloStream) {

@@ -1,0 +1,252 @@
+{
+  "_WARNING": "TEMPLATE FILE - DO NOT USE IN PRODUCTION WITHOUT CALIBRATION",
+  "_calibration_required": true,
+  "_status": "uncalibrated",
+  "description": "Homography calibration file for VIB multi-camera tracking system. This is a TEMPLATE with placeholder values. Real calibration must be performed using cv2.findHomography with 4+ correspondence points per camera.",
+  "version": "1.0",
+  "track_bounds": {
+    "x_min": 0.0,
+    "x_max": 100.0,
+    "y_min": 0.0,
+    "y_max": 6.0,
+    "unit": "meters"
+  },
+  "camera_1": {
+    "_calibrated": false,
+    "homography": [
+      [10.0, 0.0, 0.0],
+      [0.0, 6.0, 0.0],
+      [0.0, 0.0, 1.0]
+    ],
+    "coverage_region": {
+      "x_min": 0.0,
+      "x_max": 10.0,
+      "y_min": 0.0,
+      "y_max": 6.0
+    },
+    "confidence_weight": 1.0,
+    "notes": "Track start - covers meters 0-10"
+  },
+  "camera_2": {
+    "homography": [
+      [10.0, 0.0, 8.0],
+      [0.0, 6.0, 0.0],
+      [0.0, 0.0, 1.0]
+    ],
+    "coverage_region": {
+      "x_min": 8.0,
+      "x_max": 18.0,
+      "y_min": 0.0,
+      "y_max": 6.0
+    },
+    "confidence_weight": 1.0
+  },
+  "camera_3": {
+    "homography": [
+      [10.0, 0.0, 16.0],
+      [0.0, 6.0, 0.0],
+      [0.0, 0.0, 1.0]
+    ],
+    "coverage_region": {
+      "x_min": 16.0,
+      "x_max": 26.0,
+      "y_min": 0.0,
+      "y_max": 6.0
+    },
+    "confidence_weight": 1.0
+  },
+  "camera_4": {
+    "homography": [
+      [10.0, 0.0, 24.0],
+      [0.0, 6.0, 0.0],
+      [0.0, 0.0, 1.0]
+    ],
+    "coverage_region": {
+      "x_min": 24.0,
+      "x_max": 34.0,
+      "y_min": 0.0,
+      "y_max": 6.0
+    },
+    "confidence_weight": 1.0
+  },
+  "camera_5": {
+    "homography": [
+      [10.0, 0.0, 32.0],
+      [0.0, 6.0, 0.0],
+      [0.0, 0.0, 1.0]
+    ],
+    "coverage_region": {
+      "x_min": 32.0,
+      "x_max": 42.0,
+      "y_min": 0.0,
+      "y_max": 6.0
+    },
+    "confidence_weight": 1.0
+  },
+  "camera_6": {
+    "homography": [
+      [10.0, 0.0, 40.0],
+      [0.0, 6.0, 0.0],
+      [0.0, 0.0, 1.0]
+    ],
+    "coverage_region": {
+      "x_min": 40.0,
+      "x_max": 50.0,
+      "y_min": 0.0,
+      "y_max": 6.0
+    },
+    "confidence_weight": 1.0
+  },
+  "camera_7": {
+    "homography": [
+      [10.0, 0.0, 48.0],
+      [0.0, 6.0, 0.0],
+      [0.0, 0.0, 1.0]
+    ],
+    "coverage_region": {
+      "x_min": 48.0,
+      "x_max": 58.0,
+      "y_min": 0.0,
+      "y_max": 6.0
+    },
+    "confidence_weight": 1.0
+  },
+  "camera_8": {
+    "homography": [
+      [10.0, 0.0, 56.0],
+      [0.0, 6.0, 0.0],
+      [0.0, 0.0, 1.0]
+    ],
+    "coverage_region": {
+      "x_min": 56.0,
+      "x_max": 66.0,
+      "y_min": 0.0,
+      "y_max": 6.0
+    },
+    "confidence_weight": 1.0
+  },
+  "camera_9": {
+    "homography": [
+      [10.0, 0.0, 64.0],
+      [0.0, 6.0, 0.0],
+      [0.0, 0.0, 1.0]
+    ],
+    "coverage_region": {
+      "x_min": 64.0,
+      "x_max": 74.0,
+      "y_min": 0.0,
+      "y_max": 6.0
+    },
+    "confidence_weight": 1.0
+  },
+  "camera_10": {
+    "homography": [
+      [10.0, 0.0, 72.0],
+      [0.0, 6.0, 0.0],
+      [0.0, 0.0, 1.0]
+    ],
+    "coverage_region": {
+      "x_min": 72.0,
+      "x_max": 82.0,
+      "y_min": 0.0,
+      "y_max": 6.0
+    },
+    "confidence_weight": 1.0
+  },
+  "camera_11": {
+    "homography": [
+      [10.0, 0.0, 80.0],
+      [0.0, 6.0, 0.0],
+      [0.0, 0.0, 1.0]
+    ],
+    "coverage_region": {
+      "x_min": 80.0,
+      "x_max": 90.0,
+      "y_min": 0.0,
+      "y_max": 6.0
+    },
+    "confidence_weight": 1.0
+  },
+  "camera_12": {
+    "homography": [
+      [10.0, 0.0, 88.0],
+      [0.0, 6.0, 0.0],
+      [0.0, 0.0, 1.0]
+    ],
+    "coverage_region": {
+      "x_min": 88.0,
+      "x_max": 100.0,
+      "y_min": 0.0,
+      "y_max": 6.0
+    },
+    "confidence_weight": 1.0,
+    "notes": "Track finish - covers meters 88-100"
+  },
+  "radar_1": {
+    "homography": [
+      [25.0, 0.0, 0.0],
+      [0.0, 6.0, 0.0],
+      [0.0, 0.0, 1.0]
+    ],
+    "coverage_region": {
+      "x_min": 0.0,
+      "x_max": 25.0,
+      "y_min": 0.0,
+      "y_max": 6.0
+    },
+    "confidence_weight": 1.5,
+    "notes": "Zenith camera 1 - higher confidence weight (fixed overhead)"
+  },
+  "radar_2": {
+    "homography": [
+      [25.0, 0.0, 25.0],
+      [0.0, 6.0, 0.0],
+      [0.0, 0.0, 1.0]
+    ],
+    "coverage_region": {
+      "x_min": 25.0,
+      "x_max": 50.0,
+      "y_min": 0.0,
+      "y_max": 6.0
+    },
+    "confidence_weight": 1.5,
+    "notes": "Zenith camera 2 - higher confidence weight (fixed overhead)"
+  },
+  "radar_3": {
+    "homography": [
+      [25.0, 0.0, 50.0],
+      [0.0, 6.0, 0.0],
+      [0.0, 0.0, 1.0]
+    ],
+    "coverage_region": {
+      "x_min": 50.0,
+      "x_max": 75.0,
+      "y_min": 0.0,
+      "y_max": 6.0
+    },
+    "confidence_weight": 1.5,
+    "notes": "Zenith camera 3 - higher confidence weight (fixed overhead)"
+  },
+  "radar_4": {
+    "homography": [
+      [25.0, 0.0, 75.0],
+      [0.0, 6.0, 0.0],
+      [0.0, 0.0, 1.0]
+    ],
+    "coverage_region": {
+      "x_min": 75.0,
+      "x_max": 100.0,
+      "y_min": 0.0,
+      "y_max": 6.0
+    },
+    "confidence_weight": 1.5,
+    "notes": "Zenith camera 4 - higher confidence weight (fixed overhead)"
+  },
+  "calibration_notes": {
+    "instructions": "Replace homography matrices with actual calibration data",
+    "format": "3x3 homography matrix in row-major order",
+    "pixel_coordinates": "Normalized [0,1] for input",
+    "global_coordinates": "Meters from track origin for output",
+    "calibration_method": "Use cv2.findHomography with 4+ point correspondences"
+  }
+}
