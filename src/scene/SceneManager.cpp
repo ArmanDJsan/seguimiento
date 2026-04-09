@@ -10,6 +10,8 @@
 #include <algorithm>
 #include <sstream>
 #include <iomanip>
+#include <thread>
+#include <chrono>
 
 SceneManager::SceneManager(VideoHubClient* videoHub, const SceneManagerConfig& config)
     : m_videoHub(videoHub)
@@ -52,6 +54,59 @@ bool SceneManager::Initialize() {
     if (m_config.groups.empty()) {
         Logger::Error("SceneManager: No group configurations defined");
         return false;
+    }
+    
+    // Validate each group configuration
+    bool hasValidationErrors = false;
+    for (size_t i = 0; i < m_config.groups.size(); ++i) {
+        const auto& group = m_config.groups[i];
+        
+        // Check camera IDs in G1-G4
+        for (int j = 0; j < 4; ++j) {
+            int cameraID = group.slotsG1_G4[j];
+            if (cameraID < 1 || cameraID > kMaxCameras) {
+                Logger::Error("SceneManager: Group '" + group.configName + 
+                             "' has invalid camera ID " + std::to_string(cameraID) + 
+                             " in slot G" + std::to_string(j + 1) + " (must be 1-" + 
+                             std::to_string(kMaxCameras) + ")");
+                hasValidationErrors = true;
+            }
+        }
+        
+        // Check camera IDs in G5-G8
+        for (int j = 0; j < 4; ++j) {
+            int cameraID = group.slotsG5_G8[j];
+            if (cameraID < 1 || cameraID > kMaxCameras) {
+                Logger::Error("SceneManager: Group '" + group.configName + 
+                             "' has invalid camera ID " + std::to_string(cameraID) + 
+                             " in slot G" + std::to_string(j + 5) + " (must be 1-" + 
+                             std::to_string(kMaxCameras) + ")");
+                hasValidationErrors = true;
+            }
+        }
+    }
+    
+    if (hasValidationErrors) {
+        Logger::Error("SceneManager: Configuration validation failed, cannot initialize");
+        return false;
+    }
+    
+    // Log configuration summary
+    Logger::Info("SceneManager: Configuration summary:");
+    for (size_t i = 0; i < m_config.groups.size(); ++i) {
+        const auto& group = m_config.groups[i];
+        std::ostringstream oss;
+        oss << "  Group " << i << " ('" << group.configName << "'): "
+            << "G1-G4=[CAM_" << std::setw(2) << std::setfill('0') << group.slotsG1_G4[0] 
+            << ",CAM_" << std::setw(2) << std::setfill('0') << group.slotsG1_G4[1]
+            << ",CAM_" << std::setw(2) << std::setfill('0') << group.slotsG1_G4[2]
+            << ",CAM_" << std::setw(2) << std::setfill('0') << group.slotsG1_G4[3] << "], "
+            << "G5-G8=[CAM_" << std::setw(2) << std::setfill('0') << group.slotsG5_G8[0]
+            << ",CAM_" << std::setw(2) << std::setfill('0') << group.slotsG5_G8[1]
+            << ",CAM_" << std::setw(2) << std::setfill('0') << group.slotsG5_G8[2]
+            << ",CAM_" << std::setw(2) << std::setfill('0') << group.slotsG5_G8[3] << "], "
+            << "trigger=" << group.triggerThreshold << "m";
+        Logger::Info(oss.str());
     }
     
     // Apply initial configuration
@@ -228,7 +283,9 @@ void SceneManager::ApplyGroupConfig(int configIndex) {
 
 bool SceneManager::SendVideoHubRouting(int slotIndex, int cameraID) {
     if (!m_videoHub || !m_videoHub->IsConnected()) {
-        Logger::Warning("SceneManager: Cannot send routing - VideoHub not connected");
+        Logger::Error("SceneManager: Cannot send routing command - VideoHub not connected (slot G" + 
+                     std::to_string(slotIndex + 1) + " -> CAM_" + 
+                     std::setfill('0') << std::setw(2) + std::to_string(cameraID) + ")");
         return false;
     }
     
@@ -237,16 +294,42 @@ bool SceneManager::SendVideoHubRouting(int slotIndex, int cameraID) {
     oss << "CAM_" << std::setw(2) << std::setfill('0') << cameraID;
     std::string cameraName = oss.str();
     
-    // VideoHub output index = slotIndex (0-based)
-    bool success = m_videoHub->RouteInputToOutput(slotIndex, cameraName);
+    // Retry logic for transient failures
+    const int maxRetries = 3;
+    const int retryDelayMs = 50;
     
-    if (success) {
-        Logger::Debug("SceneManager: Routed " + cameraName + " to slot G" + std::to_string(slotIndex + 1));
-    } else {
-        Logger::Error("SceneManager: Failed to route " + cameraName + " to slot G" + std::to_string(slotIndex + 1));
+    bool success = false;
+    for (int attempt = 0; attempt < maxRetries; ++attempt) {
+        // VideoHub output index = slotIndex (0-based)
+        success = m_videoHub->RouteInputToOutput(slotIndex, cameraName);
+        
+        if (success) {
+            if (attempt > 0) {
+                Logger::Info("SceneManager: Successfully routed " + cameraName + 
+                           " to slot G" + std::to_string(slotIndex + 1) + 
+                           " on retry attempt " + std::to_string(attempt + 1));
+            } else {
+                Logger::Debug("SceneManager: Routed " + cameraName + 
+                            " to slot G" + std::to_string(slotIndex + 1));
+            }
+            return true;
+        }
+        
+        // If not the last attempt, wait before retrying
+        if (attempt < maxRetries - 1) {
+            Logger::Warning("SceneManager: Routing attempt " + std::to_string(attempt + 1) + 
+                          " failed for " + cameraName + " to slot G" + 
+                          std::to_string(slotIndex + 1) + ", retrying...");
+            std::this_thread::sleep_for(std::chrono::milliseconds(retryDelayMs));
+        }
     }
     
-    return success;
+    // All retries failed
+    Logger::Error("SceneManager: Failed to route " + cameraName + 
+                 " to slot G" + std::to_string(slotIndex + 1) + 
+                 " after " + std::to_string(maxRetries) + " attempts. Check VideoHub connection.");
+    
+    return false;
 }
 
 void SceneManager::MuteSlot(int slotIndex) {
