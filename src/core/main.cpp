@@ -1098,10 +1098,10 @@ int main(int argc, char* argv[]) {
             Logger::Info("RankingPublisher shutdown");
         }
         
-        // Destroy YOLO CUDA stream
-        if (yoloStream) {
-            cudaStreamDestroy(yoloStream);
-            Logger::Info("YOLO CUDA stream destroyed");
+        // Destroy inference CUDA stream
+        if (inferenceStream) {
+            cudaStreamDestroy(inferenceStream);
+            Logger::Info("Inference CUDA stream destroyed");
         }
         
         // Redis worker was disabled (legacy)
