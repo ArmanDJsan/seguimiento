@@ -201,4 +201,10 @@ private:
     void UnmuteSlot(int slotIndex);
     int64_t GetCurrentTimeMs() const;
     int EvaluateDesiredConfig() const;
+    
+    /**
+     * Internal version of ProcessMuteTimeouts that assumes mutex is already held.
+     * Call this from methods that already hold m_mutex to avoid recursive lock deadlock.
+     */
+    void ProcessMuteTimeoutsInternal();
 };
