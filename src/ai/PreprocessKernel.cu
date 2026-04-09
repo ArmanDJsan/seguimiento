@@ -100,6 +100,11 @@ __global__ void PreprocessFrameKernel(
  * Kernel: Preprocess UYVY frame
  * UYVY 4K → RGB 640x640 normalized to [0,1]
  * 
+ * UYVY Format (4:2:2 packed):
+ * - Each macropixel contains 2 pixels in 4 bytes: [U0 Y0 V0 Y1]
+ * - U and V are shared between adjacent pixel pairs
+ * - Y (luminance) is stored per-pixel
+ * 
  * @param srcUYVY Source UYVY buffer (4K resolution)
  * @param dstRGB Destination RGB buffer (640x640, float, NCHW format)
  * @param srcWidth Source width
@@ -108,6 +113,18 @@ __global__ void PreprocessFrameKernel(
  * @param dstHeight Destination height (640)
  * @param batchIdx Batch index for output offset
  */
+
+// UYVY format constants
+#define UYVY_BYTES_PER_MACROPIXEL 4    // 4 bytes contain 2 pixels: U Y0 V Y1
+#define UYVY_PIXELS_PER_MACROPIXEL 2   // 2 pixels share U and V values
+#define UYVY_BYTES_PER_PIXEL 2         // Average bytes per pixel in UYVY
+
+// Byte offsets within a macropixel
+#define UYVY_U_OFFSET 0    // U component at byte 0
+#define UYVY_Y0_OFFSET 1   // First Y (even pixel) at byte 1
+#define UYVY_V_OFFSET 2    // V component at byte 2
+#define UYVY_Y1_OFFSET 3   // Second Y (odd pixel) at byte 3
+
 __global__ void PreprocessUYVYKernel(
     const unsigned char* srcUYVY,
     float* dstRGB,
@@ -130,24 +147,20 @@ __global__ void PreprocessUYVYKernel(
     srcX = min(max(srcX, 0), srcWidth - 1);
     srcY = min(max(srcY, 0), srcHeight - 1);
     
-    // UYVY format: U0 Y0 V0 Y1 U2 Y2 V2 Y3...
-    // 2 bytes per pixel (packed as macropixels of 2 pixels in 4 bytes)
-    int macropixelIdx = srcX / 2;
-    int pixelInMacro = srcX % 2;
-    int srcByteOffset = (srcY * srcWidth + macropixelIdx * 2) * 2;
+    // Calculate macropixel index and position within macropixel
+    int macropixelIdx = srcX / UYVY_PIXELS_PER_MACROPIXEL;
+    int pixelInMacro = srcX % UYVY_PIXELS_PER_MACROPIXEL;
     
-    unsigned char u, y_val, v;
-    if (pixelInMacro == 0) {
-        // First pixel of macropixel: U Y0 V Y1 -> use Y0
-        u = srcUYVY[srcByteOffset + 0];
-        y_val = srcUYVY[srcByteOffset + 1];
-        v = srcUYVY[srcByteOffset + 2];
-    } else {
-        // Second pixel of macropixel: U Y0 V Y1 -> use Y1
-        u = srcUYVY[srcByteOffset + 0];
-        y_val = srcUYVY[srcByteOffset + 3];
-        v = srcUYVY[srcByteOffset + 2];
-    }
+    // Calculate byte offset: row_offset + macropixel_offset
+    // Each row has (srcWidth / 2) macropixels, each 4 bytes
+    int srcByteOffset = (srcY * srcWidth + macropixelIdx * UYVY_PIXELS_PER_MACROPIXEL) * UYVY_BYTES_PER_PIXEL;
+    
+    // Extract YUV components
+    unsigned char u = srcUYVY[srcByteOffset + UYVY_U_OFFSET];
+    unsigned char v = srcUYVY[srcByteOffset + UYVY_V_OFFSET];
+    unsigned char y_val = (pixelInMacro == 0) 
+        ? srcUYVY[srcByteOffset + UYVY_Y0_OFFSET]   // Even pixel: use Y0
+        : srcUYVY[srcByteOffset + UYVY_Y1_OFFSET];  // Odd pixel: use Y1
     
     // YUV to RGB conversion (BT.709)
     float yf = static_cast<float>(y_val);

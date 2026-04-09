@@ -403,8 +403,20 @@ void BallTracker::HandleUnassignedDetections(const std::vector<GlobalPosition>& 
 
 void BallTracker::HungarianAlgorithm(const std::vector<std::vector<float>>& costMatrix,
                                       std::vector<int>& assignment) {
-    // Simplified greedy assignment (not true Hungarian, but fast and usually sufficient)
-    // For production, implement full Hungarian algorithm or use library
+    // NOTE: This is a simplified GREEDY assignment algorithm, not the true Hungarian algorithm.
+    // 
+    // Limitations of greedy approach:
+    // - May not find optimal global assignment when costs are similar
+    // - Can produce suboptimal results with many overlapping detections
+    // - Time complexity: O(n²) vs O(n³) for true Hungarian
+    //
+    // For production with high ball density or frequent occlusions, consider:
+    // - scipy.optimize.linear_sum_assignment (via C++ bindings)
+    // - dlib::linear_assignment() from dlib library
+    // - Eigen-based Hungarian implementation
+    //
+    // The greedy approach works well for racing scenarios where balls are
+    // typically well-separated and moving predictably.
     
     size_t n = costMatrix.size();
     assignment.resize(n, -1);

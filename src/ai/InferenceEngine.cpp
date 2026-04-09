@@ -241,14 +241,26 @@ bool InferenceEngine::LoadEngine(const std::string& enginePath) {
     }
     file.close();
     
-    // TensorRT deserialization would go here:
-    // m_runtime = nvinfer1::createInferRuntime(gLogger);
-    // m_engine = m_runtime->deserializeCudaEngine(engineData.data(), fileSize);
-    // m_context = m_engine->createExecutionContext();
+    // ==========================================================================
+    // NOTE: TensorRT INTEGRATION PENDING
+    // ==========================================================================
+    // This function currently ALWAYS returns false, forcing stub mode.
+    // To enable real TensorRT inference:
+    // 1. Include TensorRT headers: <NvInfer.h>, <NvInferRuntime.h>
+    // 2. Implement engine deserialization:
+    //    m_runtime = nvinfer1::createInferRuntime(gLogger);
+    //    m_engine = m_runtime->deserializeCudaEngine(engineData.data(), fileSize);
+    //    m_context = m_engine->createExecutionContext();
+    // 3. Return true on success
+    // 4. Link against nvinfer.lib, nvinfer_plugin.lib
+    //
+    // The engine file must be created with:
+    //    trtexec --onnx=yolo26l.onnx --saveEngine=yolo26l_fp16_b12.engine \
+    //            --fp16 --workspace=8192 --batch=12
+    // ==========================================================================
     
-    // For now, we just verify the file exists and return false to use stub mode
-    // In production, this would fully initialize TensorRT
-    Logger::Info("InferenceEngine: Engine file validated, TensorRT integration pending");
+    Logger::Info("InferenceEngine: Engine file validated (" + 
+                 std::to_string(fileSize / 1024 / 1024) + " MB), TensorRT integration pending");
     return false;  // Return false to use stub mode until TensorRT is integrated
 }
 

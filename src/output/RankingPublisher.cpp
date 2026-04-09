@@ -206,19 +206,17 @@ std::string RankingPublisher::BuildRankingJson(const std::vector<int>& ranking) 
     std::ostringstream oss;
     oss << "{";
     
-    for (size_t i = 0; i < ranking.size() && i < kMaxBalls; ++i) {
+    // Write all kMaxBalls positions
+    for (size_t i = 0; i < kMaxBalls; ++i) {
         if (i > 0) {
             oss << ",";
         }
-        oss << "\"p" << (i + 1) << "\":\"" << ranking[i] << "\"";
-    }
-    
-    // Fill remaining positions with empty
-    for (size_t i = ranking.size(); i < kMaxBalls; ++i) {
-        if (i > 0) {
-            oss << ",";
+        
+        if (i < ranking.size()) {
+            oss << "\"p" << (i + 1) << "\":\"" << ranking[i] << "\"";
+        } else {
+            oss << "\"p" << (i + 1) << "\":\"\"";
         }
-        oss << "\"p" << (i + 1) << "\":\"\"";
     }
     
     oss << "}";

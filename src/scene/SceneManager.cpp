@@ -106,14 +106,23 @@ bool SceneManager::TriggerGroupSwitch(int configIndex) {
 }
 
 void SceneManager::ProcessMuteTimeouts() {
-    // This can be called without holding the mutex for performance,
-    // but we need it for slot access
+    // Acquire mutex to safely read and modify slot assignments
+    std::lock_guard<std::mutex> lock(m_mutex);
+    
     int64_t now = GetCurrentTimeMs();
     
     for (int i = 0; i < kStreamingSlots; ++i) {
         auto& slot = m_slotAssignments[i];
         if (slot.isMuted && now >= slot.muteEndTime) {
-            UnmuteSlot(i);
+            // Unmute slot - directly modify here since we hold the mutex
+            slot.isMuted = false;
+            slot.muteEndTime = 0;
+            
+            Logger::Debug("SceneManager: Unmuted slot G" + std::to_string(i + 1));
+            
+            if (m_muteCallback) {
+                m_muteCallback(i, false);
+            }
         }
     }
 }
