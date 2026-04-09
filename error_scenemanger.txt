@@ -1,0 +1,421 @@
+  "scene_manager": {
+    "enabled": false
+
+[2026-04-09 14:43:05.939] [INFO] Logger initialized: VIB_System_2026-04-09-14-43-05.938.log
+[2026-04-09 14:43:05.939] [INFO] Visual Intelligence Bypass v2.0 Starting...
+[2026-04-09 14:43:05.940] [INFO] COM initialized successfully for DeckLink SDK
+[2026-04-09 14:43:05.940] [INFO] === System Optimization Check ===
+[2026-04-09 14:43:05.940] [INFO] CPU: 32 logical processors, 16 physical cores (estimated)
+[2026-04-09 14:43:05.940] [INFO] === GPU Diagnostics ===
+[2026-04-09 14:43:05.940] [INFO] Hardware Accelerated GPU Scheduling: ENABLED
+[2026-04-09 14:43:05.955] [INFO] GPU: NVIDIA GeForce RTX 5080
+  Compute: 12.0
+  VRAM: 15 GB
+  Memory Clock: 0 MHz
+
+[2026-04-09 14:43:05.956] [INFO] =======================
+[2026-04-09 14:43:05.956] [WARN] System configuration is NOT optimal for VIB:
+[2026-04-09 14:43:05.957] [WARN]   [!] Verify PCIe x16 Gen4/Gen5 connection
+[2026-04-09 14:43:05.957] [WARN] System is not optimally configured. Performance may be degraded.
+[2026-04-09 14:43:05.957] [WARN] Refer to OPTIMIZATION_GUIDE.md for setup instructions.
+[2026-04-09 14:43:05.957] [INFO] ==================================
+[2026-04-09 14:43:05.958] [INFO] Configuración cargada: VideoHub=192.168.1.50:9990, ESP32=192.168.88.114:80, target_spheres=10
+[2026-04-09 14:43:05.958] [INFO] DeckLink SDK detected; initializing signal lock checks
+[2026-04-09 14:43:05.984] [INFO] Found 12 DeckLink device(s)
+[2026-04-09 14:43:05.986] [INFO] VideoHub connected at 192.168.1.50:9990
+[2026-04-09 14:43:06.086] [INFO] VideoHub initial state preview: PROTOCOL PREAMBLE:
+Version: 2.8
+
+VIDEOHUB DEVICE:
+Device present: true
+Model name: Blackmagic Videohub 40x40 12G
+Friendly name: Blackmagic Videohub 40x40 12G
+Unique ID: DCA459B6A5D348C38013B9D0A30E82F...
+[2026-04-09 14:43:06.086] [INFO] VideoHub initial state consumed (2411 bytes)
+[2026-04-09 14:43:06.087] [INFO] vMix TCP channel ready
+[2026-04-09 14:43:06.099] [INFO] vMix inputs healthy
+[2026-04-09 14:43:06.300] [INFO] Barrido Streaming (1-12) OK
+[2026-04-09 14:43:06.501] [INFO] Barrido Seguimiento (13-16) OK
+[2026-04-09 14:43:06.828] [INFO] ESP32 action executed successfully: /status
+[2026-04-09 14:43:06.829] [INFO] Fase 1 completada correctamente
+[2026-04-09 14:43:06.829] [WARN] Conteo de esferas usa stub; integrar motor YOLO para conteo real
+[2026-04-09 14:43:06.829] [INFO] Fase 2 (Escena) completada: conteo de esferas OK
+[2026-04-09 14:43:06.829] [INFO] Initializing NDI output for vMix...
+[2026-04-09 14:43:06.829] [INFO] NDIManager: Instancia creada.
+[2026-04-09 14:43:06.837] [INFO] NDIManager: Librería NDI 6 inicializada correctamente.
+[2026-04-09 14:43:06.837] [INFO] Creating NDI senders for 12 channels...
+[2026-04-09 14:43:06.994] [INFO] NDIManager: Emisor creado -> VIB_CAM_01 (3840x2160) - Multi-buffering enabled
+[2026-04-09 14:43:07.007] [INFO] NDIManager: Emisor creado -> VIB_CAM_02 (3840x2160) - Multi-buffering enabled
+[2026-04-09 14:43:07.014] [INFO] NDIManager: Emisor creado -> VIB_CAM_03 (3840x2160) - Multi-buffering enabled
+[2026-04-09 14:43:07.021] [INFO] NDIManager: Emisor creado -> VIB_CAM_04 (3840x2160) - Multi-buffering enabled
+[2026-04-09 14:43:07.028] [INFO] NDIManager: Emisor creado -> VIB_CAM_05 (3840x2160) - Multi-buffering enabled
+[2026-04-09 14:43:07.036] [INFO] NDIManager: Emisor creado -> VIB_CAM_06 (3840x2160) - Multi-buffering enabled
+[2026-04-09 14:43:07.042] [INFO] NDIManager: Emisor creado -> VIB_CAM_07 (3840x2160) - Multi-buffering enabled
+[2026-04-09 14:43:07.049] [INFO] NDIManager: Emisor creado -> VIB_CAM_08 (3840x2160) - Multi-buffering enabled
+[2026-04-09 14:43:07.057] [INFO] NDIManager: Emisor creado -> VIB_CAM_09 (3840x2160) - Multi-buffering enabled
+[2026-04-09 14:43:07.064] [INFO] NDIManager: Emisor creado -> VIB_CAM_10 (3840x2160) - Multi-buffering enabled
+[2026-04-09 14:43:07.070] [INFO] NDIManager: Emisor creado -> VIB_CAM_11 (3840x2160) - Multi-buffering enabled
+[2026-04-09 14:43:07.077] [INFO] NDIManager: Emisor creado -> VIB_CAM_12 (3840x2160) - Multi-buffering enabled
+[2026-04-09 14:43:07.077] [INFO] NDI senders initialized successfully
+[2026-04-09 14:43:07.077] [INFO] === vMix Configuration Tips ===
+[2026-04-09 14:43:07.077] [INFO] 1. Enable 'High Input Performance Mode' for 9+ cameras (requires GPU with >3GB VRAM)
+[2026-04-09 14:43:07.077] [INFO] 2. Disable 'Show preview thumbnails for NDI sources' to reduce network traffic
+[2026-04-09 14:43:07.077] [INFO] 3. NDI sources will appear as 'VIB_CAM_01' through 'VIB_CAM_12'
+[2026-04-09 14:43:07.077] [INFO] Initializing PerformanceMonitor...
+[2026-04-09 14:43:07.078] [INFO] PerformanceMonitor initialized: target=33.000000ms, log every 30 frames
+[2026-04-09 14:43:07.078] [INFO] Initializing ActiveCameraSelector...
+[2026-04-09 14:43:07.078] [INFO] ActiveCameraSelector created: 12 cameras, Top-4 selection
+[2026-04-09 14:43:07.078] [INFO] ActiveCameraSelector initialized successfully
+[2026-04-09 14:43:07.078] [INFO] ActiveCameraSelector initialized: Top-4 from 12 cameras with hysteresis (threshold=0.150000, frames=10, decay=0.980000)
+[2026-04-09 14:43:07.078] [INFO] Initializing YOLO processor...
+[2026-04-09 14:43:07.078] [INFO] YOLOProcessor initialized: batch=4, FP16=enabled
+[2026-04-09 14:43:07.078] [INFO] Created dedicated CUDA stream for YOLO (non-blocking pipeline)
+[2026-04-09 14:43:07.078] [INFO] Initializing YOLO model from: models/yolov8n.engine
+[2026-04-09 14:43:07.078] [WARN] YOLO model not found at: models/yolov8n.engine - using stub mode
+[2026-04-09 14:43:07.078] [WARN] YOLO running in STUB mode - no real inference
+[2026-04-09 14:43:07.078] [INFO] Initializing InferenceEngine...
+[2026-04-09 14:43:07.078] [INFO] InferenceEngine: Initializing with model: models/yolo26l_fp16_batch12.engine
+[2026-04-09 14:43:07.078] [INFO] InferenceEngine: Batch size=12, Input=640x640, FP16=enabled
+[2026-04-09 14:43:07.079] [INFO] InferenceEngine: Engine file size: 50 MB
+[2026-04-09 14:43:07.111] [INFO] InferenceEngine: Engine file validated (50 MB), TensorRT integration pending
+[2026-04-09 14:43:07.113] [WARN] InferenceEngine: Could not load engine, using stub mode
+[2026-04-09 14:43:07.113] [WARN] InferenceEngine: Running in STUB mode - no real inference
+[2026-04-09 14:43:07.113] [WARN] InferenceEngine running in STUB mode
+[2026-04-09 14:43:07.113] [INFO] Initializing PositionMapper...
+[2026-04-09 14:43:07.113] [INFO] PositionMapper: Loaded calibration from config/calibration.json
+[2026-04-09 14:43:07.114] [INFO] PositionMapper loaded calibration from config/calibration.json
+[2026-04-09 14:43:07.114] [INFO] Initializing BallTracker...
+[2026-04-09 14:43:07.114] [INFO] BallTracker: Initialized with 10 balls
+[2026-04-09 14:43:07.114] [INFO] BallTracker initialized with 10 balls
+[2026-04-09 14:43:07.114] [INFO] Initializing SceneManager...
+[2026-04-09 14:43:07.114] [INFO] SceneManager disabled by configuration
+[2026-04-09 14:43:07.114] [INFO] Initializing RankingPublisher...
+[2026-04-09 14:43:07.114] [INFO] RankingPublisher: Connected to vMix at 127.0.0.1:8099
+[2026-04-09 14:43:07.114] [INFO] RankingPublisher: Initialized, target=127.0.0.1:8099, rate=30Hz
+[2026-04-09 14:43:07.114] [INFO] RankingPublisher initialized, target=127.0.0.1:8099
+[2026-04-09 14:43:07.114] [INFO] Initializing Redis worker...
+[2026-04-09 14:43:07.115] [INFO] RedisWorker created but disabled by configuration
+[2026-04-09 14:43:07.115] [INFO] Redis worker disabled by configuration
+[2026-04-09 14:43:07.115] [INFO] Initializing capture channels...
+[2026-04-09 14:43:07.115] [INFO] Enumerating DeckLink devices...
+[2026-04-09 14:43:07.118] [INFO] DeckLink Iterator created successfully
+[2026-04-09 14:43:07.120] [INFO] Found DeckLink device #1: DeckLink 8K Pro Mini (1)
+[2026-04-09 14:43:07.122] [INFO] Found DeckLink device #2: DeckLink 8K Pro Mini (2)
+[2026-04-09 14:43:07.124] [INFO] Found DeckLink device #3: DeckLink 8K Pro Mini (3)
+[2026-04-09 14:43:07.125] [INFO] Found DeckLink device #4: DeckLink 8K Pro Mini (4)
+[2026-04-09 14:43:07.127] [INFO] Found DeckLink device #5: DeckLink 8K Pro Mini (1)
+[2026-04-09 14:43:07.129] [INFO] Found DeckLink device #6: DeckLink 8K Pro Mini (2)
+[2026-04-09 14:43:07.130] [INFO] Found DeckLink device #7: DeckLink 8K Pro Mini (3)
+[2026-04-09 14:43:07.132] [INFO] Found DeckLink device #8: DeckLink 8K Pro Mini (4)
+[2026-04-09 14:43:07.134] [INFO] Found DeckLink device #9: DeckLink 8K Pro Mini (1)
+[2026-04-09 14:43:07.135] [INFO] Found DeckLink device #10: DeckLink 8K Pro Mini (2)
+[2026-04-09 14:43:07.137] [INFO] Found DeckLink device #11: DeckLink 8K Pro Mini (3)
+[2026-04-09 14:43:07.139] [INFO] Found DeckLink device #12: DeckLink 8K Pro Mini (4)
+[2026-04-09 14:43:07.139] [INFO] Total DeckLink devices found: 12
+[2026-04-09 14:43:07.139] [INFO] Found 12 DeckLink devices
+[2026-04-09 14:43:07.139] [INFO] Initializing DeckLink capture for device 0
+[2026-04-09 14:43:07.140] [INFO] Allocated CUDA buffers: YUV=16588800 bytes, BGRA=33177600 bytes
+[2026-04-09 14:43:07.159] [INFO] CustomAllocator initialized with CUDA pinned memory
+[2026-04-09 14:43:07.159] [INFO] DeckLink capture initialized successfully: Channel_1
+[2026-04-09 14:43:07.159] [INFO] Starting capture on channel: Channel_1
+[2026-04-09 14:43:07.159] [INFO] DeckLink streaming started successfully
+[2026-04-09 14:43:07.159] [INFO] Initializing DeckLink capture for device 1
+[2026-04-09 14:43:07.160] [INFO] Capture thread started for: Channel_1
+[2026-04-09 14:43:07.160] [INFO] Thread affinity set: VIDEO_CAPTURE (cores 0-3) (mask: 0xFF)
+[2026-04-09 14:43:07.160] [INFO] Thread priority set: HIGH
+[2026-04-09 14:43:07.160] [INFO] Allocated CUDA buffers: YUV=16588800 bytes, BGRA=33177600 bytes
+[2026-04-09 14:43:07.180] [INFO] CustomAllocator initialized with CUDA pinned memory
+[2026-04-09 14:43:07.180] [INFO] DeckLink capture initialized successfully: Channel_2
+[2026-04-09 14:43:07.180] [INFO] Starting capture on channel: Channel_2
+[2026-04-09 14:43:07.180] [INFO] DeckLink streaming started successfully
+[2026-04-09 14:43:07.180] [INFO] Initializing DeckLink capture for device 2
+[2026-04-09 14:43:07.180] [INFO] Capture thread started for: Channel_2
+[2026-04-09 14:43:07.180] [INFO] Thread affinity set: VIDEO_CAPTURE (cores 0-3) (mask: 0xFF)
+[2026-04-09 14:43:07.180] [INFO] Thread priority set: HIGH
+[2026-04-09 14:43:07.180] [INFO] Allocated CUDA buffers: YUV=16588800 bytes, BGRA=33177600 bytes
+[2026-04-09 14:43:07.204] [INFO] CustomAllocator initialized with CUDA pinned memory
+[2026-04-09 14:43:07.204] [INFO] DeckLink capture initialized successfully: Channel_3
+[2026-04-09 14:43:07.204] [INFO] Starting capture on channel: Channel_3
+[2026-04-09 14:43:07.204] [INFO] DeckLink streaming started successfully
+[2026-04-09 14:43:07.204] [INFO] Initializing DeckLink capture for device 3
+[2026-04-09 14:43:07.204] [INFO] Capture thread started for: Channel_3
+[2026-04-09 14:43:07.204] [INFO] Thread affinity set: VIDEO_CAPTURE (cores 0-3) (mask: 0xFF)
+[2026-04-09 14:43:07.204] [INFO] Thread priority set: HIGH
+[2026-04-09 14:43:07.205] [INFO] Allocated CUDA buffers: YUV=16588800 bytes, BGRA=33177600 bytes
+[2026-04-09 14:43:07.228] [INFO] CustomAllocator initialized with CUDA pinned memory
+[2026-04-09 14:43:07.228] [INFO] DeckLink capture initialized successfully: Channel_4
+[2026-04-09 14:43:07.228] [INFO] Starting capture on channel: Channel_4
+[2026-04-09 14:43:07.229] [INFO] DeckLink streaming started successfully
+[2026-04-09 14:43:07.229] [INFO] Initializing DeckLink capture for device 4
+[2026-04-09 14:43:07.229] [INFO] Capture thread started for: Channel_4
+[2026-04-09 14:43:07.229] [INFO] Thread affinity set: VIDEO_CAPTURE (cores 0-3) (mask: 0xFF)
+[2026-04-09 14:43:07.229] [INFO] Thread priority set: HIGH
+[2026-04-09 14:43:07.229] [INFO] Allocated CUDA buffers: YUV=16588800 bytes, BGRA=33177600 bytes
+[2026-04-09 14:43:07.242] [INFO] Selector warming up... (1/10 frames)
+[2026-04-09 14:43:07.255] [INFO] CustomAllocator initialized with CUDA pinned memory
+[2026-04-09 14:43:07.255] [INFO] DeckLink capture initialized successfully: Channel_5
+[2026-04-09 14:43:07.255] [INFO] Starting capture on channel: Channel_5
+[2026-04-09 14:43:07.255] [INFO] DeckLink streaming started successfully
+[2026-04-09 14:43:07.255] [INFO] Selector warming up... (2/10 frames)
+[2026-04-09 14:43:07.255] [INFO] Capture thread started for: Channel_5
+[2026-04-09 14:43:07.255] [INFO] Initializing DeckLink capture for device 5
+[2026-04-09 14:43:07.255] [INFO] Thread affinity set: VIDEO_CAPTURE (cores 0-3) (mask: 0xFF)
+[2026-04-09 14:43:07.256] [INFO] Thread priority set: HIGH
+[2026-04-09 14:43:07.256] [INFO] Allocated CUDA buffers: YUV=16588800 bytes, BGRA=33177600 bytes
+[2026-04-09 14:43:07.282] [INFO] CustomAllocator initialized with CUDA pinned memory
+[2026-04-09 14:43:07.282] [INFO] DeckLink capture initialized successfully: Channel_6
+[2026-04-09 14:43:07.282] [INFO] Starting capture on channel: Channel_6
+[2026-04-09 14:43:07.282] [INFO] DeckLink streaming started successfully
+[2026-04-09 14:43:07.282] [INFO] Initializing DeckLink capture for device 6
+[2026-04-09 14:43:07.282] [INFO] Capture thread started for: Channel_6
+[2026-04-09 14:43:07.283] [INFO] Thread affinity set: VIDEO_CAPTURE (cores 0-3) (mask: 0xFF)
+[2026-04-09 14:43:07.283] [INFO] Thread priority set: HIGH
+[2026-04-09 14:43:07.283] [INFO] Allocated CUDA buffers: YUV=16588800 bytes, BGRA=33177600 bytes
+[2026-04-09 14:43:07.290] [INFO] Selector warming up... (3/10 frames)
+[2026-04-09 14:43:07.298] [INFO] Selector warming up... (4/10 frames)
+[2026-04-09 14:43:07.305] [INFO] Selector warming up... (5/10 frames)
+[2026-04-09 14:43:07.313] [INFO] CustomAllocator initialized with CUDA pinned memory
+[2026-04-09 14:43:07.313] [INFO] DeckLink capture initialized successfully: Channel_7
+[2026-04-09 14:43:07.313] [INFO] Starting capture on channel: Channel_7
+[2026-04-09 14:43:07.313] [INFO] DeckLink streaming started successfully
+[2026-04-09 14:43:07.313] [INFO] Initializing DeckLink capture for device 7
+[2026-04-09 14:43:07.313] [INFO] Capture thread started for: Channel_7
+[2026-04-09 14:43:07.313] [INFO] Thread affinity set: VIDEO_CAPTURE (cores 0-3) (mask: 0xFF)
+[2026-04-09 14:43:07.313] [INFO] Thread priority set: HIGH
+[2026-04-09 14:43:07.313] [INFO] Allocated CUDA buffers: YUV=16588800 bytes, BGRA=33177600 bytes
+[2026-04-09 14:43:07.323] [INFO] Selector warming up... (6/10 frames)
+[2026-04-09 14:43:07.327] [INFO] Selector warming up... (7/10 frames)
+[2026-04-09 14:43:07.331] [INFO] Selector warming up... (8/10 frames)
+[2026-04-09 14:43:07.339] [INFO] Selector warming up... (9/10 frames)
+[2026-04-09 14:43:07.345] [INFO] CustomAllocator initialized with CUDA pinned memory
+[2026-04-09 14:43:07.345] [INFO] DeckLink capture initialized successfully: Channel_8
+[2026-04-09 14:43:07.345] [INFO] Starting capture on channel: Channel_8
+[2026-04-09 14:43:07.345] [INFO] DeckLink streaming started successfully
+[2026-04-09 14:43:07.346] [INFO] Initializing DeckLink capture for device 8
+[2026-04-09 14:43:07.346] [INFO] Capture thread started for: Channel_8
+[2026-04-09 14:43:07.346] [INFO] Thread affinity set: VIDEO_CAPTURE (cores 0-3) (mask: 0xFF)
+[2026-04-09 14:43:07.346] [INFO] Thread priority set: HIGH
+[2026-04-09 14:43:07.346] [INFO] Allocated CUDA buffers: YUV=16588800 bytes, BGRA=33177600 bytes
+[2026-04-09 14:43:07.356] [INFO] Selector warming up... (10/10 frames)
+[2026-04-09 14:43:07.356] [INFO] Selector stable (10/10 frames)
+[2026-04-09 14:43:07.380] [INFO] CustomAllocator initialized with CUDA pinned memory
+[2026-04-09 14:43:07.380] [INFO] DeckLink capture initialized successfully: Channel_9
+[2026-04-09 14:43:07.380] [INFO] Starting capture on channel: Channel_9
+[2026-04-09 14:43:07.380] [INFO] DeckLink streaming started successfully
+[2026-04-09 14:43:07.380] [INFO] Initializing DeckLink capture for device 9
+[2026-04-09 14:43:07.381] [INFO] Capture thread started for: Channel_9
+[2026-04-09 14:43:07.381] [INFO] Thread affinity set: VIDEO_CAPTURE (cores 0-3) (mask: 0xFF)
+[2026-04-09 14:43:07.381] [INFO] Thread priority set: HIGH
+[2026-04-09 14:43:07.381] [INFO] Allocated CUDA buffers: YUV=16588800 bytes, BGRA=33177600 bytes
+[2026-04-09 14:43:07.417] [INFO] CustomAllocator initialized with CUDA pinned memory
+[2026-04-09 14:43:07.417] [INFO] DeckLink capture initialized successfully: Channel_10
+[2026-04-09 14:43:07.417] [INFO] Starting capture on channel: Channel_10
+[2026-04-09 14:43:07.417] [INFO] DeckLink streaming started successfully
+[2026-04-09 14:43:07.417] [INFO] Initializing DeckLink capture for device 10
+[2026-04-09 14:43:07.418] [INFO] Capture thread started for: Channel_10
+[2026-04-09 14:43:07.418] [INFO] Thread affinity set: VIDEO_CAPTURE (cores 0-3) (mask: 0xFF)
+[2026-04-09 14:43:07.418] [INFO] Thread priority set: HIGH
+[2026-04-09 14:43:07.418] [INFO] Allocated CUDA buffers: YUV=16588800 bytes, BGRA=33177600 bytes
+[2026-04-09 14:43:07.456] [INFO] CustomAllocator initialized with CUDA pinned memory
+[2026-04-09 14:43:07.456] [INFO] DeckLink capture initialized successfully: Channel_11
+[2026-04-09 14:43:07.456] [INFO] Starting capture on channel: Channel_11
+[2026-04-09 14:43:07.456] [INFO] DeckLink streaming started successfully
+[2026-04-09 14:43:07.457] [INFO] Initializing DeckLink capture for device 11
+[2026-04-09 14:43:07.457] [INFO] Capture thread started for: Channel_11
+[2026-04-09 14:43:07.457] [INFO] Thread affinity set: VIDEO_CAPTURE (cores 0-3) (mask: 0xFF)
+[2026-04-09 14:43:07.457] [INFO] Thread priority set: HIGH
+[2026-04-09 14:43:07.458] [INFO] Allocated CUDA buffers: YUV=16588800 bytes, BGRA=33177600 bytes
+[2026-04-09 14:43:07.466] [INFO] [PERF] Cap:7.9ms Sel:5.8ms YOLO:0.2ms NDI:1.9ms Redis:0.0ms Total:15.7ms Active:4/12
+[2026-04-09 14:43:07.502] [INFO] CustomAllocator initialized with CUDA pinned memory
+[2026-04-09 14:43:07.503] [INFO] DeckLink capture initialized successfully: Channel_12
+[2026-04-09 14:43:07.503] [INFO] Starting capture on channel: Channel_12
+[2026-04-09 14:43:07.503] [INFO] DeckLink streaming started successfully
+[2026-04-09 14:43:07.504] [INFO] === System Status ===
+[2026-04-09 14:43:07.504] [INFO] Video Pipeline: 12 NDI channels active
+[2026-04-09 14:43:07.504] [INFO] Camera Selector: Enabled (Top-4)
+[2026-04-09 14:43:07.504] [INFO] YOLO Inference: Stub mode
+[2026-04-09 14:43:07.504] [INFO] InferenceEngine: Stub mode
+[2026-04-09 14:43:07.504] [INFO] PositionMapper: Calibrated
+[2026-04-09 14:43:07.504] [INFO] BallTracker: Initialized (10 balls)
+[2026-04-09 14:43:07.504] [INFO] SceneManager: Disabled
+[2026-04-09 14:43:07.504] [INFO] RankingPublisher: Connected
+[2026-04-09 14:43:07.505] [INFO] Redis Publishing: Disabled
+[2026-04-09 14:43:07.505] [INFO] =====================
+[2026-04-09 14:43:07.505] [INFO] === Keyboard Shortcuts ===
+[2026-04-09 14:43:07.505] [INFO] ESC - Exit application
+[2026-04-09 14:43:07.505] [INFO] F2  - Reduce to 2 cameras (thermal throttle)
+[2026-04-09 14:43:07.505] [INFO] F3  - Restore to 4 cameras
+[2026-04-09 14:43:07.505] [INFO] F4  - Graceful shutdown
+[2026-04-09 14:43:07.505] [INFO] F5  - Reset telemetry (save current run)
+[2026-04-09 14:43:07.505] [INFO] ==========================
+[2026-04-09 14:43:07.505] [INFO] Capture thread started for: Channel_12
+[2026-04-09 14:43:07.505] [INFO] Thread affinity set: VIDEO_CAPTURE (cores 0-3) (mask: 0xFF)
+[2026-04-09 14:43:07.506] [INFO] Thread priority set: HIGH
+[2026-04-09 14:43:07.568] [INFO] [PERF] Cap:7.3ms Sel:1.9ms YOLO:0.0ms NDI:5.4ms Redis:0.0ms Total:14.7ms Active:4/12
+[2026-04-09 14:43:07.667] [INFO] [PERF] Cap:4.4ms Sel:2.3ms YOLO:0.0ms NDI:2.0ms Redis:0.0ms Total:8.7ms Active:4/12
+[2026-04-09 14:43:07.742] [INFO] [PERF] Cap:4.8ms Sel:1.2ms YOLO:0.0ms NDI:3.6ms Redis:0.0ms Total:9.6ms Active:4/12
+
+  "scene_manager": {
+    "enabled": true,
+[2026-04-09 14:43:32.706] [INFO] Logger initialized: VIB_System_2026-04-09-14-43-32.706.log
+[2026-04-09 14:43:32.707] [INFO] Visual Intelligence Bypass v2.0 Starting...
+[2026-04-09 14:43:32.707] [INFO] COM initialized successfully for DeckLink SDK
+[2026-04-09 14:43:32.708] [INFO] === System Optimization Check ===
+[2026-04-09 14:43:32.708] [INFO] CPU: 32 logical processors, 16 physical cores (estimated)
+[2026-04-09 14:43:32.708] [INFO] === GPU Diagnostics ===
+[2026-04-09 14:43:32.708] [INFO] Hardware Accelerated GPU Scheduling: ENABLED
+[2026-04-09 14:43:32.721] [INFO] GPU: NVIDIA GeForce RTX 5080
+  Compute: 12.0
+  VRAM: 15 GB
+  Memory Clock: 0 MHz
+
+[2026-04-09 14:43:32.722] [INFO] =======================
+[2026-04-09 14:43:32.722] [WARN] System configuration is NOT optimal for VIB:
+[2026-04-09 14:43:32.722] [WARN]   [!] Verify PCIe x16 Gen4/Gen5 connection
+[2026-04-09 14:43:32.722] [WARN] System is not optimally configured. Performance may be degraded.
+[2026-04-09 14:43:32.722] [WARN] Refer to OPTIMIZATION_GUIDE.md for setup instructions.
+[2026-04-09 14:43:32.722] [INFO] ==================================
+[2026-04-09 14:43:32.723] [INFO] Configuración cargada: VideoHub=192.168.1.50:9990, ESP32=192.168.88.114:80, target_spheres=10
+[2026-04-09 14:43:32.723] [INFO] DeckLink SDK detected; initializing signal lock checks
+[2026-04-09 14:43:32.749] [INFO] Found 12 DeckLink device(s)
+[2026-04-09 14:43:32.749] [INFO] VideoHub connected at 192.168.1.50:9990
+[2026-04-09 14:43:32.850] [INFO] VideoHub initial state preview: PROTOCOL PREAMBLE:
+Version: 2.8
+
+VIDEOHUB DEVICE:
+Device present: true
+Model name: Blackmagic Videohub 40x40 12G
+Friendly name: Blackmagic Videohub 40x40 12G
+Unique ID: DCA459B6A5D348C38013B9D0A30E82F...
+[2026-04-09 14:43:32.851] [INFO] VideoHub initial state consumed (2411 bytes)
+[2026-04-09 14:43:32.851] [INFO] vMix TCP channel ready
+[2026-04-09 14:43:32.880] [INFO] vMix inputs healthy
+[2026-04-09 14:43:33.081] [INFO] Barrido Streaming (1-12) OK
+[2026-04-09 14:43:33.282] [INFO] Barrido Seguimiento (13-16) OK
+[2026-04-09 14:43:33.330] [INFO] ESP32 action executed successfully: /status
+[2026-04-09 14:43:33.330] [INFO] Fase 1 completada correctamente
+[2026-04-09 14:43:33.330] [WARN] Conteo de esferas usa stub; integrar motor YOLO para conteo real
+[2026-04-09 14:43:33.331] [INFO] Fase 2 (Escena) completada: conteo de esferas OK
+[2026-04-09 14:43:33.331] [INFO] Initializing NDI output for vMix...
+[2026-04-09 14:43:33.331] [INFO] NDIManager: Instancia creada.
+[2026-04-09 14:43:33.339] [INFO] NDIManager: Librería NDI 6 inicializada correctamente.
+[2026-04-09 14:43:33.339] [INFO] Creating NDI senders for 12 channels...
+[2026-04-09 14:43:33.491] [INFO] NDIManager: Emisor creado -> VIB_CAM_01 (3840x2160) - Multi-buffering enabled
+[2026-04-09 14:43:33.504] [INFO] NDIManager: Emisor creado -> VIB_CAM_02 (3840x2160) - Multi-buffering enabled
+[2026-04-09 14:43:33.510] [INFO] NDIManager: Emisor creado -> VIB_CAM_03 (3840x2160) - Multi-buffering enabled
+[2026-04-09 14:43:33.516] [INFO] NDIManager: Emisor creado -> VIB_CAM_04 (3840x2160) - Multi-buffering enabled
+[2026-04-09 14:43:33.524] [INFO] NDIManager: Emisor creado -> VIB_CAM_05 (3840x2160) - Multi-buffering enabled
+[2026-04-09 14:43:33.531] [INFO] NDIManager: Emisor creado -> VIB_CAM_06 (3840x2160) - Multi-buffering enabled
+[2026-04-09 14:43:33.537] [INFO] NDIManager: Emisor creado -> VIB_CAM_07 (3840x2160) - Multi-buffering enabled
+[2026-04-09 14:43:33.543] [INFO] NDIManager: Emisor creado -> VIB_CAM_08 (3840x2160) - Multi-buffering enabled
+[2026-04-09 14:43:33.550] [INFO] NDIManager: Emisor creado -> VIB_CAM_09 (3840x2160) - Multi-buffering enabled
+[2026-04-09 14:43:33.557] [INFO] NDIManager: Emisor creado -> VIB_CAM_10 (3840x2160) - Multi-buffering enabled
+[2026-04-09 14:43:33.564] [INFO] NDIManager: Emisor creado -> VIB_CAM_11 (3840x2160) - Multi-buffering enabled
+[2026-04-09 14:43:33.571] [INFO] NDIManager: Emisor creado -> VIB_CAM_12 (3840x2160) - Multi-buffering enabled
+[2026-04-09 14:43:33.571] [INFO] NDI senders initialized successfully
+[2026-04-09 14:43:33.571] [INFO] === vMix Configuration Tips ===
+[2026-04-09 14:43:33.571] [INFO] 1. Enable 'High Input Performance Mode' for 9+ cameras (requires GPU with >3GB VRAM)
+[2026-04-09 14:43:33.571] [INFO] 2. Disable 'Show preview thumbnails for NDI sources' to reduce network traffic
+[2026-04-09 14:43:33.572] [INFO] 3. NDI sources will appear as 'VIB_CAM_01' through 'VIB_CAM_12'
+[2026-04-09 14:43:33.572] [INFO] Initializing PerformanceMonitor...
+[2026-04-09 14:43:33.572] [INFO] PerformanceMonitor initialized: target=33.000000ms, log every 30 frames
+[2026-04-09 14:43:33.572] [INFO] Initializing ActiveCameraSelector...
+[2026-04-09 14:43:33.572] [INFO] ActiveCameraSelector created: 12 cameras, Top-4 selection
+[2026-04-09 14:43:33.572] [INFO] ActiveCameraSelector initialized successfully
+[2026-04-09 14:43:33.572] [INFO] ActiveCameraSelector initialized: Top-4 from 12 cameras with hysteresis (threshold=0.150000, frames=10, decay=0.980000)
+[2026-04-09 14:43:33.572] [INFO] Initializing YOLO processor...
+[2026-04-09 14:43:33.572] [INFO] YOLOProcessor initialized: batch=4, FP16=enabled
+[2026-04-09 14:43:33.572] [INFO] Created dedicated CUDA stream for YOLO (non-blocking pipeline)
+[2026-04-09 14:43:33.572] [INFO] Initializing YOLO model from: models/yolov8n.engine
+[2026-04-09 14:43:33.572] [WARN] YOLO model not found at: models/yolov8n.engine - using stub mode
+[2026-04-09 14:43:33.572] [WARN] YOLO running in STUB mode - no real inference
+[2026-04-09 14:43:33.573] [INFO] Initializing InferenceEngine...
+[2026-04-09 14:43:33.573] [INFO] InferenceEngine: Initializing with model: models/yolo26l_fp16_batch12.engine
+[2026-04-09 14:43:33.573] [INFO] InferenceEngine: Batch size=12, Input=640x640, FP16=enabled
+[2026-04-09 14:43:33.573] [INFO] InferenceEngine: Engine file size: 50 MB
+[2026-04-09 14:43:33.605] [INFO] InferenceEngine: Engine file validated (50 MB), TensorRT integration pending
+[2026-04-09 14:43:33.607] [WARN] InferenceEngine: Could not load engine, using stub mode
+[2026-04-09 14:43:33.607] [WARN] InferenceEngine: Running in STUB mode - no real inference
+[2026-04-09 14:43:33.607] [WARN] InferenceEngine running in STUB mode
+[2026-04-09 14:43:33.607] [INFO] Initializing PositionMapper...
+[2026-04-09 14:43:33.607] [INFO] PositionMapper: Loaded calibration from config/calibration.json
+[2026-04-09 14:43:33.607] [INFO] PositionMapper loaded calibration from config/calibration.json
+[2026-04-09 14:43:33.608] [INFO] Initializing BallTracker...
+[2026-04-09 14:43:33.608] [INFO] BallTracker: Initialized with 10 balls
+[2026-04-09 14:43:33.608] [INFO] BallTracker initialized with 10 balls
+[2026-04-09 14:43:33.608] [INFO] Initializing SceneManager...
+[2026-04-09 14:43:33.608] [INFO] SceneManager: Applying group configuration 'config_a'
+[2026-04-09 14:43:33.608] [INFO] SceneManager: Config 'config_a' applied. Switched 5 slots. G1-G4=[1,2,3,12], G5-G8=[4,5,6,7]
+[2026-04-09 14:43:33.608] [INFO] SceneManager: Initialized with 3 group configurations, mute timeout=200ms
+[2026-04-09 14:43:33.608] [INFO] SceneManager initialized with 3 group configurations
+[2026-04-09 14:43:33.608] [INFO] Initializing RankingPublisher...
+[2026-04-09 14:43:33.609] [INFO] RankingPublisher: Connected to vMix at 127.0.0.1:8099
+[2026-04-09 14:43:33.609] [INFO] RankingPublisher: Initialized, target=127.0.0.1:8099, rate=30Hz
+[2026-04-09 14:43:33.609] [INFO] RankingPublisher initialized, target=127.0.0.1:8099
+[2026-04-09 14:43:33.609] [INFO] Initializing Redis worker...
+[2026-04-09 14:43:33.609] [INFO] RedisWorker created but disabled by configuration
+[2026-04-09 14:43:33.609] [INFO] Redis worker disabled by configuration
+[2026-04-09 14:43:33.609] [INFO] Initializing capture channels...
+[2026-04-09 14:43:33.609] [INFO] Enumerating DeckLink devices...
+[2026-04-09 14:43:33.612] [INFO] DeckLink Iterator created successfully
+[2026-04-09 14:43:33.614] [INFO] Found DeckLink device #1: DeckLink 8K Pro Mini (1)
+[2026-04-09 14:43:33.615] [INFO] Found DeckLink device #2: DeckLink 8K Pro Mini (2)
+[2026-04-09 14:43:33.617] [INFO] Found DeckLink device #3: DeckLink 8K Pro Mini (3)
+[2026-04-09 14:43:33.619] [INFO] Found DeckLink device #4: DeckLink 8K Pro Mini (4)
+[2026-04-09 14:43:33.621] [INFO] Found DeckLink device #5: DeckLink 8K Pro Mini (1)
+[2026-04-09 14:43:33.623] [INFO] Found DeckLink device #6: DeckLink 8K Pro Mini (2)
+[2026-04-09 14:43:33.624] [INFO] Found DeckLink device #7: DeckLink 8K Pro Mini (3)
+[2026-04-09 14:43:33.626] [INFO] Found DeckLink device #8: DeckLink 8K Pro Mini (4)
+[2026-04-09 14:43:33.628] [INFO] Found DeckLink device #9: DeckLink 8K Pro Mini (1)
+[2026-04-09 14:43:33.629] [INFO] Found DeckLink device #10: DeckLink 8K Pro Mini (2)
+[2026-04-09 14:43:33.631] [INFO] Found DeckLink device #11: DeckLink 8K Pro Mini (3)
+[2026-04-09 14:43:33.633] [INFO] Found DeckLink device #12: DeckLink 8K Pro Mini (4)
+[2026-04-09 14:43:33.633] [INFO] Total DeckLink devices found: 12
+[2026-04-09 14:43:33.633] [INFO] Found 12 DeckLink devices
+[2026-04-09 14:43:33.633] [INFO] Initializing DeckLink capture for device 0
+[2026-04-09 14:43:33.634] [INFO] Allocated CUDA buffers: YUV=16588800 bytes, BGRA=33177600 bytes
+[2026-04-09 14:43:33.653] [INFO] CustomAllocator initialized with CUDA pinned memory
+[2026-04-09 14:43:33.653] [INFO] DeckLink capture initialized successfully: Channel_1
+[2026-04-09 14:43:33.654] [INFO] Starting capture on channel: Channel_1
+[2026-04-09 14:43:33.654] [INFO] DeckLink streaming started successfully
+[2026-04-09 14:43:33.654] [INFO] Initializing DeckLink capture for device 1
+[2026-04-09 14:43:33.654] [INFO] Capture thread started for: Channel_1
+[2026-04-09 14:43:33.654] [INFO] Thread affinity set: VIDEO_CAPTURE (cores 0-3) (mask: 0xFF)
+[2026-04-09 14:43:33.654] [INFO] Thread priority set: HIGH
+[2026-04-09 14:43:33.654] [INFO] Allocated CUDA buffers: YUV=16588800 bytes, BGRA=33177600 bytes
+[2026-04-09 14:43:33.675] [INFO] CustomAllocator initialized with CUDA pinned memory
+[2026-04-09 14:43:33.676] [INFO] DeckLink capture initialized successfully: Channel_2
+[2026-04-09 14:43:33.676] [INFO] Starting capture on channel: Channel_2
+[2026-04-09 14:43:33.676] [INFO] DeckLink streaming started successfully
+[2026-04-09 14:43:33.676] [INFO] Initializing DeckLink capture for device 2
+[2026-04-09 14:43:33.676] [INFO] Capture thread started for: Channel_2
+[2026-04-09 14:43:33.676] [INFO] Thread affinity set: VIDEO_CAPTURE (cores 0-3) (mask: 0xFF)
+[2026-04-09 14:43:33.676] [INFO] Allocated CUDA buffers: YUV=16588800 bytes, BGRA=33177600 bytes
+[2026-04-09 14:43:33.676] [INFO] Thread priority set: HIGH
+[2026-04-09 14:43:33.699] [INFO] CustomAllocator initialized with CUDA pinned memory
+[2026-04-09 14:43:33.699] [INFO] DeckLink capture initialized successfully: Channel_3
+[2026-04-09 14:43:33.699] [INFO] Starting capture on channel: Channel_3
+[2026-04-09 14:43:33.699] [INFO] DeckLink streaming started successfully
+[2026-04-09 14:43:33.700] [INFO] Initializing DeckLink capture for device 3
+[2026-04-09 14:43:33.700] [INFO] Capture thread started for: Channel_3
+[2026-04-09 14:43:33.700] [INFO] Thread affinity set: VIDEO_CAPTURE (cores 0-3) (mask: 0xFF)
+[2026-04-09 14:43:33.700] [INFO] Thread priority set: HIGH
+[2026-04-09 14:43:33.700] [INFO] Allocated CUDA buffers: YUV=16588800 bytes, BGRA=33177600 bytes
+[2026-04-09 14:43:33.724] [INFO] CustomAllocator initialized with CUDA pinned memory
+[2026-04-09 14:43:33.724] [INFO] DeckLink capture initialized successfully: Channel_4
+[2026-04-09 14:43:33.725] [INFO] Starting capture on channel: Channel_4
+[2026-04-09 14:43:33.725] [INFO] DeckLink streaming started successfully
+[2026-04-09 14:43:33.725] [INFO] Initializing DeckLink capture for device 4
+[2026-04-09 14:43:33.725] [INFO] Capture thread started for: Channel_4
+[2026-04-09 14:43:33.725] [INFO] Thread affinity set: VIDEO_CAPTURE (cores 0-3) (mask: 0xFF)
+[2026-04-09 14:43:33.725] [INFO] Thread priority set: HIGH
+[2026-04-09 14:43:33.725] [INFO] Allocated CUDA buffers: YUV=16588800 bytes, BGRA=33177600 bytes
+[2026-04-09 14:43:33.752] [INFO] CustomAllocator initialized with CUDA pinned memory
+[2026-04-09 14:43:33.752] [INFO] DeckLink capture initialized successfully: Channel_5
+[2026-04-09 14:43:33.752] [INFO] Starting capture on channel: Channel_5
+[2026-04-09 14:43:33.753] [INFO] DeckLink streaming started successfully
+[2026-04-09 14:43:33.753] [INFO] Initializing DeckLink capture for device 5
+[2026-04-09 14:43:33.753] [INFO] Capture thread started for: Channel_5
+[2026-04-09 14:43:33.753] [INFO] Thread affinity set: VIDEO_CAPTURE (cores 0-3) (mask: 0xFF)
+[2026-04-09 14:43:33.753] [INFO] Thread priority set: HIGH
+[2026-04-09 14:43:33.753] [INFO] Allocated CUDA buffers: YUV=16588800 bytes, BGRA=33177600 bytes
