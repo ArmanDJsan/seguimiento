@@ -6,6 +6,9 @@
  * 
  * Philosophy: Redis is optional - video flow continues even if Redis fails
  * Implements retry logic and graceful degradation
+ * 
+ * NOTE: This worker is currently disabled (legacy code from YOLOProcessor)
+ * If Redis publishing is needed, update to use BallDetection from InferenceEngine
  */
 
 #pragma once
@@ -15,7 +18,20 @@
 #include <thread>
 #include <atomic>
 #include <mutex>
-#include "../ai/YOLOProcessor.h"
+
+/**
+ * Detection result structure (legacy, from removed YOLOProcessor)
+ * Kept for backward compatibility if RedisWorker is re-enabled
+ */
+struct Detection {
+    int cameraID;
+    int objectID;
+    float x, y;          // Normalized coordinates [0.0, 1.0]
+    float width, height; // Normalized dimensions
+    std::string label;
+    float confidence;
+    long long timestamp; // Milliseconds since epoch
+};
 
 // Forward declaration for Redis client
 namespace sw {

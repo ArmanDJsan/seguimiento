@@ -4,7 +4,7 @@ High-performance video capture and AI processing system for vMix with zero-copy 
 
 ## Overview
 
-VIB is a C++ application designed for ultra-low latency video capture and AI-powered object detection. It captures multiple 4K@30fps streams from Blackmagic DeckLink cards, processes them with YOLO AI, and delivers the video to vMix via NDI while publishing detection metadata to Redis.
+VIB is a C++ application designed for ultra-low latency video capture and AI-powered ball tracking. It captures multiple 4K@30fps streams from Blackmagic DeckLink cards, processes them with TensorRT-based inference engine for ball detection, and delivers the video to vMix via NDI while providing tracking data and scene control.
 
 > **Note**: The system uses NTSC standard 29.97fps (30000/1001), commonly referred to as "30fps" in broadcast. The architecture supports 60fps if needed by changing the DeckLink configuration to bmdMode4K2160p60.
 
@@ -15,7 +15,7 @@ VIB is a C++ application designed for ultra-low latency video capture and AI-pow
 ### Key Features
 
 - **Zero-Copy DMA**: Custom memory allocator provides GPU memory directly to DeckLink cards
-- **GPU-Accelerated Color Conversion**: CUDA kernel converts YUV to BGRA for YOLO processing
+- **GPU-Accelerated Color Conversion**: CUDA kernel converts YUV to BGRA for inference processing
 - **NDI Video Output**: NDI delivers video to vMix with native support and zero-copy async sending
 - **Batch AI Processing**: TensorRT processes multiple camera streams efficiently
 - **Asynchronous Data Pipeline**: Redis worker decouples metadata updates from video flow
@@ -28,7 +28,7 @@ VIB is a C++ application designed for ultra-low latency video capture and AI-pow
 - **GPU**: NVIDIA RTX 5080 (16GB VRAM)
 - **Capture**: 3x Blackmagic DeckLink 8K Pro Mini
 - **RAM**: 128GB DDR5
-- **Storage**: NVMe SSD for YOLO models
+- **Storage**: NVMe SSD for TensorRT models
 
 ### Software
 
@@ -43,7 +43,7 @@ VIB is a C++ application designed for ultra-low latency video capture and AI-pow
 1. **Blackmagic DeckLink SDK**: Download from Blackmagic Design website
 2. **NDI SDK 6 (Required)**: Download from [ndi.video/for-developers](https://ndi.video/for-developers/ndi-sdk/) - Mandatory, no fallback mode
 3. **Redis C++ Client**: [sewenew/redis-plus-plus](https://github.com/sewenew/redis-plus-plus)
-4. **NVIDIA TensorRT**: For YOLO inference
+4. **NVIDIA TensorRT**: For ball detection inference
 
 ## Project Structure
 
@@ -62,8 +62,17 @@ src/
 │   ├── NDIManager.h          # NDI sender management
 │   └── NDIManager.cpp        # Video output to vMix via NDI
 ├── ai/
-│   ├── YOLOProcessor.h       # YOLO/TensorRT interface
-│   └── YOLOProcessor.cpp     # Object detection implementation
+│   ├── InferenceEngine.h      # TensorRT inference interface
+│   ├── InferenceEngine.cpp    # Ball detection implementation
+│   └── ActiveCameraSelector.h # Camera selection logic
+├── tracking/
+│   ├── PositionMapper.h       # Homography coordinate transform
+│   ├── BallTracker.h          # Kalman filter tracking
+│   └── KalmanFilter.h         # Kalman filter implementation
+├── scene/
+│   └── SceneManager.h         # VideoHub control & leapfrogging
+├── output/
+│   └── RankingPublisher.h     # vMix ranking output
 ├── redis/
 │   ├── RedisWorker.h         # Async Redis worker
 │   └── RedisWorker.cpp       # Metadata publishing
@@ -202,10 +211,10 @@ Loop
 1. **Allocation**: Custom allocator creates CUDA pinned memory
 2. **DMA Transfer**: DeckLink writes directly to pinned memory via PCIe
 3. **GPU Copy**: CUDA async memcpy to device memory
-4. **Processing**: CUDA kernel converts YUV→BGRA for YOLO
+4. **Processing**: CUDA kernel converts YUV→BGRA for inference
 5. **Distribution**: 
    - UYVY goes directly to NDI for vMix (no conversion)
-   - BGRA goes to YOLO for AI inference
+   - BGRA goes to InferenceEngine for ball detection
 
 ### NDI Video Output
 
@@ -231,8 +240,8 @@ This happens in parallel for all 8.3M pixels in a 4K frame.
 - **Main Thread**: Application control and exit handling
 - **Capture Callbacks**: One per DeckLink card (lightweight, from DeckLink)
 - **Capture Threads**: Process frames and send to NDI
-- **YOLO Worker**: Batch inference processing
-- **Redis Worker**: 60Hz metadata publishing
+- **Inference Worker**: TensorRT batch inference processing
+- **Tracking Pipeline**: Ball tracking, position mapping, scene management
 
 ## Troubleshooting
 
