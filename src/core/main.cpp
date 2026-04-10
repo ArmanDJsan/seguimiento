@@ -574,7 +574,8 @@ VIB::RunResult RunSystem(int timeoutSeconds) {
         bool running = true;
         
         // Track key states for edge detection (prevent key repeat)
-        bool keyStates[256] = {false};
+        constexpr int kMaxVirtualKeyCodes = 256;
+        bool keyStates[kMaxVirtualKeyCodes] = {false};
         
         while (running) {
             // Check for ESC key
@@ -629,8 +630,9 @@ VIB::RunResult RunSystem(int timeoutSeconds) {
                     HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
                     CONSOLE_SCREEN_BUFFER_INFO csbi;
                     if (GetConsoleScreenBufferInfo(hConsole, &csbi)) {
-                        // Move cursor up 7 lines (status box height)
-                        COORD newPos = {0, static_cast<SHORT>(csbi.dwCursorPosition.Y - 7)};
+                        // Move cursor up by status box height (7 lines for the bordered display)
+                        constexpr SHORT kStatusBoxLineCount = 7;
+                        COORD newPos = {0, static_cast<SHORT>(csbi.dwCursorPosition.Y - kStatusBoxLineCount)};
                         if (newPos.Y >= 0) {
                             SetConsoleCursorPosition(hConsole, newPos);
                         }
