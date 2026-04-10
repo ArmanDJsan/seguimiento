@@ -59,7 +59,7 @@ void UserMenu::PrintMenuOptions() {
     std::cout << "  ║                                                        ║\n";
     std::cout << "  ╚════════════════════════════════════════════════════════╝\n";
     std::cout << "\n";
-    std::cout << "  Seleccione una opcion (1-4): ";
+    std::cout << "  Seleccione una opcion [1-4]: ";
 }
 
 int UserMenu::GetUserInput() {
@@ -101,15 +101,19 @@ void UserMenu::ShowSuccessStatus(const RunResult& result) {
     std::cout << "  ║                    RESULTADO                           ║\n";
     std::cout << "  ╠════════════════════════════════════════════════════════╣\n";
     std::cout << "  ║                                                        ║\n";
-    std::cout << "  ║   ✓ ESTADO: OK                                         ║\n";
+    std::cout << "  ║   [OK] ESTADO: OK                                      ║\n";
     std::cout << "  ║                                                        ║\n";
     
-    // Show elapsed time
-    std::cout << "  ║   Tiempo transcurrido: " << std::fixed << std::setprecision(2) 
-              << result.elapsedSeconds << " segundos";
-    // Pad to align with box
-    int padding = 28 - static_cast<int>(std::to_string(static_cast<int>(result.elapsedSeconds)).length());
-    for (int i = 0; i < padding; ++i) std::cout << " ";
+    // Format elapsed time with fixed precision
+    std::ostringstream timeStr;
+    timeStr << std::fixed << std::setprecision(2) << result.elapsedSeconds;
+    std::string formattedTime = timeStr.str();
+    
+    std::cout << "  ║   Tiempo transcurrido: " << formattedTime << " segundos";
+    // Calculate padding based on actual formatted string length
+    size_t contentLen = 24 + formattedTime.length() + 9; // "Tiempo transcurrido: " + time + " segundos"
+    size_t totalWidth = 56; // Width inside the box
+    for (size_t i = contentLen; i < totalWidth; ++i) std::cout << " ";
     std::cout << "║\n";
     
     std::cout << "  ║                                                        ║\n";
@@ -128,7 +132,7 @@ void UserMenu::ShowErrorStatus(const std::string& errorMessage) {
     std::cout << "  ║                    RESULTADO                           ║\n";
     std::cout << "  ╠════════════════════════════════════════════════════════╣\n";
     std::cout << "  ║                                                        ║\n";
-    std::cout << "  ║   ✗ ESTADO: ERROR                                      ║\n";
+    std::cout << "  ║   [X] ESTADO: ERROR                                    ║\n";
     std::cout << "  ║                                                        ║\n";
     std::cout << "  ╠════════════════════════════════════════════════════════╣\n";
     std::cout << "  ║                                                        ║\n";
