@@ -47,6 +47,9 @@
 #include "../control/VideoHubClient.h"
 #include "../control/TrackPhysicalController.h"
 #include "../control/VMixController.h"
+#include "../ui/UserMenu.h"
+#include "../diagnostics/StressTester.h"
+#include "Config.h"
 
 // Link DirectX libraries (still needed for D3D11 device creation used by CUDA interop)
 #pragma comment(lib, "d3d11.lib")
@@ -90,47 +93,7 @@ std::vector<int> RangeInclusive(int start, int end) {
     return values;
 }
 
-struct Config {
-    std::string videohubIp;
-    uint16_t videohubPort;
-    std::string esp32Ip;
-    uint16_t esp32Port;
-    int targetSpheres;
-    
-    // Redis configuration
-    bool redisEnabled;
-    std::string redisHost;
-    uint16_t redisPort;
-    
-    // Camera selector configuration
-    bool selectorEnabled;
-    int selectorTopK;
-    float selectorMotionThreshold;
-    float selectorEdgeMargin;
-    
-    // Hysteresis configuration
-    float hysteresisSwitchThreshold;
-    int hysteresisMinActiveFrames;
-    float hysteresisDecayFactor;
-    
-    // Scene manager configuration
-    bool sceneManagerEnabled;
-    int sceneManagerMuteTimeoutMs;
-    std::vector<GroupConfig> sceneManagerGroups;
-    
-    // Inference engine configuration
-    InferenceEngineConfig inferenceConfig;
-    
-    // Position mapper configuration
-    std::string calibrationFile;
-    TrackBounds trackBounds;
-    
-    // Ball tracker configuration
-    BallTrackerConfig ballTrackerConfig;
-    
-    // Ranking publisher configuration
-    RankingPublisherConfig rankingConfig;
-};
+// Config struct is now defined in Config.h
 
 /**
  * Validate SceneManager configuration
@@ -197,29 +160,7 @@ bool ValidateSceneManagerConfig(const Config& config) {
 }
 
 Config LoadConfig(const std::string& path) {
-    Config config;
-    // Set defaults
-    config.videohubIp = "192.168.1.50";
-    config.videohubPort = 9990;
-    config.esp32Ip = "192.168.88.114";
-    config.esp32Port = 80;
-    config.targetSpheres = 10;
-    
-    // Redis defaults
-    config.redisEnabled = true;
-    config.redisHost = "127.0.0.1";
-    config.redisPort = 6379;
-    
-    // Camera selector defaults
-    config.selectorEnabled = true;
-    config.selectorTopK = 4;
-    config.selectorMotionThreshold = 0.05f;
-    config.selectorEdgeMargin = 0.1f;
-    
-    // Hysteresis defaults (racing-optimized)
-    config.hysteresisSwitchThreshold = 0.15f;
-    config.hysteresisMinActiveFrames = 10;
-    config.hysteresisDecayFactor = 0.98f;
+    Config config;  // Constructor ya tiene valores por defecto
 
     std::ifstream file(path);
     if (!file.is_open()) {
@@ -546,21 +487,14 @@ bool RunPhase2(VideoHubClient& videoHub, int targetSpheres) {
     Logger::Info("Fase 2 (Escena) completada: conteo de esferas OK");
     return true;
 }
-} // namespace
 
-int main(int argc, char* argv[]) {
-    Logger::Init("VIB_System");
-    Logger::Info("Visual Intelligence Bypass v2.0 Starting...");
-    
-    // Initialize COM for DeckLink SDK (Component Object Model)
-    // This MUST be called before any DeckLink interfaces are created
-    HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    if (FAILED(hr)) {
-        Logger::Error("Failed to initialize COM. HRESULT: 0x" + std::to_string(hr));
-        Logger::Error("DeckLink SDK requires COM initialization to function properly");
-        return 1;
-    }
-    Logger::Info("COM initialized successfully for DeckLink SDK");
+/**
+ * Ejecutar el modo normal de operación (RUNNING MODE)
+ * Contiene toda la lógica de inicialización y captura continua
+ * @return true si finalizó correctamente, false si hubo error
+ */
+bool RunRunningMode() {
+    Logger::Info("=== INICIANDO RUNNING MODE ===");
     
     // ============================================================================
     // System Optimization Diagnostics (Threadripper PRO + RTX 5080)
@@ -574,559 +508,488 @@ int main(int argc, char* argv[]) {
     }
     Logger::Info("==================================");
     
-    try {
-        // Load configuration from JSON
-        Config config = LoadConfig("config.json");
-        
-        // Validate SceneManager configuration
-        if (!ValidateSceneManagerConfig(config)) {
-            Logger::Error("SceneManager configuration validation failed. Please fix config.json");
-            if (config.sceneManagerEnabled) {
-                Logger::Error("SceneManager is enabled but configuration is invalid. Disabling SceneManager.");
-                config.sceneManagerEnabled = false;
-            }
-        }
-
-        // Controllers for diagnostics and routing
-        auto inputLookup = BuildInputLookup();
-        VideoHubClient videoHub(config.videohubIp, config.videohubPort, inputLookup);
-        
-        // Convert ESP32 IP to wide string
-        std::wstring esp32IpWide(config.esp32Ip.begin(), config.esp32Ip.end());
-        TrackPhysicalController trackController(esp32IpWide, config.esp32Port);
-        
-        VMixController vmix(L"127.0.0.1", 8088, 8099);
-        DeckLinkSource deckLinkSource;
-        deckLinkSource.Initialize(12);
-
-        if (!videoHub.Connect()) {
-            Logger::Error("[HW/SW ERROR] No se pudo establecer conexión con VideoHub");
-            return 1;
-        }
-
-        vmix.ConnectTcp();  // prepare TCP channel; errors are logged but non-fatal
-
-        // Fase 1: Sweep hardware/software links
-        if (!RunPhase1(vmix, videoHub, deckLinkSource, trackController)) {
-            Logger::Error("Ignición abortada durante Fase 1");
-            return 1;
-        }
-
-        // Fase 2: Escena (YOLO check)
-        if (!RunPhase2(videoHub, config.targetSpheres)) {
-            Logger::Error("Ignición abortada durante Fase 2");
-            return 1;
-        }
-
-        // ============================================================================
-        // NDI Initialization (replaced Spout for vMix compatibility)
-        // ============================================================================
-        // NDI provides:
-        // - Native vMix support (no plugins needed)
-        // - Zero-copy async sending via completion callbacks
-        // - UYVY format support (native DeckLink format, optimal for vMix)
-        // - Network transparency (works across machines if needed)
-        //
-        // Note: D3D11 device creation is no longer required for video output.
-        //       DeckLinkCapture uses CUDA-only pipeline for zero-copy DMA.
-        // ============================================================================
-        
-        Logger::Info("Initializing NDI output for vMix...");
-        
-        // Initialize NDI Manager
-        auto ndiManager = std::make_shared<NDIManager>();
-        if (!ndiManager->Initialize()) {
-            Logger::Error("Failed to initialize NDI library");
-            throw std::runtime_error("NDI initialization failed");
-        }
-        
-        // Pre-create all 12 NDI senders to maintain stable source names for vMix
-        // vMix will see these as "VIB_CAM_01" through "VIB_CAM_12"
-        Logger::Info("Creating NDI senders for " + std::to_string(kMaxNDIChannels) + " channels...");
-        for (int channel = 0; channel < kMaxNDIChannels; ++channel) {
-            std::ostringstream oss;
-            oss << "VIB_CAM_" << std::setw(2) << std::setfill('0') << (channel + 1);
-            const std::string senderName = oss.str();
-            
-            // Use UYVY format for optimal performance:
-            // - DeckLink outputs UYVY natively
-            // - vMix expects UYVY and converts internally to 32-bit float 4:4:4
-            // - Avoids YUV→BGRA conversion for vMix path (saves ~1-2ms per frame)
-            if (!ndiManager->CreateSender(channel, senderName, kDefaultWidth, kDefaultHeight, true)) {
-                Logger::Error("Failed to create NDI sender: " + senderName);
-                throw std::runtime_error("NDI sender creation failed");
-            }
-        }
-        Logger::Info("NDI senders initialized successfully");
-        
-        // Log vMix configuration tips
-        Logger::Info("=== vMix Configuration Tips ===");
-        Logger::Info("1. Enable 'High Input Performance Mode' for 9+ cameras (requires GPU with >3GB VRAM)");
-        Logger::Info("2. Disable 'Show preview thumbnails for NDI sources' to reduce network traffic");
-        Logger::Info("3. NDI sources will appear as 'VIB_CAM_01' through 'VIB_CAM_12'");
-        
-        // ============================================================================
-        // Initialize AI Pipeline Components
-        // ============================================================================
-        
-        // Initialize PerformanceMonitor for real-time telemetry
-        Logger::Info("Initializing PerformanceMonitor...");
-        auto perfMonitor = std::make_shared<PerformanceMonitor>(33.0, 30);  // 33ms target, log every 30 frames
-        
-        // Initialize ActiveCameraSelector for Top-4 motion-based selection
-        std::shared_ptr<ActiveCameraSelector> cameraSelector;
-        if (config.selectorEnabled) {
-            Logger::Info("Initializing ActiveCameraSelector...");
-            cameraSelector = std::make_shared<ActiveCameraSelector>(
-                kMaxNDIChannels,
-                config.selectorTopK,
-                config.selectorMotionThreshold,
-                config.selectorEdgeMargin
-            );
-            if (!cameraSelector->Initialize()) {
-                Logger::Error("Failed to initialize ActiveCameraSelector");
-                throw std::runtime_error("ActiveCameraSelector initialization failed");
-            }
-            
-            // Apply hysteresis configuration from config.json
-            HysteresisConfig hysteresisConfig;
-            hysteresisConfig.switch_threshold = config.hysteresisSwitchThreshold;
-            hysteresisConfig.min_active_frames = config.hysteresisMinActiveFrames;
-            hysteresisConfig.decay_factor = config.hysteresisDecayFactor;
-            cameraSelector->SetHysteresisConfig(hysteresisConfig);
-            
-            Logger::Info("ActiveCameraSelector initialized: Top-" + std::to_string(config.selectorTopK) + 
-                        " from " + std::to_string(kMaxNDIChannels) + " cameras with hysteresis" +
-                        " (threshold=" + std::to_string(config.hysteresisSwitchThreshold) +
-                        ", frames=" + std::to_string(config.hysteresisMinActiveFrames) +
-                        ", decay=" + std::to_string(config.hysteresisDecayFactor) + ")");
-        } else {
-            Logger::Info("ActiveCameraSelector disabled by configuration");
-        }
-        
-        // ============================================================================
-        // Initialize New Tracking Pipeline Components
-        // ============================================================================
-        
-        // Create dedicated CUDA stream for inference processing (non-blocking)
-        cudaStream_t inferenceStream = nullptr;
-        cudaError_t err = cudaStreamCreate(&inferenceStream);
-        if (err != cudaSuccess) {
-            Logger::Error("Failed to create inference CUDA stream: " + std::string(cudaGetErrorString(err)));
-            throw std::runtime_error("CUDA stream creation failed");
-        }
-        Logger::Info("Created dedicated CUDA stream for inference (non-blocking pipeline)");
-        
-        // Initialize InferenceEngine (TensorRT-based ball detection)
-        Logger::Info("Initializing InferenceEngine...");
-        auto inferenceEngine = std::make_shared<InferenceEngine>();
-        bool inferenceReady = false;
-        if (inferenceEngine->Initialize(config.inferenceConfig)) {
-            inferenceReady = true;
-            if (inferenceEngine->IsStubMode()) {
-                Logger::Warning("InferenceEngine running in STUB mode");
-            } else {
-                Logger::Info("InferenceEngine initialized with TensorRT");
-            }
-        } else {
-            Logger::Warning("InferenceEngine initialization failed");
-        }
-        
-        // Initialize PositionMapper (homography-based coordinate transformation)
-        Logger::Info("Initializing PositionMapper...");
-        auto positionMapper = std::make_shared<PositionMapper>();
-        if (positionMapper->LoadCalibration(config.calibrationFile)) {
-            positionMapper->SetTrackBounds(config.trackBounds);
-            Logger::Info("PositionMapper loaded calibration from " + config.calibrationFile);
-        } else {
-            Logger::Warning("PositionMapper using identity transform (no calibration)");
-        }
-        
-        // Initialize BallTracker (Kalman filter-based multi-ball tracking)
-        Logger::Info("Initializing BallTracker...");
-        auto ballTracker = std::make_shared<BallTracker>(config.ballTrackerConfig);
-        if (ballTracker->Initialize()) {
-            Logger::Info("BallTracker initialized with " + 
-                        std::to_string(config.ballTrackerConfig.numBalls) + " balls");
-        } else {
-            Logger::Error("BallTracker initialization failed");
-        }
-        
-        // Initialize SceneManager (leapfrogging group switching)
-        Logger::Info("Initializing SceneManager...");
-        SceneManagerConfig sceneConfig;
-        sceneConfig.enabled = config.sceneManagerEnabled;
-        sceneConfig.muteTimeoutMs = config.sceneManagerMuteTimeoutMs;
-        sceneConfig.groups = config.sceneManagerGroups;
-        
-        auto sceneManager = std::make_shared<SceneManager>(&videoHub, sceneConfig);
+    // Load configuration from JSON
+    Config config = LoadConfig("config.json");
+    
+    // Validate SceneManager configuration
+    if (!ValidateSceneManagerConfig(config)) {
+        Logger::Error("SceneManager configuration validation failed. Please fix config.json");
         if (config.sceneManagerEnabled) {
-            if (sceneManager->Initialize()) {
-                Logger::Info("SceneManager initialized with " + 
-                            std::to_string(config.sceneManagerGroups.size()) + " group configurations");
-            } else {
-                Logger::Warning("SceneManager initialization failed");
-            }
+            Logger::Error("SceneManager is enabled but configuration is invalid. Disabling SceneManager.");
+            config.sceneManagerEnabled = false;
+        }
+    }
+
+    // Controllers for diagnostics and routing
+    auto inputLookup = BuildInputLookup();
+    VideoHubClient videoHub(config.videohubIp, config.videohubPort, inputLookup);
+    
+    // Convert ESP32 IP to wide string
+    std::wstring esp32IpWide(config.esp32Ip.begin(), config.esp32Ip.end());
+    TrackPhysicalController trackController(esp32IpWide, config.esp32Port);
+    
+    VMixController vmix(L"127.0.0.1", 8088, 8099);
+    DeckLinkSource deckLinkSource;
+    deckLinkSource.Initialize(12);
+
+    if (!videoHub.Connect()) {
+        Logger::Error("[HW/SW ERROR] No se pudo establecer conexión con VideoHub");
+        return false;
+    }
+
+    vmix.ConnectTcp();  // prepare TCP channel; errors are logged but non-fatal
+
+    // Fase 1: Sweep hardware/software links
+    if (!RunPhase1(vmix, videoHub, deckLinkSource, trackController)) {
+        Logger::Error("Ignición abortada durante Fase 1");
+        return false;
+    }
+
+    // Fase 2: Escena (YOLO check)
+    if (!RunPhase2(videoHub, config.targetSpheres)) {
+        Logger::Error("Ignición abortada durante Fase 2");
+        return false;
+    }
+
+    // ============================================================================
+    // NDI Initialization (replaced Spout for vMix compatibility)
+    // ============================================================================
+    Logger::Info("Initializing NDI output for vMix...");
+    
+    auto ndiManager = std::make_shared<NDIManager>();
+    if (!ndiManager->Initialize()) {
+        Logger::Error("Failed to initialize NDI library");
+        return false;
+    }
+    
+    // Pre-create all 12 NDI senders
+    Logger::Info("Creating NDI senders for " + std::to_string(kMaxNDIChannels) + " channels...");
+    for (int channel = 0; channel < kMaxNDIChannels; ++channel) {
+        std::ostringstream oss;
+        oss << "VIB_CAM_" << std::setw(2) << std::setfill('0') << (channel + 1);
+        const std::string senderName = oss.str();
+        
+        if (!ndiManager->CreateSender(channel, senderName, kDefaultWidth, kDefaultHeight, true)) {
+            Logger::Error("Failed to create NDI sender: " + senderName);
+            return false;
+        }
+    }
+    Logger::Info("NDI senders initialized successfully");
+    
+    // ============================================================================
+    // Initialize AI Pipeline Components
+    // ============================================================================
+    
+    auto perfMonitor = std::make_shared<PerformanceMonitor>(33.0, 30);
+    
+    std::shared_ptr<ActiveCameraSelector> cameraSelector;
+    if (config.selectorEnabled) {
+        Logger::Info("Initializing ActiveCameraSelector...");
+        cameraSelector = std::make_shared<ActiveCameraSelector>(
+            kMaxNDIChannels,
+            config.selectorTopK,
+            config.selectorMotionThreshold,
+            config.selectorEdgeMargin
+        );
+        if (!cameraSelector->Initialize()) {
+            Logger::Error("Failed to initialize ActiveCameraSelector");
+            return false;
+        }
+        
+        HysteresisConfig hysteresisConfig;
+        hysteresisConfig.switch_threshold = config.hysteresisSwitchThreshold;
+        hysteresisConfig.min_active_frames = config.hysteresisMinActiveFrames;
+        hysteresisConfig.decay_factor = config.hysteresisDecayFactor;
+        cameraSelector->SetHysteresisConfig(hysteresisConfig);
+    }
+    
+    // ============================================================================
+    // Initialize Tracking Pipeline Components
+    // ============================================================================
+    
+    cudaStream_t inferenceStream = nullptr;
+    cudaError_t err = cudaStreamCreate(&inferenceStream);
+    if (err != cudaSuccess) {
+        Logger::Error("Failed to create inference CUDA stream: " + std::string(cudaGetErrorString(err)));
+        return false;
+    }
+    
+    Logger::Info("Initializing InferenceEngine...");
+    auto inferenceEngine = std::make_shared<InferenceEngine>();
+    bool inferenceReady = false;
+    if (inferenceEngine->Initialize(config.inferenceConfig)) {
+        inferenceReady = true;
+        if (inferenceEngine->IsStubMode()) {
+            Logger::Warning("InferenceEngine running in STUB mode");
         } else {
-            Logger::Info("SceneManager disabled by configuration");
+            Logger::Info("InferenceEngine initialized with TensorRT");
         }
-        
-        // Initialize RankingPublisher (vMix ranking output)
-        Logger::Info("Initializing RankingPublisher...");
-        auto rankingPublisher = std::make_shared<RankingPublisher>(config.rankingConfig);
-        if (config.rankingConfig.enabled) {
-            if (rankingPublisher->Initialize()) {
-                Logger::Info("RankingPublisher initialized, target=" + 
-                            config.rankingConfig.vmixHost + ":" + 
-                            std::to_string(config.rankingConfig.vmixTcpPort));
-            } else {
-                Logger::Warning("RankingPublisher initialization failed");
-            }
-        } else {
-            Logger::Info("RankingPublisher disabled by configuration");
-        }
-        
-        // ============================================================================
-        
-        // Redis worker disabled - was only used with legacy YOLOProcessor
-        // New architecture uses RankingPublisher for vMix output
-        // TODO: Re-enable with BallDetection if Redis publishing is needed
-        /*
-        Logger::Info("Initializing Redis worker...");
-        RedisWorker redisWorker(config.redisHost, config.redisPort, config.redisEnabled);
-        if (config.redisEnabled) {
-            redisWorker.Start();
-            if (redisWorker.IsConnected()) {
-                Logger::Info("Redis worker connected and running");
-            } else {
-                Logger::Warning("Redis worker started but not connected - will retry");
-            }
-        } else {
-            Logger::Info("Redis worker disabled by configuration");
-        }
-        */
-        
-        // Initialize capture channels
-        // Note: DeckLinkCapture uses CUDA-only pipeline (no D3D11 dependency)
-        // The YUV data path splits at DeckLinkCapture:
-        // - UYVY → NDI for vMix (zero conversion)
-        // - BGRA → YOLO for AI inference (converted via CUDA kernel)
-        Logger::Info("Initializing capture channels...");
-        std::vector<std::unique_ptr<DeckLinkCapture>> captureChannels;
-        
-        // Auto-detect DeckLink devices
-        int numDevices = DeckLinkCapture::EnumerateDevices();
-        Logger::Info("Found " + std::to_string(numDevices) + " DeckLink devices");
-        if (numDevices < kMaxNDIChannels) {
-            Logger::Warning("Fewer capture devices than NDI senders (" +
-                            std::to_string(numDevices) + " vs " +
-                            std::to_string(kMaxNDIChannels) +
-                            "). Idle senders remain available to keep channel names stable in vMix.");
-        }
-        
-        const int channelsToInit = (std::min)(numDevices, kMaxNDIChannels);
-        for (int i = 0; i < channelsToInit; i++) {
-            auto capture = std::make_unique<DeckLinkCapture>();
-            const std::string channelName = "Channel_" + std::to_string(i + 1);
-            if (capture->Initialize(i, channelName)) {
-                // Frame ready handler: Non-blocking pipeline with strict priority order
-                // ORDEN 2: NON-BLOCKING PIPELINE - NDI → Selector → Inference → Tracking
-                capture->SetFrameReadyHandler([ndiManager, cameraSelector, 
-                                              perfMonitor, &config, inferenceStream,
-                                              inferenceEngine, positionMapper, ballTracker, 
-                                              sceneManager, rankingPublisher, inferenceReady]
-                                             (const VideoChannel& channel, cudaStream_t stream) {
-                    auto frameStart = std::chrono::high_resolution_clock::now();
-                    Telemetry telemetry = {0, 0, 0, 0, 0};
-                    
-                    // ============================================================================
-                    // PRIORITY 1: Video Output to vMix (ALWAYS happens FIRST - sacred video)
-                    // NDI sends async - does NOT block for GPU completion
-                    // ============================================================================
-                    auto ndiStart = std::chrono::high_resolution_clock::now();
-                    ndiManager->SendUYVYFrame(
+    } else {
+        Logger::Warning("InferenceEngine initialization failed");
+    }
+    
+    Logger::Info("Initializing PositionMapper...");
+    auto positionMapper = std::make_shared<PositionMapper>();
+    if (positionMapper->LoadCalibration(config.calibrationFile)) {
+        positionMapper->SetTrackBounds(config.trackBounds);
+        Logger::Info("PositionMapper loaded calibration from " + config.calibrationFile);
+    } else {
+        Logger::Warning("PositionMapper using identity transform (no calibration)");
+    }
+    
+    Logger::Info("Initializing BallTracker...");
+    auto ballTracker = std::make_shared<BallTracker>(config.ballTrackerConfig);
+    if (!ballTracker->Initialize()) {
+        Logger::Error("BallTracker initialization failed");
+    }
+    
+    Logger::Info("Initializing SceneManager...");
+    SceneManagerConfig sceneConfig;
+    sceneConfig.enabled = config.sceneManagerEnabled;
+    sceneConfig.muteTimeoutMs = config.sceneManagerMuteTimeoutMs;
+    sceneConfig.groups = config.sceneManagerGroups;
+    
+    auto sceneManager = std::make_shared<SceneManager>(&videoHub, sceneConfig);
+    if (config.sceneManagerEnabled && !sceneManager->Initialize()) {
+        Logger::Warning("SceneManager initialization failed");
+    }
+    
+    Logger::Info("Initializing RankingPublisher...");
+    auto rankingPublisher = std::make_shared<RankingPublisher>(config.rankingConfig);
+    if (config.rankingConfig.enabled && !rankingPublisher->Initialize()) {
+        Logger::Warning("RankingPublisher initialization failed");
+    }
+    
+    // ============================================================================
+    // Initialize capture channels
+    // ============================================================================
+    Logger::Info("Initializing capture channels...");
+    std::vector<std::unique_ptr<DeckLinkCapture>> captureChannels;
+    
+    int numDevices = DeckLinkCapture::EnumerateDevices();
+    Logger::Info("Found " + std::to_string(numDevices) + " DeckLink devices");
+    
+    const int channelsToInit = (std::min)(numDevices, kMaxNDIChannels);
+    for (int i = 0; i < channelsToInit; i++) {
+        auto capture = std::make_unique<DeckLinkCapture>();
+        const std::string channelName = "Channel_" + std::to_string(i + 1);
+        if (capture->Initialize(i, channelName)) {
+            capture->SetFrameReadyHandler([ndiManager, cameraSelector, 
+                                          perfMonitor, &config, inferenceStream,
+                                          inferenceEngine, positionMapper, ballTracker, 
+                                          sceneManager, rankingPublisher, inferenceReady]
+                                         (const VideoChannel& channel, cudaStream_t stream) {
+                auto frameStart = std::chrono::high_resolution_clock::now();
+                Telemetry telemetry = {0, 0, 0, 0, 0};
+                
+                // PRIORITY 1: Video Output to vMix
+                auto ndiStart = std::chrono::high_resolution_clock::now();
+                ndiManager->SendUYVYFrame(
+                    channel.channelID,
+                    channel.cudaYUVBuffer,
+                    channel.width,
+                    channel.height,
+                    stream
+                );
+                auto ndiEnd = std::chrono::high_resolution_clock::now();
+                telemetry.ndi_ms = std::chrono::duration<double, std::milli>(ndiEnd - ndiStart).count();
+                
+                // PRIORITY 2: Motion Analysis
+                auto selectorStart = std::chrono::high_resolution_clock::now();
+                if (cameraSelector && config.selectorEnabled) {
+                    cameraSelector->ProcessFrame(
                         channel.channelID,
                         channel.cudaYUVBuffer,
                         channel.width,
                         channel.height,
-                        stream  // Uses capture stream, returns immediately
+                        stream
                     );
-                    auto ndiEnd = std::chrono::high_resolution_clock::now();
-                    telemetry.ndi_ms = std::chrono::duration<double, std::milli>(ndiEnd - ndiStart).count();
+                }
+                auto selectorEnd = std::chrono::high_resolution_clock::now();
+                telemetry.selector_ms = std::chrono::duration<double, std::milli>(selectorEnd - selectorStart).count();
+                
+                // PRIORITY 3: AI Inference + Ball Tracking
+                auto yoloStart = std::chrono::high_resolution_clock::now();
+                
+                std::vector<BallDetection> ballDetections;
+                if (inferenceReady && inferenceEngine) {
+                    ballDetections = inferenceEngine->ProcessFrame(
+                        channel.cudaBGRABuffer,
+                        channel.channelID,
+                        channel.width,
+                        channel.height,
+                        inferenceStream
+                    );
+                }
+                
+                std::vector<GlobalPosition> globalPositions;
+                if (!ballDetections.empty() && positionMapper && positionMapper->IsCalibrated()) {
+                    int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count();
                     
-                    // ============================================================================
-                    // PRIORITY 2: Motion Analysis (if selector enabled)
-                    // ============================================================================
-                    auto selectorStart = std::chrono::high_resolution_clock::now();
-                    if (cameraSelector && config.selectorEnabled) {
-                        // Update motion metrics for this camera (async in capture stream)
-                        cameraSelector->ProcessFrame(
-                            channel.channelID,
-                            channel.cudaYUVBuffer,
-                            channel.width,
-                            channel.height,
-                            stream
-                        );
-                    }
-                    auto selectorEnd = std::chrono::high_resolution_clock::now();
-                    telemetry.selector_ms = std::chrono::duration<double, std::milli>(selectorEnd - selectorStart).count();
-                    
-                    // ============================================================================
-                    // PRIORITY 3: AI Inference + Ball Tracking Pipeline
-                    // ============================================================================
-                    auto yoloStart = std::chrono::high_resolution_clock::now();
-                    
-                    // Collect ball detections using InferenceEngine
-                    std::vector<BallDetection> ballDetections;
-                    if (inferenceReady && inferenceEngine) {
-                        ballDetections = inferenceEngine->ProcessFrame(
-                            channel.cudaBGRABuffer,
-                            channel.channelID,
-                            channel.width,
-                            channel.height,
-                            inferenceStream
-                        );
+                    std::vector<std::tuple<float, float, float, int>> pixelPositions;
+                    for (const auto& det : ballDetections) {
+                        pixelPositions.emplace_back(det.x, det.y, det.confidence, det.ballID);
                     }
                     
-                    // Transform to global coordinates via PositionMapper
-                    std::vector<GlobalPosition> globalPositions;
-                    if (!ballDetections.empty() && positionMapper && positionMapper->IsCalibrated()) {
-                        int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
-                            std::chrono::system_clock::now().time_since_epoch()).count();
-                        
-                        std::vector<std::tuple<float, float, float, int>> pixelPositions;
-                        for (const auto& det : ballDetections) {
-                            pixelPositions.emplace_back(det.x, det.y, det.confidence, det.ballID);
-                        }
-                        
-                        auto transformed = positionMapper->BatchTransform(
-                            channel.channelID, pixelPositions, now);
-                        globalPositions = positionMapper->FuseOverlappingDetections(transformed);
+                    auto transformed = positionMapper->BatchTransform(
+                        channel.channelID, pixelPositions, now);
+                    globalPositions = positionMapper->FuseOverlappingDetections(transformed);
+                }
+                
+                if (!globalPositions.empty() && ballTracker && ballTracker->IsInitialized()) {
+                    int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count();
+                    ballTracker->Update(globalPositions, now);
+                    
+                    if (sceneManager && sceneManager->IsEnabled()) {
+                        auto leader = ballTracker->GetLeader();
+                        sceneManager->UpdateLeaderPosition(leader.Xg, leader.Yg);
                     }
                     
-                    // Update ball tracker with global positions
-                    if (!globalPositions.empty() && ballTracker && ballTracker->IsInitialized()) {
-                        int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
-                            std::chrono::system_clock::now().time_since_epoch()).count();
-                        ballTracker->Update(globalPositions, now);
-                        
-                        // Update scene manager with leader position
-                        if (sceneManager && sceneManager->IsEnabled()) {
-                            auto leader = ballTracker->GetLeader();
-                            sceneManager->UpdateLeaderPosition(leader.Xg, leader.Yg);
-                        }
-                        
-                        // Publish ranking to vMix
-                        if (rankingPublisher && rankingPublisher->IsEnabled()) {
-                            auto ranking = ballTracker->GetRanking();
-                            rankingPublisher->PublishRanking(ranking);
-                        }
+                    if (rankingPublisher && rankingPublisher->IsEnabled()) {
+                        auto ranking = ballTracker->GetRanking();
+                        rankingPublisher->PublishRanking(ranking);
                     }
-                    
-                    auto inferenceEnd = std::chrono::high_resolution_clock::now();
-                    telemetry.yolo_ms = std::chrono::duration<double, std::milli>(inferenceEnd - yoloStart).count();
-                    
-                    // Record telemetry for performance monitoring and auto-adjust
-                    auto frameEnd = std::chrono::high_resolution_clock::now();
-                    telemetry.capture_ms = std::chrono::duration<double, std::milli>(frameEnd - frameStart).count();
-                    perfMonitor->RecordFrame(telemetry);
-                    
-                    // NOTE: No cudaDeviceSynchronize() or cudaStreamSynchronize() here!
-                    // Streams execute async - sync happens only when needed via events
-                });
-                capture->Start();
-                captureChannels.push_back(std::move(capture));
-            }
+                }
+                
+                auto inferenceEnd = std::chrono::high_resolution_clock::now();
+                telemetry.yolo_ms = std::chrono::duration<double, std::milli>(inferenceEnd - yoloStart).count();
+                
+                auto frameEnd = std::chrono::high_resolution_clock::now();
+                telemetry.capture_ms = std::chrono::duration<double, std::milli>(frameEnd - frameStart).count();
+                perfMonitor->RecordFrame(telemetry);
+            });
+            capture->Start();
+            captureChannels.push_back(std::move(capture));
+        }
+    }
+    
+    // ============================================================================
+    // Main monitoring loop
+    // ============================================================================
+    Logger::Info("=== Sistema en Modo de Operacion ===");
+    Logger::Info("ESC - Volver al menu principal");
+    Logger::Info("F2  - Reducir a 2 camaras (throttle)");
+    Logger::Info("F3  - Restaurar a 4 camaras");
+    Logger::Info("F4  - Parada de emergencia");
+    Logger::Info("F5  - Reset telemetria");
+    Logger::Info("====================================");
+    
+    bool running = true;
+    auto lastStatusLog = std::chrono::steady_clock::now();
+    const auto statusInterval = std::chrono::seconds(10);
+    
+    bool f2Pressed = false;
+    bool f3Pressed = false;
+    bool f4Pressed = false;
+    bool f5Pressed = false;
+    
+    while (running) {
+        // Check for exit condition
+        if (GetAsyncKeyState(VK_ESCAPE) & 0x8000) {
+            Logger::Info("ESC presionado - Volviendo al menu principal...");
+            running = false;
         }
         
-        // Main monitoring loop
-        Logger::Info("=== System Status ===");
-        Logger::Info("Video Pipeline: " + std::to_string(kMaxNDIChannels) + " NDI channels active");
-        Logger::Info("Camera Selector: " + std::string(config.selectorEnabled ? "Enabled (Top-" + std::to_string(config.selectorTopK) + ")" : "Disabled"));
-        Logger::Info("InferenceEngine: " + std::string(inferenceReady ? (inferenceEngine->IsStubMode() ? "Stub mode" : "Active") : "Disabled"));
-        Logger::Info("PositionMapper: " + std::string(positionMapper->IsCalibrated() ? "Calibrated" : "Identity"));
-        Logger::Info("BallTracker: " + std::string(ballTracker->IsInitialized() ? "Initialized (" + std::to_string(config.ballTrackerConfig.numBalls) + " balls)" : "Disabled"));
-        Logger::Info("SceneManager: " + std::string(config.sceneManagerEnabled ? "Enabled (" + std::to_string(config.sceneManagerGroups.size()) + " groups)" : "Disabled"));
-        Logger::Info("RankingPublisher: " + std::string(config.rankingConfig.enabled ? (rankingPublisher->IsConnected() ? "Connected" : "Disconnected") : "Disabled"));
-        Logger::Info("=====================");
-        Logger::Info("=== Keyboard Shortcuts ===");
-        Logger::Info("ESC - Exit application");
-        Logger::Info("F2  - Reduce to 2 cameras (thermal throttle)");
-        Logger::Info("F3  - Restore to 4 cameras");
-        Logger::Info("F4  - Graceful shutdown");
-        Logger::Info("F5  - Reset telemetry (save current run)");
-        Logger::Info("==========================");
+        // F2 - Reduce active cameras
+        if (GetAsyncKeyState(VK_F2) & 0x8000) {
+            if (!f2Pressed) {
+                f2Pressed = true;
+                config.selectorTopK = 2;
+                perfMonitor->RecordEmergencyEvent();
+                Logger::Info("[EMERGENCY] Reduced active cameras to 2");
+            }
+        } else {
+            f2Pressed = false;
+        }
         
-        bool running = true;
-        auto lastStatusLog = std::chrono::steady_clock::now();
-        const auto statusInterval = std::chrono::seconds(10);  // Log status every 10 seconds
+        // F3 - Restore active cameras
+        if (GetAsyncKeyState(VK_F3) & 0x8000) {
+            if (!f3Pressed) {
+                f3Pressed = true;
+                config.selectorTopK = 4;
+                Logger::Info("[EMERGENCY] Restored active cameras to 4");
+            }
+        } else {
+            f3Pressed = false;
+        }
         
-        // Track key states to prevent multiple triggers (debouncing)
-        bool f2Pressed = false;
-        bool f3Pressed = false;
-        bool f4Pressed = false;
-        bool f5Pressed = false;
-        
-        while (running) {
-            // Check for exit condition
-            if (GetAsyncKeyState(VK_ESCAPE) & 0x8000) {
+        // F4 - Emergency stop
+        if (GetAsyncKeyState(VK_F4) & 0x8000) {
+            if (!f4Pressed) {
+                f4Pressed = true;
                 running = false;
+                Logger::Info("[EMERGENCY] Graceful stop initiated");
             }
-            
-            // ============================================================================
-            // EMERGENCY KEYBOARD SHORTCUTS (F2/F3/F4/F5)
-            // ============================================================================
-            
-            // F2 - Reduce active cameras to 2 (thermal throttle)
-            if (GetAsyncKeyState(VK_F2) & 0x8000) {
-                if (!f2Pressed) {
-                    f2Pressed = true;
-                    config.selectorTopK = 2;
-                    perfMonitor->RecordEmergencyEvent();
-                    Logger::Info("[EMERGENCY] Reduced active cameras to 2 (thermal throttle)");
-                }
-            } else {
-                f2Pressed = false;
-            }
-            
-            // F3 - Restore active cameras to 4
-            if (GetAsyncKeyState(VK_F3) & 0x8000) {
-                if (!f3Pressed) {
-                    f3Pressed = true;
-                    config.selectorTopK = 4;
-                    Logger::Info("[EMERGENCY] Restored active cameras to 4");
-                }
-            } else {
-                f3Pressed = false;
-            }
-            
-            // F4 - Graceful stop
-            if (GetAsyncKeyState(VK_F4) & 0x8000) {
-                if (!f4Pressed) {
-                    f4Pressed = true;
-                    running = false;
-                    Logger::Info("[EMERGENCY] Graceful stop initiated - exiting main loop");
-                }
-            } else {
-                f4Pressed = false;
-            }
-            
-            // F5 - Reset telemetry (save current run and start fresh)
-            if (GetAsyncKeyState(VK_F5) & 0x8000) {
-                if (!f5Pressed) {
-                    f5Pressed = true;
-                    
-                    // Generate run ID for saved file
-                    auto now = std::chrono::system_clock::now();
-                    auto time_value = std::chrono::system_clock::to_time_t(now);
-                    std::tm tm;
-                    localtime_s(&tm, &time_value);
-                    
-                    std::ostringstream runIDStream;
-                    runIDStream << std::put_time(&tm, "%Y%m%d_%H%M%S");
-                    std::string runID = runIDStream.str();
-                    
-                    Logger::Info("[RESET] Telemetry reset initiated. Saving previous run...");
-                    perfMonitor->Reset(true, runID);
-                    Logger::Info("[RESET] Telemetry reset complete. Previous run saved to logs/run_" + runID + ".json");
-                }
-            } else {
-                f5Pressed = false;
-            }
-            
-            // Periodic status logging
-            auto now = std::chrono::steady_clock::now();
-            if (now - lastStatusLog >= statusInterval) {
-                if (cameraSelector && config.selectorEnabled) {
-                    auto selection = cameraSelector->GetActiveSelection();
-                    std::string selectedList;
-                    for (size_t i = 0; i < selection.selectedCameraIDs.size(); i++) {
-                        selectedList += std::to_string(selection.selectedCameraIDs[i]);
-                        if (i < selection.selectedCameraIDs.size() - 1) selectedList += ",";
-                    }
-                    Logger::Info("[STATUS] Active cameras: [" + selectedList + "], " +
-                                "Avg motion: " + std::to_string(selection.averageMotionScore));
-                }
-                
-                // Ball tracker status
-                if (ballTracker && ballTracker->IsInitialized()) {
-                    auto ranking = ballTracker->GetRanking();
-                    std::string rankingStr;
-                    for (size_t i = 0; i < ranking.size() && i < 3; ++i) {
-                        if (i > 0) rankingStr += ",";
-                        rankingStr += std::to_string(ranking[i]);
-                    }
-                    auto leader = ballTracker->GetLeader();
-                    Logger::Info("[STATUS] Tracking: " + std::to_string(ballTracker->GetVisibleBallCount()) + 
-                                " balls visible, Leader: ball " + std::to_string(leader.ballID) +
-                                " at X=" + std::to_string(leader.Xg) + "m, Top3: [" + rankingStr + "]");
-                }
-                
-                // Scene manager status
-                if (sceneManager && sceneManager->IsEnabled()) {
-                    auto mutedSlots = sceneManager->GetMutedSlots();
-                    Logger::Info("[STATUS] SceneManager: config=" + sceneManager->GetCurrentConfigName() +
-                                ", Leader X=" + std::to_string(sceneManager->GetLastLeaderX()) +
-                                "m, muted slots=" + std::to_string(mutedSlots.size()));
-                }
-                
-                // Ranking publisher status
-                if (rankingPublisher && config.rankingConfig.enabled) {
-                    Logger::Info("[STATUS] RankingPublisher: " + 
-                                std::string(rankingPublisher->IsConnected() ? "Connected" : "Disconnected") +
-                                ", Published=" + std::to_string(rankingPublisher->GetPublishCount()) +
-                                ", Failed=" + std::to_string(rankingPublisher->GetFailCount()));
-                }
-                
-                // Process scene manager mute timeouts
-                if (sceneManager && sceneManager->IsEnabled()) {
-                    sceneManager->ProcessMuteTimeouts();
-                }
-                
-                lastStatusLog = now;
-            }
-            
-            std::this_thread::sleep_for(std::chrono::milliseconds(16));
+        } else {
+            f4Pressed = false;
         }
         
-        // Cleanup
-        Logger::Info("Shutting down...");
-        
-        // Shutdown new components
-        if (rankingPublisher) {
-            rankingPublisher->Shutdown();
-            Logger::Info("RankingPublisher shutdown");
+        // F5 - Reset telemetry
+        if (GetAsyncKeyState(VK_F5) & 0x8000) {
+            if (!f5Pressed) {
+                f5Pressed = true;
+                auto now = std::chrono::system_clock::now();
+                auto time_value = std::chrono::system_clock::to_time_t(now);
+                std::tm tm;
+                localtime_s(&tm, &time_value);
+                
+                std::ostringstream runIDStream;
+                runIDStream << std::put_time(&tm, "%Y%m%d_%H%M%S");
+                std::string runID = runIDStream.str();
+                
+                Logger::Info("[RESET] Telemetry reset initiated");
+                perfMonitor->Reset(true, runID);
+            }
+        } else {
+            f5Pressed = false;
         }
         
-        // Destroy inference CUDA stream
-        if (inferenceStream) {
-            cudaStreamDestroy(inferenceStream);
-            Logger::Info("Inference CUDA stream destroyed");
+        // Periodic status logging
+        auto now = std::chrono::steady_clock::now();
+        if (now - lastStatusLog >= statusInterval) {
+            if (cameraSelector && config.selectorEnabled) {
+                auto selection = cameraSelector->GetActiveSelection();
+                std::string selectedList;
+                for (size_t i = 0; i < selection.selectedCameraIDs.size(); i++) {
+                    selectedList += std::to_string(selection.selectedCameraIDs[i]);
+                    if (i < selection.selectedCameraIDs.size() - 1) selectedList += ",";
+                }
+                Logger::Info("[STATUS] Active cameras: [" + selectedList + "]");
+            }
+            
+            if (ballTracker && ballTracker->IsInitialized()) {
+                auto ranking = ballTracker->GetRanking();
+                std::string rankingStr;
+                for (size_t i = 0; i < ranking.size() && i < 3; ++i) {
+                    if (i > 0) rankingStr += ",";
+                    rankingStr += std::to_string(ranking[i]);
+                }
+                auto leader = ballTracker->GetLeader();
+                Logger::Info("[STATUS] Leader: ball " + std::to_string(leader.ballID) +
+                            " at X=" + std::to_string(leader.Xg) + "m");
+            }
+            
+            if (sceneManager && sceneManager->IsEnabled()) {
+                sceneManager->ProcessMuteTimeouts();
+            }
+            
+            lastStatusLog = now;
         }
         
-        // Redis worker was disabled (legacy)
-        // redisWorker.Stop();
-        
-        // Stop all capture channels before releasing NDI
-        for (auto& capture : captureChannels) {
-            capture->Stop();
-        }
-        captureChannels.clear();
-        
-        // Release NDI senders
-        ndiManager->ReleaseAll();
-        
-        Logger::Info("Visual Intelligence Bypass shutdown complete");
-        
-    } catch (const std::exception& e) {
-        Logger::Error("Fatal error: " + std::string(e.what()));
-        CoUninitialize();
+        std::this_thread::sleep_for(std::chrono::milliseconds(16));
+    }
+    
+    // Cleanup
+    Logger::Info("Cerrando modo running...");
+    
+    if (rankingPublisher) {
+        rankingPublisher->Shutdown();
+    }
+    
+    if (inferenceStream) {
+        cudaStreamDestroy(inferenceStream);
+    }
+    
+    for (auto& capture : captureChannels) {
+        capture->Stop();
+    }
+    captureChannels.clear();
+    
+    ndiManager->ReleaseAll();
+    
+    Logger::Info("Running mode finalizado");
+    return true;
+}
+
+/**
+ * Ejecutar el modo de test de estrés / diagnóstico
+ * @return true si todos los tests pasaron
+ */
+bool RunStressTestMode() {
+    Logger::Info("=== INICIANDO MODO TEST DE ESTRES ===");
+    
+    // Cargar configuración
+    Config config = LoadConfig("config.json");
+    
+    // Crear y ejecutar el tester
+    StressTester tester(std::chrono::seconds(1));
+    DiagnosticResults results = tester.RunFullDiagnostic(config);
+    
+    // Mostrar resultados
+    tester.DisplayResults(results);
+    
+    // Esperar que el usuario presione ENTER
+    std::cout << "\n  Presione ENTER para volver al menu...";
+    std::cin.get();
+    
+    return results.allPassed;
+}
+
+} // namespace
+
+int main(int argc, char* argv[]) {
+    Logger::Init("VIB_System");
+    Logger::Info("Visual Intelligence Bypass v2.0 Starting...");
+    
+    // Initialize COM for DeckLink SDK (Component Object Model)
+    HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    if (FAILED(hr)) {
+        Logger::Error("Failed to initialize COM. HRESULT: 0x" + std::to_string(hr));
         return 1;
+    }
+    Logger::Info("COM initialized successfully for DeckLink SDK");
+    
+    // Crear el menú de usuario
+    UserMenu menu;
+    bool keepRunning = true;
+    int exitCode = 0;
+    
+    while (keepRunning) {
+        try {
+            MenuOption selection = menu.ShowMainMenu();
+            
+            switch (selection) {
+                case MenuOption::STRESS_TEST_DIAGNOSTIC:
+                    RunStressTestMode();
+                    // Vuelve al menú después del test
+                    break;
+                    
+                case MenuOption::RUNNING_MODE:
+                    if (!RunRunningMode()) {
+                        Logger::Warning("Running mode finalizó con advertencias");
+                    }
+                    // Vuelve al menú para una nueva ronda
+                    break;
+                    
+                case MenuOption::CLOSE_SYSTEM:
+                    menu.ShowGoodbye();
+                    keepRunning = false;
+                    break;
+                    
+                case MenuOption::TOOLS_CONFIG:
+                    menu.ShowToolsConfigStub();
+                    // Vuelve al menú
+                    break;
+                    
+                case MenuOption::INVALID:
+                default:
+                    std::cout << "\n  Opcion invalida. Por favor seleccione 1-4.\n";
+                    std::this_thread::sleep_for(std::chrono::seconds(1));
+                    break;
+            }
+        } catch (const std::exception& e) {
+            Logger::Error("Error en el sistema: " + std::string(e.what()));
+            std::cout << "\n  Error: " << e.what() << "\n";
+            std::cout << "  Presione ENTER para continuar...";
+            std::cin.get();
+        }
     }
     
     // Uninitialize COM before exiting
     CoUninitialize();
-    Logger::Info("COM uninitialized");
+    Logger::Info("VIB cerrado correctamente");
     
-    return 0;
+    return exitCode;
 }

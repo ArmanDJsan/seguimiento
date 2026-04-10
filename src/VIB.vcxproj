@@ -127,6 +127,8 @@
     <ClCompile Include="control\TrackPhysicalController.cpp" />
     <ClCompile Include="control\VideoHubClient.cpp" />
     <ClCompile Include="control\VMixController.cpp" />
+    <ClCompile Include="ui\UserMenu.cpp" />
+    <ClCompile Include="diagnostics\StressTester.cpp" />
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="capture\CudaColorConversion.cu">
@@ -161,6 +163,9 @@
     <ClInclude Include="control\TrackPhysicalController.h" />
     <ClInclude Include="control\VideoHubClient.h" />
     <ClInclude Include="control\VMixController.h" />
+    <ClInclude Include="core\Config.h" />
+    <ClInclude Include="ui\UserMenu.h" />
+    <ClInclude Include="diagnostics\StressTester.h" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="shaders\ColorConversion.hlsl">
