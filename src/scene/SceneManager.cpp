@@ -506,13 +506,25 @@ bool SceneManager::SelectCameraInGroup(int index) {
     // Update manual state
     m_manualState.selectedCameraInGroup = index;
     
-    // Calculate actual camera ID
-    int cameraID = GetActiveCameraID();
+    // Calculate actual camera ID (no lock needed, we already hold it)
+    int cameraID = 0;
+    if (m_manualState.activeConfigIndex >= 0 && 
+        static_cast<size_t>(m_manualState.activeConfigIndex) < m_config.groups.size() &&
+        m_manualState.selectedCameraInGroup >= 0 && m_manualState.selectedCameraInGroup <= 3) {
+        const auto& cfg = m_config.groups[m_manualState.activeConfigIndex];
+        if (m_manualState.activeGroup == ActiveGroup::G1_G4) {
+            cameraID = cfg.slotsG1_G4[m_manualState.selectedCameraInGroup];
+        } else {
+            cameraID = cfg.slotsG5_G8[m_manualState.selectedCameraInGroup];
+        }
+    }
     
     std::string groupStr = (m_manualState.activeGroup == ActiveGroup::G1_G4) ? "G1_G4" : "G5_G8";
-    Logger::Info("SceneManager: [MANUAL] Selected camera " + std::to_string(index) + 
-                " in group " + groupStr + " (CAM_" + 
-                std::setw(2) << std::setfill('0') << cameraID << ")");
+    std::ostringstream oss;
+    oss << "SceneManager: [MANUAL] Selected camera " << index 
+        << " in group " << groupStr << " (CAM_" 
+        << std::setw(2) << std::setfill('0') << cameraID << ")";
+    Logger::Info(oss.str());
     
     return true;
 }
