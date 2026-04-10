@@ -39,6 +39,7 @@
 #include "../control/VideoHubClient.h"
 #include "../control/TrackPhysicalController.h"
 #include "../control/VMixController.h"
+#include "UserMenu.h"
 
 // Link DirectX libraries
 #pragma comment(lib, "d3d11.lib")
@@ -217,22 +218,23 @@ bool RunPhase2(VideoHubClient& videoHub, int targetSpheres) {
     Logger::Info("Fase 2 (Escena) completada: conteo de esferas OK");
     return true;
 }
+
+/**
+ * Run the main system with optional timeout
+ * @param timeoutSeconds If > 0, stops after this many seconds (for test mode)
+ *                       If 0, runs until ESC is pressed (running mode)
+ * @return Result struct with success/failure info and metrics
+ */
+VIB::RunResult RunSystem(int timeoutSeconds = 0);
+
 } // namespace
 
-int main(int argc, char* argv[]) {
-    Logger::Init("VIB_System");
-    Logger::Info("Visual Intelligence Bypass v2.0 Starting...");
-    
-    // Initialize COM for DeckLink SDK (Component Object Model)
-    // This MUST be called before any DeckLink interfaces are created
-    HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    if (FAILED(hr)) {
-        Logger::Error("Failed to initialize COM. HRESULT: 0x" + std::to_string(hr));
-        Logger::Error("DeckLink SDK requires COM initialization to function properly");
-        return 1;
-    }
-    Logger::Info("COM initialized successfully for DeckLink SDK");
-    
+VIB::RunResult RunSystem(int timeoutSeconds) {
+    VIB::RunResult result;
+    result.success = false;
+    result.framesProcessed = 0;
+    result.elapsedSeconds = 0.0;
+
     try {
         // Load configuration from JSON
         Config config = LoadConfig("config.json");
@@ -250,22 +252,25 @@ int main(int argc, char* argv[]) {
         deckLinkSource.Initialize(12);
 
         if (!videoHub.Connect()) {
-            Logger::Error("[HW/SW ERROR] No se pudo establecer conexión con VideoHub");
-            return 1;
+            result.errorMessage = "No se pudo establecer conexion con VideoHub";
+            Logger::Error("[HW/SW ERROR] " + result.errorMessage);
+            return result;
         }
 
         vmix.ConnectTcp();  // prepare TCP channel; errors are logged but non-fatal
 
         // Fase 1: Sweep hardware/software links
         if (!RunPhase1(vmix, videoHub, deckLinkSource, trackController)) {
-            Logger::Error("Ignición abortada durante Fase 1");
-            return 1;
+            result.errorMessage = "Ignicion abortada durante Fase 1 - Error de hardware/software";
+            Logger::Error(result.errorMessage);
+            return result;
         }
 
         // Fase 2: Escena (YOLO check)
         if (!RunPhase2(videoHub, config.targetSpheres)) {
-            Logger::Error("Ignición abortada durante Fase 2");
-            return 1;
+            result.errorMessage = "Ignicion abortada durante Fase 2 - Error de escena";
+            Logger::Error(result.errorMessage);
+            return result;
         }
 
         // Initialize DirectX 11 Device (for Spout output only)
@@ -276,8 +281,9 @@ int main(int argc, char* argv[]) {
         ComPtr<IDXGIFactory1> dxgiFactory;
         HRESULT hr = CreateDXGIFactory1(IID_PPV_ARGS(&dxgiFactory));
         if (FAILED(hr)) {
-            Logger::Error("Failed to create DXGI factory. HRESULT: 0x" + std::to_string(hr));
-            throw std::runtime_error("DXGI factory creation failed");
+            result.errorMessage = "Failed to create DXGI factory. HRESULT: 0x" + std::to_string(hr);
+            Logger::Error(result.errorMessage);
+            return result;
         }
 
         // Select RTX 5080 adapter explicitly (avoid integrated GPU)
@@ -314,8 +320,9 @@ int main(int argc, char* argv[]) {
         }
 
         if (!selectedAdapter) {
-            Logger::Error("No suitable GPU adapter found");
-            throw std::runtime_error("GPU selection failed");
+            result.errorMessage = "No suitable GPU adapter found";
+            Logger::Error(result.errorMessage);
+            return result;
         }
 
         char adapterName[128];
@@ -355,9 +362,9 @@ int main(int argc, char* argv[]) {
         );
         
         if (FAILED(hr)) {
-            Logger::Error("Failed to create D3D11 device. HRESULT: 0x" + 
-                          std::to_string(hr));
-            throw std::runtime_error("DirectX 11 initialization failed");
+            result.errorMessage = "Failed to create D3D11 device. HRESULT: 0x" + std::to_string(hr);
+            Logger::Error(result.errorMessage);
+            return result;
         }
         
         Logger::Info("DirectX 11 initialized successfully");
@@ -439,34 +446,142 @@ int main(int argc, char* argv[]) {
         RedisWorker redisWorker("127.0.0.1", 6379);
         redisWorker.Start();
         
+        // ===== SYSTEM NOW FULLY INITIALIZED =====
+        // Start timing from here (after initialization)
+        auto startTime = std::chrono::steady_clock::now();
+        
         // Main capture loop
-        Logger::Info("Starting capture loop...");
+        if (timeoutSeconds > 0) {
+            Logger::Info("Iniciando TEST DE FUNCIONAMIENTO - " + std::to_string(timeoutSeconds) + " segundos");
+        } else {
+            Logger::Info("Iniciando RUNNING MODE - Presione ESC para detener");
+        }
+        
         bool running = true;
         
         while (running) {
-            // Check for exit condition
+            // Check for ESC key
             if (GetAsyncKeyState(VK_ESCAPE) & 0x8000) {
+                Logger::Info("Tecla ESC detectada - deteniendo sistema");
                 running = false;
+            }
+            
+            // Check timeout for test mode
+            if (timeoutSeconds > 0) {
+                auto elapsed = std::chrono::steady_clock::now() - startTime;
+                auto elapsedSeconds = std::chrono::duration<double>(elapsed).count();
+                if (elapsedSeconds >= static_cast<double>(timeoutSeconds)) {
+                    Logger::Info("Test de funcionamiento completado - Timeout de " + 
+                                 std::to_string(timeoutSeconds) + " segundos alcanzado");
+                    running = false;
+                }
             }
             
             std::this_thread::sleep_for(std::chrono::milliseconds(16));
         }
         
+        // Calculate elapsed time
+        auto endTime = std::chrono::steady_clock::now();
+        result.elapsedSeconds = std::chrono::duration<double>(endTime - startTime).count();
+        
         // Cleanup
         Logger::Info("Shutting down...");
         redisWorker.Stop();
         
-        Logger::Info("Visual Intelligence Bypass shutdown complete");
+        // Stop capture channels
+        for (auto& capture : captureChannels) {
+            capture->Stop();
+        }
+        captureChannels.clear();
+        
+        Logger::Info("Sistema detenido correctamente");
+        
+        result.success = true;
+        return result;
         
     } catch (const std::exception& e) {
-        Logger::Error("Fatal error: " + std::string(e.what()));
-        CoUninitialize();
+        result.errorMessage = "Error fatal: " + std::string(e.what());
+        Logger::Error(result.errorMessage);
+        return result;
+    }
+}
+
+int main(int argc, char* argv[]) {
+    Logger::Init("VIB_System");
+    Logger::Info("Visual Intelligence Bypass v2.0 Starting...");
+    
+    // Initialize COM for DeckLink SDK (Component Object Model)
+    // This MUST be called before any DeckLink interfaces are created
+    HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    if (FAILED(hr)) {
+        Logger::Error("Failed to initialize COM. HRESULT: 0x" + std::to_string(hr));
+        Logger::Error("DeckLink SDK requires COM initialization to function properly");
         return 1;
+    }
+    Logger::Info("COM initialized successfully for DeckLink SDK");
+    
+    // Create user menu
+    VIB::UserMenu menu;
+    
+    bool exitProgram = false;
+    
+    while (!exitProgram) {
+        VIB::MenuOption selection = menu.ShowMainMenu();
+        
+        switch (selection) {
+            case VIB::MenuOption::TEST_FUNCIONAMIENTO: {
+                Logger::Info("Usuario selecciono: TEST DE FUNCIONAMIENTO");
+                VIB::RunResult result = RunSystem(3);  // 3 second timeout
+                
+                if (result.success) {
+                    menu.ShowSuccessStatus(result);
+                } else {
+                    menu.ShowErrorStatus(result.errorMessage);
+                }
+                menu.WaitForKeyPress();
+                break;
+            }
+            
+            case VIB::MenuOption::INICIAR: {
+                Logger::Info("Usuario selecciono: INICIAR (RUNNING MODE)");
+                VIB::RunResult result = RunSystem(0);  // No timeout, ESC to exit
+                
+                if (result.success) {
+                    menu.ShowSuccessStatus(result);
+                } else {
+                    menu.ShowErrorStatus(result.errorMessage);
+                }
+                menu.WaitForKeyPress();
+                break;
+            }
+            
+            case VIB::MenuOption::CERRAR: {
+                Logger::Info("Usuario selecciono: CERRAR SISTEMA");
+                menu.ShowExitMessage();
+                exitProgram = true;
+                break;
+            }
+            
+            case VIB::MenuOption::TOOLS: {
+                Logger::Info("Usuario selecciono: TOOLS & CONFIGURATION");
+                menu.ShowToolsComingSoon();
+                menu.WaitForKeyPress();
+                break;
+            }
+            
+            case VIB::MenuOption::INVALID:
+            default: {
+                // Invalid selection, just show menu again
+                Logger::Warning("Seleccion de menu invalida");
+                break;
+            }
+        }
     }
     
     // Uninitialize COM before exiting
     CoUninitialize();
     Logger::Info("COM uninitialized");
+    Logger::Info("Visual Intelligence Bypass shutdown complete");
     
     return 0;
 }
