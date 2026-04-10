@@ -30,6 +30,10 @@ public:
 
     bool RefreshInputLabels(const std::unordered_map<int, std::string>& labels);
 
+    // Getters para información de conexión
+    const std::string& GetHost() const { return m_host; }
+    uint16_t GetPort() const { return m_port; }
+
 private:
     bool InitializeWinsock();
     bool SendCommand(const std::string& payload);
