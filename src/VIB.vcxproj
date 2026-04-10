@@ -105,7 +105,6 @@
     <ClCompile Include="core\main_test.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClCompile>
-    <ClCompile Include="core\UserMenu.cpp" />
     <ClCompile Include="capture\DeckLinkCapture.cpp" />
     <ClCompile Include="capture\DeckLinkSource.cpp" />
     <ClCompile Include="DeckLinkAPI_i.c" />
@@ -126,7 +125,6 @@
     <ClInclude Include="capture\CudaColorConversion.h" />
     <ClInclude Include="capture\DeckLinkCapture.h" />
     <ClInclude Include="capture\DeckLinkSource.h" />
-    <ClInclude Include="core\UserMenu.h" />
     <ClInclude Include="DeckLinkAPI_h.h" />
     <ClInclude Include="json.hpp" />
     <ClInclude Include="spout\SpoutManager.h" />
