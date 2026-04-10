@@ -39,7 +39,6 @@
 #include "../control/VideoHubClient.h"
 #include "../control/TrackPhysicalController.h"
 #include "../control/VMixController.h"
-#include "../scene/SceneManager.h"
 #include "UserMenu.h"
 
 // Link DirectX libraries
@@ -89,12 +88,6 @@ struct Config {
     std::string esp32Ip;
     uint16_t esp32Port;
     int targetSpheres;
-    
-    // SceneManager configuration
-    bool sceneManagerEnabled;
-    std::string sceneManagerMode;  // "auto" or "manual"
-    int sceneManagerMuteTimeoutMs;
-    std::vector<VIB::SceneConfig> sceneConfigs;
 };
 
 Config LoadConfig(const std::string& path) {
@@ -105,9 +98,6 @@ Config LoadConfig(const std::string& path) {
     config.esp32Ip = "192.168.88.114";
     config.esp32Port = 80;
     config.targetSpheres = 10;
-    config.sceneManagerEnabled = false;
-    config.sceneManagerMode = "auto";
-    config.sceneManagerMuteTimeoutMs = 200;
 
     std::ifstream file(path);
     if (!file.is_open()) {
@@ -142,81 +132,6 @@ Config LoadConfig(const std::string& path) {
         // Parse target_spheres from root
         if (j.contains("target_spheres") && j["target_spheres"].is_number()) {
             config.targetSpheres = j["target_spheres"].get<int>();
-        }
-
-        // Parse scene_manager section
-        if (j.contains("scene_manager") && j["scene_manager"].is_object()) {
-            const auto& sm = j["scene_manager"];
-            
-            if (sm.contains("enabled") && sm["enabled"].is_boolean()) {
-                config.sceneManagerEnabled = sm["enabled"].get<bool>();
-            }
-            if (sm.contains("mode") && sm["mode"].is_string()) {
-                config.sceneManagerMode = sm["mode"].get<std::string>();
-            }
-            if (sm.contains("mute_timeout_ms") && sm["mute_timeout_ms"].is_number()) {
-                config.sceneManagerMuteTimeoutMs = sm["mute_timeout_ms"].get<int>();
-            }
-            
-            // Parse groups (config_a, config_b, config_c)
-            if (sm.contains("groups") && sm["groups"].is_object()) {
-                const auto& groups = sm["groups"];
-                
-                // Parse in order: config_a, config_b, config_c
-                std::vector<std::string> configNames = {"config_a", "config_b", "config_c"};
-                
-                for (const auto& configName : configNames) {
-                    if (groups.contains(configName) && groups[configName].is_object()) {
-                        try {
-                            const auto& groupConfig = groups[configName];
-                            VIB::SceneConfig sc;
-                            sc.name = configName;
-                            
-                            // Parse g1_g4 array
-                            if (groupConfig.contains("g1_g4") && groupConfig["g1_g4"].is_array()) {
-                                for (const auto& cam : groupConfig["g1_g4"]) {
-                                    if (cam.is_number()) {
-                                        sc.g1_g4.push_back(cam.get<int>());
-                                    }
-                                }
-                            }
-                            
-                            // Parse g5_g8 array
-                            if (groupConfig.contains("g5_g8") && groupConfig["g5_g8"].is_array()) {
-                                for (const auto& cam : groupConfig["g5_g8"]) {
-                                    if (cam.is_number()) {
-                                        sc.g5_g8.push_back(cam.get<int>());
-                                    }
-                                }
-                            }
-                            
-                            // Parse trigger_threshold
-                            if (groupConfig.contains("trigger_threshold") && groupConfig["trigger_threshold"].is_number()) {
-                                sc.triggerThreshold = groupConfig["trigger_threshold"].get<float>();
-                            } else {
-                                sc.triggerThreshold = 0.0f;
-                            }
-                            
-                            // Parse description
-                            if (groupConfig.contains("description") && groupConfig["description"].is_string()) {
-                                sc.description = groupConfig["description"].get<std::string>();
-                            }
-                            
-                            config.sceneConfigs.push_back(sc);
-                            Logger::Info("Parsed scene config: " + configName + 
-                                        " (g1_g4: " + std::to_string(sc.g1_g4.size()) + 
-                                        " cams, g5_g8: " + std::to_string(sc.g5_g8.size()) + 
-                                        " cams, threshold: " + std::to_string(sc.triggerThreshold) + ")");
-                        } catch (const std::exception& e) {
-                            Logger::Warning("Error parsing scene config " + configName + ": " + e.what());
-                        }
-                    }
-                }
-            }
-            
-            Logger::Info("SceneManager config: enabled=" + std::string(config.sceneManagerEnabled ? "true" : "false") +
-                        ", mode=" + config.sceneManagerMode +
-                        ", configs=" + std::to_string(config.sceneConfigs.size()));
         }
 
         Logger::Info("Configuración cargada: VideoHub=" + config.videohubIp + ":" + 
@@ -343,28 +258,6 @@ VIB::RunResult RunSystem(int timeoutSeconds) {
         }
 
         vmix.ConnectTcp();  // prepare TCP channel; errors are logged but non-fatal
-
-        // Initialize SceneManager
-        VIB::SceneManager sceneManager;
-        if (config.sceneManagerEnabled && !config.sceneConfigs.empty()) {
-            if (sceneManager.Initialize(config.sceneConfigs, &videoHub, kVideoHubPrimaryOutput)) {
-                sceneManager.SetEnabled(true);
-                sceneManager.SetMuteTimeout(config.sceneManagerMuteTimeoutMs);
-                
-                // Set initial mode from config
-                if (config.sceneManagerMode == "manual") {
-                    sceneManager.SetMode(VIB::SceneMode::MANUAL);
-                } else {
-                    sceneManager.SetMode(VIB::SceneMode::AUTO);
-                }
-                
-                Logger::Info("[SceneManager] Initialized successfully");
-            } else {
-                Logger::Warning("[SceneManager] Failed to initialize - continuing without scene management");
-            }
-        } else {
-            Logger::Info("[SceneManager] Disabled in config or no configurations found");
-        }
 
         // Fase 1: Sweep hardware/software links
         if (!RunPhase1(vmix, videoHub, deckLinkSource, trackController)) {
@@ -556,91 +449,21 @@ VIB::RunResult RunSystem(int timeoutSeconds) {
         // ===== SYSTEM NOW FULLY INITIALIZED =====
         // Start timing from here (after initialization)
         auto startTime = std::chrono::steady_clock::now();
-        auto lastStatusUpdate = startTime;
-        const auto statusUpdateInterval = std::chrono::milliseconds(500);
         
         // Main capture loop
         if (timeoutSeconds > 0) {
             Logger::Info("Iniciando TEST DE FUNCIONAMIENTO - " + std::to_string(timeoutSeconds) + " segundos");
         } else {
             Logger::Info("Iniciando RUNNING MODE - Presione ESC para detener");
-            
-            // Show SceneManager status if enabled
-            if (sceneManager.IsEnabled()) {
-                std::cout << "\n" << sceneManager.GetStatusString() << std::endl;
-            }
         }
         
         bool running = true;
-        
-        // Track key states for edge detection (prevent key repeat)
-        constexpr int kMaxVirtualKeyCodes = 256;
-        bool keyStates[kMaxVirtualKeyCodes] = {false};
         
         while (running) {
             // Check for ESC key
             if (GetAsyncKeyState(VK_ESCAPE) & 0x8000) {
                 Logger::Info("Tecla ESC detectada - deteniendo sistema");
                 running = false;
-            }
-            
-            // Process SceneManager key inputs (only in running mode)
-            if (timeoutSeconds == 0 && sceneManager.IsEnabled()) {
-                // Check mode toggle key (M)
-                const int modeKey = 'M';
-                bool currentState = (GetAsyncKeyState(modeKey) & 0x8000) != 0;
-                if (currentState && !keyStates[modeKey]) {
-                    sceneManager.ProcessKeyInput(modeKey);
-                }
-                keyStates[modeKey] = currentState;
-                
-                // Check group toggle key (G)
-                const int groupKey = 'G';
-                currentState = (GetAsyncKeyState(groupKey) & 0x8000) != 0;
-                if (currentState && !keyStates[groupKey]) {
-                    sceneManager.ProcessKeyInput(groupKey);
-                }
-                keyStates[groupKey] = currentState;
-                
-                // Check F1-F3 for config selection
-                for (int fKey = VK_F1; fKey <= VK_F3; ++fKey) {
-                    currentState = (GetAsyncKeyState(fKey) & 0x8000) != 0;
-                    if (currentState && !keyStates[fKey]) {
-                        sceneManager.ProcessKeyInput(fKey);
-                    }
-                    keyStates[fKey] = currentState;
-                }
-                
-                // Check 1-4 for camera selection
-                for (int numKey = '1'; numKey <= '4'; ++numKey) {
-                    currentState = (GetAsyncKeyState(numKey) & 0x8000) != 0;
-                    if (currentState && !keyStates[numKey]) {
-                        sceneManager.ProcessKeyInput(numKey);
-                    }
-                    keyStates[numKey] = currentState;
-                }
-                
-                // Periodically update status display
-                auto now = std::chrono::steady_clock::now();
-                if (now - lastStatusUpdate >= statusUpdateInterval) {
-                    // Move cursor to beginning and reprint status
-                    std::cout << "\r" << std::flush;
-                    
-                    // Clear previous lines and print new status
-                    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-                    CONSOLE_SCREEN_BUFFER_INFO csbi;
-                    if (GetConsoleScreenBufferInfo(hConsole, &csbi)) {
-                        // Move cursor up by status box height (7 lines for the bordered display)
-                        constexpr SHORT kStatusBoxLineCount = 7;
-                        COORD newPos = {0, static_cast<SHORT>(csbi.dwCursorPosition.Y - kStatusBoxLineCount)};
-                        if (newPos.Y >= 0) {
-                            SetConsoleCursorPosition(hConsole, newPos);
-                        }
-                    }
-                    
-                    std::cout << sceneManager.GetStatusString() << std::endl;
-                    lastStatusUpdate = now;
-                }
             }
             
             // Check timeout for test mode

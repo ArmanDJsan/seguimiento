@@ -31,36 +31,5 @@
     { "index": 15, "name": "RADAR_03", "role": "radar" },
     { "index": 16, "name": "RADAR_04", "role": "radar" }
   ],
-  "target_spheres": 10,
-  "scene_manager": {
-    "enabled": true,
-    "mode": "manual",
-    "mute_timeout_ms": 200,
-    "groups": {
-      "config_a": {
-        "g1_g4": [1, 2, 3, 12],
-        "g5_g8": [4, 5, 6, 7],
-        "trigger_threshold": 25.0,
-        "description": "Initial config - cameras 1-3,12 in G1-G4, cameras 4-7 in G5-G8"
-      },
-      "config_b": {
-        "g1_g4": [8, 9, 10, 12],
-        "g5_g8": [4, 5, 6, 7],
-        "trigger_threshold": 50.0,
-        "description": "Mid-track config - cameras 8-10,12 in G1-G4"
-      },
-      "config_c": {
-        "g1_g4": [8, 9, 10, 12],
-        "g5_g8": [11, 1, 2, 3],
-        "trigger_threshold": 75.0,
-        "description": "Late-track config - rotates G5-G8 to finish line cameras"
-      }
-    },
-    "manual_keys": {
-      "toggle_mode": "M",
-      "config_select": ["F1", "F2", "F3"],
-      "group_toggle": "G",
-      "camera_select": ["1", "2", "3", "4"]
-    }
-  }
+  "target_spheres": 10
 }
