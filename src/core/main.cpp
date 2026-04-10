@@ -285,7 +285,7 @@ Config LoadConfig(const std::string& path) {
                             mk["config_select"][i].get<std::string>();
                     }
                 } else {
-                    Logger::Warning("SceneManager config: manual_keys.config_select must have at least 3 elements");
+                    Logger::Warning("SceneManager config: manual_keys.config_select must have at least 3 elements, using defaults [F1,F6,F7]");
                 }
                 
                 if (mk.contains("group_select") && mk["group_select"].is_string()) {
@@ -299,7 +299,7 @@ Config LoadConfig(const std::string& path) {
                             mk["camera_select"][i].get<std::string>();
                     }
                 } else {
-                    Logger::Warning("SceneManager config: manual_keys.camera_select must have at least 4 elements");
+                    Logger::Warning("SceneManager config: manual_keys.camera_select must have at least 4 elements, using defaults [1,2,3,4]");
                 }
                 
                 Logger::Info("SceneManager config: Manual keys - Toggle: " + 
