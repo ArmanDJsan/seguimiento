@@ -61,6 +61,13 @@
   "scene_manager": {
     "enabled": true,
     "mute_timeout_ms": 200,
+    "mode": "auto",
+    "manual_keys": {
+      "toggle_mode": "M",
+      "config_select": ["F1", "F6", "F7"],
+      "group_select": "G",
+      "camera_select": ["1", "2", "3", "4"]
+    },
     "groups": {
       "config_a": {
         "g1_g4": [1, 2, 3, 12],
