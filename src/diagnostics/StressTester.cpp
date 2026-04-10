@@ -27,6 +27,7 @@
 #include <sstream>
 #include <atomic>
 #include <thread>
+#include <mutex>
 #include <cuda_runtime.h>
 
 // Constantes
@@ -321,8 +322,11 @@ TestResult StressTester::TestRealCapture(const Config& config,
     
     // Contadores atómicos para el callback
     std::atomic<int> frameCount{0};
-    std::atomic<double> totalLatency{0.0};
     std::atomic<bool> stopCapture{false};
+    
+    // Mutex para proteger la suma de latencias (atomic<double> no soporta fetch_add)
+    std::mutex latencyMutex;
+    double totalLatency = 0.0;
     
     // Detectar dispositivos DeckLink
     int numDevices = DeckLinkCapture::EnumerateDevices();
@@ -340,7 +344,7 @@ TestResult StressTester::TestRealCapture(const Config& config,
         
         if (capture->Initialize(i, channelName)) {
             // Handler de frame simplificado para el test
-            capture->SetFrameReadyHandler([ndiManager, &frameCount, &totalLatency, &stopCapture]
+            capture->SetFrameReadyHandler([ndiManager, &frameCount, &totalLatency, &latencyMutex, &stopCapture]
                                          (const VideoChannel& channel, cudaStream_t stream) {
                 if (stopCapture.load()) return;
                 
@@ -359,7 +363,10 @@ TestResult StressTester::TestRealCapture(const Config& config,
                 double latency = std::chrono::duration<double, std::milli>(frameEnd - frameStart).count();
                 
                 frameCount.fetch_add(1);
-                totalLatency.store(totalLatency.load() + latency);
+                {
+                    std::lock_guard<std::mutex> lock(latencyMutex);
+                    totalLatency += latency;
+                }
             });
             
             capture->Start();
@@ -386,9 +393,9 @@ TestResult StressTester::TestRealCapture(const Config& config,
     auto end = std::chrono::high_resolution_clock::now();
     double duration = std::chrono::duration<double, std::milli>(end - start).count();
     
-    // Calcular resultados
+    // Calcular resultados (totalLatency ya no es atomic)
     framesProcessed = frameCount.load();
-    avgLatency = (framesProcessed > 0) ? (totalLatency.load() / framesProcessed) : 0.0;
+    avgLatency = (framesProcessed > 0) ? (totalLatency / framesProcessed) : 0.0;
     
     std::ostringstream details;
     details << framesProcessed << " frames procesados, ";
