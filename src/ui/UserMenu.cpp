@@ -8,6 +8,9 @@
 #include <iostream>
 #include <string>
 #include <limits>
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <Windows.h>
 
 MenuOption UserMenu::ShowMainMenu() {

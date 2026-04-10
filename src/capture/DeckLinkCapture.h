@@ -19,6 +19,15 @@
 
 #pragma once
 
+// 1. Windows base headers (must come first for DeckLink SDK)
+#include <winsock2.h>
+#include <windows.h>
+#include <objbase.h>
+
+// 2. Blackmagic SDK header (defines IDeckLinkInputCallback and BMD types)
+#include "../DeckLinkAPI_h.h"
+
+// 3. CUDA and standard library headers
 #include <cuda_runtime.h>
 #include <string>
 #include <memory>
@@ -28,14 +37,6 @@
 #include <stop_token>
 #include <condition_variable>
 #include <functional>
-
-// Forward declarations for Blackmagic SDK
-struct IDeckLink;
-struct IDeckLinkInput;
-struct IDeckLinkVideoInputFrame;
-struct IDeckLinkAudioInputPacket;
-struct IDeckLinkInputCallback;
-struct IDeckLinkVideoBuffer; // Añadir esta nueva interfaz
 
 /**
  * Video channel structure for managing each capture input
