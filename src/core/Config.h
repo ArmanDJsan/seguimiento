@@ -17,6 +17,29 @@
 #include "../output/RankingPublisher.h"  // RankingPublisherConfig
 
 /**
+ * Choreography configuration
+ */
+struct ChoreographyConfig {
+    bool enabled;
+    std::string scriptPath;
+    bool autoStart;
+    bool continueOnError;
+    bool vmixRequired;
+    std::string triggerKey;
+    bool debug;
+    
+    ChoreographyConfig()
+        : enabled(false)
+        , scriptPath("")
+        , autoStart(false)
+        , continueOnError(true)
+        , vmixRequired(false)
+        , triggerKey("F12")
+        , debug(false)
+    {}
+};
+
+/**
  * Configuración principal del sistema VIB
  */
 struct Config {
@@ -66,6 +89,9 @@ struct Config {
     
     // Ranking publisher configuration
     RankingPublisherConfig rankingConfig;
+    
+    // Choreography configuration
+    ChoreographyConfig choreographyConfig;
     
     // Constructor con valores por defecto
     Config() 
