@@ -693,9 +693,6 @@ void ChoreographyEngine::SetState(EngineState state) {
     EngineState oldState = m_state.exchange(state);
     
     if (oldState != state) {
-        auto now = std::chrono::system_clock::now();
-        auto time = std::chrono::system_clock::to_time_t(now);
-        
         Logger::Debug("ChoreographyEngine: State transition: " + 
                      GetStateString(oldState) + " -> " + GetStateString(state));
         
