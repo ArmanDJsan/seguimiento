@@ -20,6 +20,8 @@ SceneManager::SceneManager(VideoHubClient* videoHub, const SceneManagerConfig& c
     , m_lastLeaderX(0.0f)
     , m_lastLeaderY(0.0f)
     , m_initialized(false)
+    , m_mode(config.mode)
+    , m_manualKeysConfig(config.manualKeys)
 {
     // Initialize slot assignments
     for (int i = 0; i < kStreamingSlots; ++i) {
@@ -28,6 +30,11 @@ SceneManager::SceneManager(VideoHubClient* videoHub, const SceneManagerConfig& c
         m_slotAssignments[i].isMuted = false;
         m_slotAssignments[i].muteEndTime = 0;
     }
+    
+    // Initialize manual state with defaults
+    m_manualState.activeConfigIndex = 0;
+    m_manualState.activeGroup = ActiveGroup::G1_G4;
+    m_manualState.selectedCameraInGroup = 0;
 }
 
 SceneManager::~SceneManager() = default;
@@ -129,7 +136,12 @@ void SceneManager::UpdateLeaderPosition(float Xg, float Yg) {
     m_lastLeaderX = Xg;
     m_lastLeaderY = Yg;
     
-    // Evaluate if we need to switch configurations
+    // In MANUAL mode, ignore leader position updates
+    if (m_mode == SceneMode::MANUAL) {
+        return;
+    }
+    
+    // Evaluate if we need to switch configurations (AUTO mode only)
     int desiredConfig = EvaluateDesiredConfig();
     
     if (desiredConfig != m_currentConfigIndex.load()) {
@@ -392,4 +404,157 @@ int SceneManager::EvaluateDesiredConfig() const {
     }
     
     return desiredConfig;
+}
+
+void SceneManager::SetMode(SceneMode mode) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    
+    if (m_mode == mode) {
+        return;  // Already in this mode
+    }
+    
+    SceneMode oldMode = m_mode;
+    m_mode = mode;
+    
+    std::string modeStr = (mode == SceneMode::AUTO) ? "AUTO" : "MANUAL";
+    std::string oldModeStr = (oldMode == SceneMode::AUTO) ? "AUTO" : "MANUAL";
+    
+    Logger::Info("SceneManager: Mode changed from " + oldModeStr + " to " + modeStr);
+    
+    // When switching to MANUAL, sync manual state with current configuration
+    if (mode == SceneMode::MANUAL) {
+        m_manualState.activeConfigIndex = m_currentConfigIndex.load();
+        Logger::Info("SceneManager: MANUAL mode initialized with config " + 
+                    m_config.groups[m_manualState.activeConfigIndex].configName);
+    }
+}
+
+bool SceneManager::SelectConfig(int configIndex) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    
+    // Validate config index
+    if (configIndex < 0 || static_cast<size_t>(configIndex) >= m_config.groups.size()) {
+        Logger::Error("SceneManager: Invalid config index " + std::to_string(configIndex));
+        return false;
+    }
+    
+    // Warn if called in AUTO mode
+    if (m_mode == SceneMode::AUTO) {
+        Logger::Warning("SceneManager: SelectConfig called in AUTO mode, ignoring");
+        return false;
+    }
+    
+    // Update manual state
+    m_manualState.activeConfigIndex = configIndex;
+    
+    // Apply the configuration (all 8 cameras)
+    ApplyGroupConfig(configIndex);
+    
+    Logger::Info("SceneManager: [MANUAL] Selected config " + 
+                m_config.groups[configIndex].configName);
+    
+    return true;
+}
+
+void SceneManager::SelectGroup(ActiveGroup group) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    
+    if (m_mode == SceneMode::AUTO) {
+        Logger::Warning("SceneManager: SelectGroup called in AUTO mode, ignoring");
+        return;
+    }
+    
+    m_manualState.activeGroup = group;
+    
+    std::string groupStr = (group == ActiveGroup::G1_G4) ? "G1_G4" : "G5_G8";
+    Logger::Info("SceneManager: [MANUAL] Selected group " + groupStr);
+}
+
+void SceneManager::ToggleGroup() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    
+    if (m_mode == SceneMode::AUTO) {
+        Logger::Warning("SceneManager: ToggleGroup called in AUTO mode, ignoring");
+        return;
+    }
+    
+    // Toggle between groups
+    if (m_manualState.activeGroup == ActiveGroup::G1_G4) {
+        m_manualState.activeGroup = ActiveGroup::G5_G8;
+        Logger::Info("SceneManager: [MANUAL] Toggled to group G5_G8");
+    } else {
+        m_manualState.activeGroup = ActiveGroup::G1_G4;
+        Logger::Info("SceneManager: [MANUAL] Toggled to group G1_G4");
+    }
+}
+
+bool SceneManager::SelectCameraInGroup(int index) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    
+    // Validate index
+    if (index < 0 || index > 3) {
+        Logger::Error("SceneManager: Invalid camera index " + std::to_string(index) + 
+                     " (must be 0-3)");
+        return false;
+    }
+    
+    if (m_mode == SceneMode::AUTO) {
+        Logger::Warning("SceneManager: SelectCameraInGroup called in AUTO mode, ignoring");
+        return false;
+    }
+    
+    // Update manual state
+    m_manualState.selectedCameraInGroup = index;
+    
+    // Calculate actual camera ID (no lock needed, we already hold it)
+    int cameraID = 0;
+    if (m_manualState.activeConfigIndex >= 0 && 
+        static_cast<size_t>(m_manualState.activeConfigIndex) < m_config.groups.size() &&
+        m_manualState.selectedCameraInGroup >= 0 && m_manualState.selectedCameraInGroup <= 3) {
+        const auto& cfg = m_config.groups[m_manualState.activeConfigIndex];
+        if (m_manualState.activeGroup == ActiveGroup::G1_G4) {
+            cameraID = cfg.slotsG1_G4[m_manualState.selectedCameraInGroup];
+        } else {
+            cameraID = cfg.slotsG5_G8[m_manualState.selectedCameraInGroup];
+        }
+    }
+    
+    std::string groupStr = (m_manualState.activeGroup == ActiveGroup::G1_G4) ? "G1_G4" : "G5_G8";
+    std::ostringstream oss;
+    oss << "SceneManager: [MANUAL] Selected camera " << index 
+        << " in group " << groupStr << " (CAM_" 
+        << std::setw(2) << std::setfill('0') << cameraID << ")";
+    Logger::Info(oss.str());
+    
+    return true;
+}
+
+ManualState SceneManager::GetManualState() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_manualState;
+}
+
+int SceneManager::GetActiveCameraID() const {
+    // This method assumes mutex is already held by caller in most cases,
+    // but we'll lock it to be safe for external callers
+    std::lock_guard<std::mutex> lock(m_mutex);
+    
+    // Validate state
+    if (m_manualState.activeConfigIndex < 0 || 
+        static_cast<size_t>(m_manualState.activeConfigIndex) >= m_config.groups.size()) {
+        return 0;  // Invalid
+    }
+    
+    if (m_manualState.selectedCameraInGroup < 0 || m_manualState.selectedCameraInGroup > 3) {
+        return 0;  // Invalid
+    }
+    
+    const auto& config = m_config.groups[m_manualState.activeConfigIndex];
+    
+    // Get camera ID based on active group
+    if (m_manualState.activeGroup == ActiveGroup::G1_G4) {
+        return config.slotsG1_G4[m_manualState.selectedCameraInGroup];
+    } else {
+        return config.slotsG5_G8[m_manualState.selectedCameraInGroup];
+    }
 }

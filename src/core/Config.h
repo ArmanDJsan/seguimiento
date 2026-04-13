@@ -50,6 +50,8 @@ struct Config {
     // Scene manager configuration
     bool sceneManagerEnabled;
     int sceneManagerMuteTimeoutMs;
+    SceneMode sceneManagerMode;
+    ManualKeysConfig sceneManagerManualKeys;
     std::vector<GroupConfig> sceneManagerGroups;
     
     // Inference engine configuration
@@ -84,6 +86,7 @@ struct Config {
         , hysteresisDecayFactor(0.98f)
         , sceneManagerEnabled(true)
         , sceneManagerMuteTimeoutMs(200)
+        , sceneManagerMode(SceneMode::AUTO)
         , calibrationFile("config/calibration.json")
     {}
 };

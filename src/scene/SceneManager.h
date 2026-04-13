@@ -27,6 +27,52 @@
 class VideoHubClient;
 
 /**
+ * Scene mode - Auto or Manual operation
+ */
+enum class SceneMode {
+    AUTO,    // Automatic leapfrogging based on leader position
+    MANUAL   // Manual control via keyboard
+};
+
+/**
+ * Active group in manual mode
+ */
+enum class ActiveGroup {
+    G1_G4,   // Cameras in slots G1-G4
+    G5_G8    // Cameras in slots G5-G8
+};
+
+/**
+ * Manual mode state
+ */
+struct ManualState {
+    int activeConfigIndex;           // Active configuration (0-2 for config_a/b/c)
+    ActiveGroup activeGroup;         // Active group (G1_G4 or G5_G8)
+    int selectedCameraInGroup;       // Selected camera within group (0-3)
+    
+    ManualState()
+        : activeConfigIndex(0)
+        , activeGroup(ActiveGroup::G1_G4)
+        , selectedCameraInGroup(0) {}
+};
+
+/**
+ * Manual keys configuration
+ */
+struct ManualKeysConfig {
+    std::string toggleMode;                  // Key to toggle between AUTO/MANUAL (e.g., "M")
+    std::array<std::string, 3> configSelect; // Keys for config_a, config_b, config_c (e.g., F1, F6, F7)
+    std::string groupSelect;                 // Key to toggle group (e.g., "G")
+    std::array<std::string, 4> cameraSelect; // Keys for camera 0-3 in group (e.g., "1", "2", "3", "4")
+    
+    ManualKeysConfig()
+        : toggleMode("M")
+        , configSelect{"F1", "F6", "F7"}
+        , groupSelect("G")
+        , cameraSelect{"1", "2", "3", "4"} {}
+};
+
+/**
  * Group configuration - defines which cameras are routed to which slots
  */
 struct GroupConfig {
@@ -57,8 +103,10 @@ struct SlotAssignment {
  */
 struct SceneManagerConfig {
     bool enabled = true;
-    int muteTimeoutMs = 200;              // Mute duration after switch (signal stabilization)
-    std::vector<GroupConfig> groups;       // Ordered list of group configurations
+    SceneMode mode = SceneMode::AUTO;         // Operating mode (AUTO or MANUAL)
+    int muteTimeoutMs = 200;                   // Mute duration after switch (signal stabilization)
+    std::vector<GroupConfig> groups;           // Ordered list of group configurations
+    ManualKeysConfig manualKeys;               // Manual mode key mappings
     
     // Default configuration with 2 groups
     SceneManagerConfig() {
@@ -182,6 +230,57 @@ public:
      * Get last known leader position
      */
     float GetLastLeaderX() const { return m_lastLeaderX; }
+    
+    /**
+     * Set operating mode (AUTO or MANUAL)
+     * @param mode New mode to set
+     */
+    void SetMode(SceneMode mode);
+    
+    /**
+     * Get current operating mode
+     * @return Current mode (AUTO or MANUAL)
+     */
+    SceneMode GetMode() const { return m_mode; }
+    
+    /**
+     * Select configuration manually (MANUAL mode only)
+     * @param configIndex Configuration index (0-2 for config_a/b/c)
+     * @return true if selection successful
+     */
+    bool SelectConfig(int configIndex);
+    
+    /**
+     * Select group manually (MANUAL mode only)
+     * @param group Group to select (G1_G4 or G5_G8)
+     */
+    void SelectGroup(ActiveGroup group);
+    
+    /**
+     * Toggle between groups (MANUAL mode only)
+     * Switches between G1_G4 and G5_G8
+     */
+    void ToggleGroup();
+    
+    /**
+     * Select camera within active group (MANUAL mode only)
+     * @param index Camera index within group (0-3)
+     * @return true if selection successful
+     */
+    bool SelectCameraInGroup(int index);
+    
+    /**
+     * Get current manual mode state
+     * @return Manual state structure
+     */
+    ManualState GetManualState() const;
+    
+    /**
+     * Get active camera ID in manual mode
+     * Calculates based on current config + group + camera selection
+     * @return Camera ID (1-12) or 0 if invalid
+     */
+    int GetActiveCameraID() const;
 
 private:
     VideoHubClient* m_videoHub;
@@ -193,6 +292,11 @@ private:
     mutable std::mutex m_mutex;
     MuteCallback m_muteCallback;
     bool m_initialized;
+    
+    // Manual mode state
+    SceneMode m_mode;
+    ManualState m_manualState;
+    ManualKeysConfig m_manualKeysConfig;
     
     // Helper methods
     void ApplyGroupConfig(int configIndex);

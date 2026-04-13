@@ -255,6 +255,61 @@ Config LoadConfig(const std::string& path) {
             if (sm.contains("mute_timeout_ms") && sm["mute_timeout_ms"].is_number()) {
                 config.sceneManagerMuteTimeoutMs = sm["mute_timeout_ms"].get<int>();
             }
+            
+            // Parse mode (auto/manual)
+            if (sm.contains("mode") && sm["mode"].is_string()) {
+                std::string modeStr = sm["mode"].get<std::string>();
+                if (modeStr == "auto") {
+                    config.sceneManagerMode = SceneMode::AUTO;
+                } else if (modeStr == "manual") {
+                    config.sceneManagerMode = SceneMode::MANUAL;
+                } else {
+                    Logger::Warning("SceneManager config: Invalid mode '" + modeStr + 
+                                   "', using default AUTO");
+                    config.sceneManagerMode = SceneMode::AUTO;
+                }
+            }
+            
+            // Parse manual_keys configuration
+            if (sm.contains("manual_keys") && sm["manual_keys"].is_object()) {
+                auto& mk = sm["manual_keys"];
+                
+                if (mk.contains("toggle_mode") && mk["toggle_mode"].is_string()) {
+                    config.sceneManagerManualKeys.toggleMode = mk["toggle_mode"].get<std::string>();
+                }
+                
+                if (mk.contains("config_select") && mk["config_select"].is_array() && 
+                    mk["config_select"].size() >= 3) {
+                    for (size_t i = 0; i < 3; ++i) {
+                        config.sceneManagerManualKeys.configSelect[i] = 
+                            mk["config_select"][i].get<std::string>();
+                    }
+                } else {
+                    Logger::Warning("SceneManager config: manual_keys.config_select must have at least 3 elements, using defaults [F1,F6,F7]");
+                }
+                
+                if (mk.contains("group_select") && mk["group_select"].is_string()) {
+                    config.sceneManagerManualKeys.groupSelect = mk["group_select"].get<std::string>();
+                }
+                
+                if (mk.contains("camera_select") && mk["camera_select"].is_array() && 
+                    mk["camera_select"].size() >= 4) {
+                    for (size_t i = 0; i < 4; ++i) {
+                        config.sceneManagerManualKeys.cameraSelect[i] = 
+                            mk["camera_select"][i].get<std::string>();
+                    }
+                } else {
+                    Logger::Warning("SceneManager config: manual_keys.camera_select must have at least 4 elements, using defaults [1,2,3,4]");
+                }
+                
+                Logger::Info("SceneManager config: Manual keys - Toggle: " + 
+                            config.sceneManagerManualKeys.toggleMode + 
+                            ", Configs: [" + config.sceneManagerManualKeys.configSelect[0] + "," +
+                            config.sceneManagerManualKeys.configSelect[1] + "," +
+                            config.sceneManagerManualKeys.configSelect[2] + "], Group: " +
+                            config.sceneManagerManualKeys.groupSelect);
+            }
+            
             if (sm.contains("groups") && sm["groups"].is_object()) {
                 try {
                     for (auto& [key, value] : sm["groups"].items()) {
@@ -647,6 +702,8 @@ bool RunRunningMode() {
     SceneManagerConfig sceneConfig;
     sceneConfig.enabled = config.sceneManagerEnabled;
     sceneConfig.muteTimeoutMs = config.sceneManagerMuteTimeoutMs;
+    sceneConfig.mode = config.sceneManagerMode;
+    sceneConfig.manualKeys = config.sceneManagerManualKeys;
     sceneConfig.groups = config.sceneManagerGroups;
     
     auto sceneManager = std::make_shared<SceneManager>(&videoHub, sceneConfig);
@@ -774,6 +831,11 @@ bool RunRunningMode() {
     Logger::Info("F3  - Restaurar a 4 camaras");
     Logger::Info("F4  - Parada de emergencia");
     Logger::Info("F5  - Reset telemetria");
+    Logger::Info("--- SceneManager Manual Mode ---");
+    Logger::Info("M   - Toggle AUTO/MANUAL mode");
+    Logger::Info("F1/F6/F7 - Select config_a/b/c (MANUAL)");
+    Logger::Info("G   - Toggle group G1_G4/G5_G8 (MANUAL)");
+    Logger::Info("1-4 - Select camera in group (MANUAL)");
     Logger::Info("====================================");
     
     bool running = true;
@@ -784,6 +846,17 @@ bool RunRunningMode() {
     bool f3Pressed = false;
     bool f4Pressed = false;
     bool f5Pressed = false;
+    
+    // Manual mode key debounce
+    bool mKeyPressed = false;
+    bool gKeyPressed = false;
+    bool f1KeyPressed = false;
+    bool f6KeyPressed = false;
+    bool f7KeyPressed = false;
+    bool key1Pressed = false;
+    bool key2Pressed = false;
+    bool key3Pressed = false;
+    bool key4Pressed = false;
     
     while (running) {
         // Check for exit condition
@@ -846,6 +919,102 @@ bool RunRunningMode() {
             f5Pressed = false;
         }
         
+        // ============================================================================
+        // SceneManager Manual Mode Controls
+        // ============================================================================
+        
+        // M - Toggle AUTO/MANUAL mode
+        if (GetAsyncKeyState('M') & 0x8000) {
+            if (!mKeyPressed && sceneManager) {
+                mKeyPressed = true;
+                SceneMode currentMode = sceneManager->GetMode();
+                SceneMode newMode = (currentMode == SceneMode::AUTO) ? SceneMode::MANUAL : SceneMode::AUTO;
+                sceneManager->SetMode(newMode);
+                
+                std::string modeStr = (newMode == SceneMode::AUTO) ? "AUTO" : "MANUAL";
+                Logger::Info("[SCENE] Mode toggled to " + modeStr);
+            }
+        } else {
+            mKeyPressed = false;
+        }
+        
+        // F1 - Select config_a (index 0) in MANUAL mode
+        if (GetAsyncKeyState(VK_F1) & 0x8000) {
+            if (!f1KeyPressed && sceneManager && sceneManager->GetMode() == SceneMode::MANUAL) {
+                f1KeyPressed = true;
+                sceneManager->SelectConfig(0);
+            }
+        } else {
+            f1KeyPressed = false;
+        }
+        
+        // F6 - Select config_b (index 1) in MANUAL mode
+        if (GetAsyncKeyState(VK_F6) & 0x8000) {
+            if (!f6KeyPressed && sceneManager && sceneManager->GetMode() == SceneMode::MANUAL) {
+                f6KeyPressed = true;
+                sceneManager->SelectConfig(1);
+            }
+        } else {
+            f6KeyPressed = false;
+        }
+        
+        // F7 - Select config_c (index 2) in MANUAL mode
+        if (GetAsyncKeyState(VK_F7) & 0x8000) {
+            if (!f7KeyPressed && sceneManager && sceneManager->GetMode() == SceneMode::MANUAL) {
+                f7KeyPressed = true;
+                sceneManager->SelectConfig(2);
+            }
+        } else {
+            f7KeyPressed = false;
+        }
+        
+        // G - Toggle group in MANUAL mode
+        if (GetAsyncKeyState('G') & 0x8000) {
+            if (!gKeyPressed && sceneManager && sceneManager->GetMode() == SceneMode::MANUAL) {
+                gKeyPressed = true;
+                sceneManager->ToggleGroup();
+            }
+        } else {
+            gKeyPressed = false;
+        }
+        
+        // 1-4 - Select camera in group (MANUAL mode)
+        if (GetAsyncKeyState('1') & 0x8000) {
+            if (!key1Pressed && sceneManager && sceneManager->GetMode() == SceneMode::MANUAL) {
+                key1Pressed = true;
+                sceneManager->SelectCameraInGroup(0);
+            }
+        } else {
+            key1Pressed = false;
+        }
+        
+        if (GetAsyncKeyState('2') & 0x8000) {
+            if (!key2Pressed && sceneManager && sceneManager->GetMode() == SceneMode::MANUAL) {
+                key2Pressed = true;
+                sceneManager->SelectCameraInGroup(1);
+            }
+        } else {
+            key2Pressed = false;
+        }
+        
+        if (GetAsyncKeyState('3') & 0x8000) {
+            if (!key3Pressed && sceneManager && sceneManager->GetMode() == SceneMode::MANUAL) {
+                key3Pressed = true;
+                sceneManager->SelectCameraInGroup(2);
+            }
+        } else {
+            key3Pressed = false;
+        }
+        
+        if (GetAsyncKeyState('4') & 0x8000) {
+            if (!key4Pressed && sceneManager && sceneManager->GetMode() == SceneMode::MANUAL) {
+                key4Pressed = true;
+                sceneManager->SelectCameraInGroup(3);
+            }
+        } else {
+            key4Pressed = false;
+        }
+        
         // Periodic status logging
         auto now = std::chrono::steady_clock::now();
         if (now - lastStatusLog >= statusInterval) {
@@ -873,6 +1042,38 @@ bool RunRunningMode() {
             
             if (sceneManager && sceneManager->IsEnabled()) {
                 sceneManager->ProcessMuteTimeouts();
+                
+                // Log SceneManager mode and state
+                SceneMode mode = sceneManager->GetMode();
+                std::string modeStr = (mode == SceneMode::AUTO) ? "AUTO" : "MANUAL";
+                
+                if (mode == SceneMode::MANUAL) {
+                    ManualState state = sceneManager->GetManualState();
+                    std::string configName = sceneManager->GetCurrentConfigName();
+                    std::string groupStr = (state.activeGroup == ActiveGroup::G1_G4) ? "G1_G4" : "G5_G8";
+                    int activeCameraID = sceneManager->GetActiveCameraID();
+                    
+                    // Get cameras in active group
+                    std::ostringstream camerasOss;
+                    if (state.activeConfigIndex >= 0 && 
+                        static_cast<size_t>(state.activeConfigIndex) < config.sceneManagerGroups.size()) {
+                        const auto& cfg = config.sceneManagerGroups[state.activeConfigIndex];
+                        if (state.activeGroup == ActiveGroup::G1_G4) {
+                            camerasOss << "[" << cfg.slotsG1_G4[0] << "," << cfg.slotsG1_G4[1] << ","
+                                      << cfg.slotsG1_G4[2] << "," << cfg.slotsG1_G4[3] << "]";
+                        } else {
+                            camerasOss << "[" << cfg.slotsG5_G8[0] << "," << cfg.slotsG5_G8[1] << ","
+                                      << cfg.slotsG5_G8[2] << "," << cfg.slotsG5_G8[3] << "]";
+                        }
+                    }
+                    
+                    Logger::Info("[MANUAL] Config: " + configName + " | Group: " + groupStr + 
+                                " | Cameras: " + camerasOss.str() + " | Active: CAM_" + 
+                                std::to_string(activeCameraID));
+                } else {
+                    std::string configName = sceneManager->GetCurrentConfigName();
+                    Logger::Info("[AUTO] Current config: " + configName);
+                }
             }
             
             lastStatusLog = now;
