@@ -1,0 +1,34 @@
+{
+  "name": "Demo - 12 Cámaras por 8 Slots NDI",
+  "description": "Demostración de cómo rotar 12 cámaras de streaming a través de 8 slots NDI usando la coreografía con VideoHub",
+  "author": "VIB Automation",
+  "version": "1.0",
+  "events": [
+    { "type": "Comment", "text": "=== Configuración inicial: slots 1-8 con cámaras 1-8 ===" },
+    { "type": "NDISlotChange", "slot": 0, "camera": 1, "comment": "G1 = CAM_01" },
+    { "type": "NDISlotChange", "slot": 1, "camera": 2, "comment": "G2 = CAM_02" },
+    { "type": "NDISlotChange", "slot": 2, "camera": 3, "comment": "G3 = CAM_03" },
+    { "type": "NDISlotChange", "slot": 3, "camera": 4, "comment": "G4 = CAM_04" },
+    { "type": "NDISlotChange", "slot": 4, "camera": 5, "comment": "G5 = CAM_05" },
+    { "type": "NDISlotChange", "slot": 5, "camera": 6, "comment": "G6 = CAM_06" },
+    { "type": "NDISlotChange", "slot": 6, "camera": 7, "comment": "G7 = CAM_07" },
+    { "type": "NDISlotChange", "slot": 7, "camera": 8, "comment": "G8 = CAM_08" },
+    
+    { "type": "Timer", "ms": 5000, "comment": "Espera 5 segundos" },
+    
+    { "type": "Comment", "text": "=== Rotación parcial: traer cámaras 9-12 a slots 1-4 ===" },
+    { "type": "NDISlotChange", "slot": 0, "camera": 9, "comment": "G1 = CAM_09" },
+    { "type": "NDISlotChange", "slot": 1, "camera": 10, "comment": "G2 = CAM_10" },
+    { "type": "NDISlotChange", "slot": 2, "camera": 11, "comment": "G3 = CAM_11" },
+    { "type": "NDISlotChange", "slot": 3, "camera": 12, "comment": "G4 = CAM_12" },
+    
+    { "type": "Timer", "ms": 5000 },
+    
+    { "type": "Comment", "text": "=== Usar SceneSwitch para cambiar configuración completa ===" },
+    { "type": "SceneSwitch", "config": 1, "comment": "Cambiar a config_b" },
+    
+    { "type": "Timer", "ms": 5000 },
+    
+    { "type": "SceneSwitch", "config": 0, "comment": "Volver a config_a" }
+  ]
+}
