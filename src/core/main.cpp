@@ -47,6 +47,7 @@
 #include "../control/VideoHubClient.h"
 #include "../control/TrackPhysicalController.h"
 #include "../control/VMixController.h"
+#include "../choreography/ChoreographyEngine.h"
 #include "../ui/UserMenu.h"
 #include "../diagnostics/StressTester.h"
 #include "Config.h"
@@ -455,6 +456,26 @@ Config LoadConfig(const std::string& path) {
             if (rp.contains("publish_rate_hz")) config.rankingConfig.publishRateHz = rp["publish_rate_hz"].get<int>();
             if (rp.contains("title_input_name")) config.rankingConfig.titleInputName = rp["title_input_name"].get<std::string>();
         }
+        
+        // Parse choreography section
+        if (j.contains("choreography") && j["choreography"].is_object()) {
+            auto& ch = j["choreography"];
+            if (ch.contains("enabled")) config.choreographyConfig.enabled = ch["enabled"].get<bool>();
+            if (ch.contains("script_path")) config.choreographyConfig.scriptPath = ch["script_path"].get<std::string>();
+            if (ch.contains("auto_start")) config.choreographyConfig.autoStart = ch["auto_start"].get<bool>();
+            if (ch.contains("continue_on_error")) config.choreographyConfig.continueOnError = ch["continue_on_error"].get<bool>();
+            if (ch.contains("vmix_required")) config.choreographyConfig.vmixRequired = ch["vmix_required"].get<bool>();
+            if (ch.contains("trigger_key")) config.choreographyConfig.triggerKey = ch["trigger_key"].get<std::string>();
+            if (ch.contains("debug")) config.choreographyConfig.debug = ch["debug"].get<bool>();
+            
+            if (config.choreographyConfig.enabled) {
+                Logger::Info("Choreography config: enabled=" + std::to_string(config.choreographyConfig.enabled) +
+                            ", script=" + config.choreographyConfig.scriptPath +
+                            ", auto_start=" + std::to_string(config.choreographyConfig.autoStart) +
+                            ", trigger_key=" + config.choreographyConfig.triggerKey +
+                            ", debug=" + std::to_string(config.choreographyConfig.debug));
+            }
+        }
 
         Logger::Info("Configuración cargada: VideoHub=" + config.videohubIp + ":" + 
                      std::to_string(config.videohubPort) + ", ESP32=" + config.esp32Ip + ":" + 
@@ -718,6 +739,78 @@ bool RunRunningMode() {
     }
     
     // ============================================================================
+    // Initialize Choreography Engine
+    // ============================================================================
+    std::shared_ptr<Choreography::ChoreographyEngine> choreographyEngine;
+    if (config.choreographyConfig.enabled) {
+        Logger::Info("Initializing ChoreographyEngine...");
+        choreographyEngine = std::make_shared<Choreography::ChoreographyEngine>(
+            &vmix, sceneManager.get());
+        choreographyEngine->SetVideoHubClient(&videoHub);
+        choreographyEngine->SetContinueOnError(config.choreographyConfig.continueOnError);
+        choreographyEngine->SetVMixRequired(config.choreographyConfig.vmixRequired);
+        
+        // Set up callbacks for debug logging
+        if (config.choreographyConfig.debug) {
+            choreographyEngine->SetStateCallback([](Choreography::EngineState state) {
+                std::string stateStr;
+                switch (state) {
+                    case Choreography::EngineState::Idle: stateStr = "Idle"; break;
+                    case Choreography::EngineState::Ready: stateStr = "Ready"; break;
+                    case Choreography::EngineState::Running: stateStr = "Running"; break;
+                    case Choreography::EngineState::Paused: stateStr = "Paused"; break;
+                    case Choreography::EngineState::Stopping: stateStr = "Stopping"; break;
+                    case Choreography::EngineState::Error: stateStr = "Error"; break;
+                    default: stateStr = "Unknown"; break;
+                }
+                Logger::Debug("[Choreography] State changed to: " + stateStr);
+            });
+            
+            choreographyEngine->SetEventStartCallback([](size_t index, const Choreography::ChoreographyEvent& event) {
+                Logger::Debug("[Choreography] Starting event " + std::to_string(index) + ": " + event.GetTypeName());
+            });
+            
+            choreographyEngine->SetEventCompleteCallback([](const Choreography::EventResult& result) {
+                if (result.success) {
+                    Logger::Debug("[Choreography] Event " + std::to_string(result.eventIndex) + 
+                                 " completed in " + std::to_string(result.executionTime.count()) + "ms");
+                } else {
+                    Logger::Warning("[Choreography] Event " + std::to_string(result.eventIndex) + 
+                                   " failed: " + result.errorMessage);
+                }
+            });
+            
+            choreographyEngine->SetErrorCallback([](const std::string& error) {
+                Logger::Error("[Choreography] Error: " + error);
+            });
+        }
+        
+        // Load script if specified
+        if (!config.choreographyConfig.scriptPath.empty()) {
+            Logger::Info("ChoreographyEngine: Loading script from " + config.choreographyConfig.scriptPath);
+            if (choreographyEngine->Load(config.choreographyConfig.scriptPath)) {
+                Logger::Info("ChoreographyEngine: Script loaded successfully");
+                
+                // Auto-start if configured
+                if (config.choreographyConfig.autoStart) {
+                    Logger::Info("ChoreographyEngine: Auto-starting choreography...");
+                    if (!choreographyEngine->Start()) {
+                        Logger::Warning("ChoreographyEngine: Auto-start failed");
+                    }
+                }
+            } else {
+                Logger::Warning("ChoreographyEngine: Failed to load script: " + 
+                               choreographyEngine->GetLastError());
+            }
+        }
+        
+        Logger::Info("ChoreographyEngine initialized (trigger key: " + 
+                    config.choreographyConfig.triggerKey + ")");
+    } else {
+        Logger::Info("ChoreographyEngine: Disabled in config");
+    }
+    
+    // ============================================================================
     // Initialize capture channels
     // ============================================================================
     Logger::Info("Initializing capture channels...");
@@ -836,6 +929,10 @@ bool RunRunningMode() {
     Logger::Info("F1/F6/F7 - Select config_a/b/c (MANUAL)");
     Logger::Info("G   - Toggle group G1_G4/G5_G8 (MANUAL)");
     Logger::Info("1-4 - Select camera in group (MANUAL)");
+    if (config.choreographyConfig.enabled) {
+        Logger::Info("--- Choreography Controls ---");
+        Logger::Info("F12 - Start/Pause/Resume choreography");
+    }
     Logger::Info("====================================");
     
     bool running = true;
@@ -857,6 +954,9 @@ bool RunRunningMode() {
     bool key2Pressed = false;
     bool key3Pressed = false;
     bool key4Pressed = false;
+    
+    // Choreography key debounce
+    bool f12KeyPressed = false;
     
     while (running) {
         // Check for exit condition
@@ -917,6 +1017,54 @@ bool RunRunningMode() {
             }
         } else {
             f5Pressed = false;
+        }
+        
+        // ============================================================================
+        // Choreography Controls (F12)
+        // ============================================================================
+        if (GetAsyncKeyState(VK_F12) & 0x8000) {
+            if (!f12KeyPressed && choreographyEngine) {
+                f12KeyPressed = true;
+                auto state = choreographyEngine->GetState();
+                
+                switch (state) {
+                    case Choreography::EngineState::Ready:
+                    case Choreography::EngineState::Idle:
+                        // Start choreography
+                        Logger::Info("[CHOREOGRAPHY] F12 pressed - Starting choreography");
+                        if (!choreographyEngine->Start()) {
+                            Logger::Warning("[CHOREOGRAPHY] Failed to start: " + choreographyEngine->GetLastError());
+                        }
+                        break;
+                        
+                    case Choreography::EngineState::Running:
+                        // Pause choreography
+                        Logger::Info("[CHOREOGRAPHY] F12 pressed - Pausing choreography");
+                        choreographyEngine->Pause();
+                        break;
+                        
+                    case Choreography::EngineState::Paused:
+                        // Resume choreography
+                        Logger::Info("[CHOREOGRAPHY] F12 pressed - Resuming choreography");
+                        choreographyEngine->Resume();
+                        break;
+                        
+                    case Choreography::EngineState::Error:
+                        // Reset and reload script
+                        Logger::Info("[CHOREOGRAPHY] F12 pressed - Reloading script after error");
+                        if (!config.choreographyConfig.scriptPath.empty()) {
+                            choreographyEngine->Load(config.choreographyConfig.scriptPath);
+                        }
+                        break;
+                        
+                    default:
+                        Logger::Debug("[CHOREOGRAPHY] F12 pressed - Engine busy (state: " + 
+                                     std::to_string(static_cast<int>(state)) + ")");
+                        break;
+                }
+            }
+        } else {
+            f12KeyPressed = false;
         }
         
         // ============================================================================
@@ -1084,6 +1232,13 @@ bool RunRunningMode() {
     
     // Cleanup
     Logger::Info("Cerrando modo running...");
+    
+    // Stop choreography engine if running
+    if (choreographyEngine) {
+        Logger::Info("Stopping ChoreographyEngine...");
+        choreographyEngine->Stop();
+        choreographyEngine.reset();
+    }
     
     if (rankingPublisher) {
         rankingPublisher->Shutdown();

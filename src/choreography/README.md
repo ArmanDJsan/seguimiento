@@ -258,19 +258,61 @@ Demostración de rotación de cámaras:
 - **Thread Dedicado**: La ejecución corre en thread separado para no bloquear video
 - **Spin-Wait Híbrido**: Sleep para la mayoría del tiempo, spin-wait para los últimos ms
 
+## Debug y Logging
+
+El sistema de coreografía incluye logging detallado para facilitar la depuración:
+
+### Habilitar Debug Mode
+
+En `config.json`, establecer `"debug": true` en la sección choreography:
+
+```json
+"choreography": {
+  "enabled": true,
+  "script_path": "config/choreography/carrera_principal.json",
+  "debug": true,
+  ...
+}
+```
+
+### Niveles de Log
+
+- **INFO**: Carga de script, inicio/fin de ejecución, cambios de estado
+- **DEBUG**: Parsing de eventos, tiempos de sleep, comandos vMix enviados
+- **WARNING**: GUIDs vacíos, recursos no disponibles
+- **ERROR**: Fallos de parsing, errores de comunicación
+
+### Mensajes de Debug Típicos
+
+```
+[DEBUG] ChoreographyScript: Loading script from file: config/choreography/carrera_principal.json
+[DEBUG] ChoreographyScript: Parsed Timer(ms=2000)
+[DEBUG] ChoreographyEngine: Execution thread started, 70 events to process
+[DEBUG] ChoreographyEngine: PreciseSleep starting for 2000ms
+[DEBUG] ChoreographyEngine: vMix command sent successfully: FUNCTION CutDirect Input=...
+```
+
 ## Troubleshooting
 
 ### El script no carga
 - Verificar que el archivo existe y es JSON/DSL válido
 - Revisar logs para errores de parsing
+- Habilitar `"debug": true` para ver detalles de parsing
 
 ### Comandos vMix no funcionan
 - Verificar que vMix TCP está conectado (`vmixController.ConnectTcp()`)
 - Verificar GUIDs de inputs
+- Revisar logs DEBUG para ver comandos enviados
 
 ### NDISlotChange no cambia la cámara
 - Verificar conexión con VideoHub
 - Verificar que el slot y cameraID están en rango válido (0-7, 1-12)
+- Revisar logs para errores de routing
+
+### Timing impreciso
+- Habilitar debug para ver tiempos de sleep vs reales
+- Verificar carga de CPU del sistema
+- Los primeros 5ms usan spin-wait para precisión
 
 ## Archivos del Módulo
 

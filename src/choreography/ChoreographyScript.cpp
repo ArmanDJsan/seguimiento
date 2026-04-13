@@ -19,6 +19,8 @@ using json = nlohmann::json;
 namespace Choreography {
 
 std::optional<Script> ChoreographyScript::LoadFromJsonFile(const std::string& filePath) {
+    Logger::Debug("ChoreographyScript: Loading script from file: " + filePath);
+    
     std::ifstream file(filePath);
     if (!file.is_open()) {
         SetError("Failed to open file: " + filePath);
@@ -27,10 +29,15 @@ std::optional<Script> ChoreographyScript::LoadFromJsonFile(const std::string& fi
     
     std::stringstream buffer;
     buffer << file.rdbuf();
-    return LoadFromJsonString(buffer.str());
+    std::string content = buffer.str();
+    
+    Logger::Debug("ChoreographyScript: Read " + std::to_string(content.size()) + " bytes from file");
+    return LoadFromJsonString(content);
 }
 
 std::optional<Script> ChoreographyScript::LoadFromJsonString(const std::string& jsonStr) {
+    Logger::Debug("ChoreographyScript: Parsing JSON string (" + std::to_string(jsonStr.size()) + " bytes)");
+    
     try {
         json j = json::parse(jsonStr);
         
@@ -50,19 +57,28 @@ std::optional<Script> ChoreographyScript::LoadFromJsonString(const std::string& 
             script.metadata.version = j["version"].get<std::string>();
         }
         
+        Logger::Debug("ChoreographyScript: Metadata - name='" + script.metadata.name + 
+                     "', version='" + script.metadata.version + "'");
+        
         // Parse events
         if (!j.contains("events") || !j["events"].is_array()) {
             SetError("Script must contain 'events' array");
             return std::nullopt;
         }
         
-        for (const auto& eventJson : j["events"]) {
-            auto event = ParseJsonEvent(&eventJson);
+        size_t eventCount = j["events"].size();
+        Logger::Debug("ChoreographyScript: Found " + std::to_string(eventCount) + " events in JSON");
+        
+        int validEvents = 0;
+        int skippedEvents = 0;
+        for (size_t i = 0; i < eventCount; ++i) {
+            auto event = ParseJsonEvent(&j["events"][i]);
             if (event) {
                 script.events.push_back(*event);
+                validEvents++;
             } else {
-                // Log warning but continue parsing
-                Logger::Warning("ChoreographyScript: Skipping invalid event in JSON");
+                Logger::Warning("ChoreographyScript: Skipping invalid event at index " + std::to_string(i));
+                skippedEvents++;
             }
         }
         
@@ -72,7 +88,9 @@ std::optional<Script> ChoreographyScript::LoadFromJsonString(const std::string& 
         }
         
         Logger::Info("ChoreographyScript: Loaded '" + script.metadata.name + "' with " + 
-                    std::to_string(script.events.size()) + " events");
+                    std::to_string(script.events.size()) + " events" +
+                    (skippedEvents > 0 ? " (" + std::to_string(skippedEvents) + " skipped)" : "") +
+                    ", total duration: " + std::to_string(script.GetTotalDurationMs()) + "ms");
         
         return script;
         
@@ -96,68 +114,96 @@ std::optional<ChoreographyEvent> ChoreographyScript::ParseJsonEvent(const void* 
     std::string typeLower = type;
     std::transform(typeLower.begin(), typeLower.end(), typeLower.begin(), ::tolower);
     
+    // Helper lambda to validate GUID for commands that require it
+    auto validateGuid = [&](const std::string& guid, const std::string& cmdName) -> bool {
+        if (guid.empty()) {
+            Logger::Warning("ChoreographyScript: " + cmdName + " event has empty GUID - vMix command may fail");
+            return false;  // Return false but still create event (warning only)
+        }
+        return true;
+    };
+    
     // Parse based on type
     if (typeLower == "cutdirect") {
         std::string guid = j.value("guid", "");
         int layer = j.value("layer", -1);
+        validateGuid(guid, "CutDirect");
+        Logger::Debug("ChoreographyScript: Parsed CutDirect(guid=" + guid.substr(0, 8) + "..., layer=" + std::to_string(layer) + ")");
         return ChoreographyEvent::CutDirect(guid, layer);
     }
     else if (typeLower == "quickplay") {
         std::string guid = j.value("guid", "");
+        validateGuid(guid, "QuickPlay");
         return ChoreographyEvent::QuickPlay(guid);
     }
     else if (typeLower == "play") {
         std::string guid = j.value("guid", "");
+        validateGuid(guid, "Play");
         return ChoreographyEvent::Play(guid);
     }
     else if (typeLower == "pause") {
         std::string guid = j.value("guid", "");
+        validateGuid(guid, "Pause");
         return ChoreographyEvent::Pause(guid);
     }
     else if (typeLower == "restart") {
         std::string guid = j.value("guid", "");
+        validateGuid(guid, "Restart");
         return ChoreographyEvent::Restart(guid);
     }
     else if (typeLower == "audioon") {
         std::string guid = j.value("guid", "");
+        validateGuid(guid, "AudioOn");
         return ChoreographyEvent::AudioOn(guid);
     }
     else if (typeLower == "audiooff") {
         std::string guid = j.value("guid", "");
+        validateGuid(guid, "AudioOff");
         return ChoreographyEvent::AudioOff(guid);
     }
     else if (typeLower == "startrecording") {
+        Logger::Debug("ChoreographyScript: Parsed StartRecording");
         return ChoreographyEvent::StartRecording();
     }
     else if (typeLower == "stoprecording") {
+        Logger::Debug("ChoreographyScript: Parsed StopRecording");
         return ChoreographyEvent::StopRecording();
     }
     else if (typeLower == "browserreload") {
         std::string guid = j.value("guid", "");
+        validateGuid(guid, "BrowserReload");
         return ChoreographyEvent::BrowserReload(guid);
     }
     else if (typeLower == "overlayinputin" || typeLower == "overlayinputxin") {
         std::string guid = j.value("guid", "");
         int layer = j.value("layer", 1);
+        validateGuid(guid, "OverlayInputIn");
+        Logger::Debug("ChoreographyScript: Parsed OverlayInputIn(layer=" + std::to_string(layer) + ")");
         return ChoreographyEvent::OverlayInputIn(guid, layer);
     }
     else if (typeLower == "overlayinputout" || typeLower == "overlayinputxout") {
         int layer = j.value("layer", 1);
+        Logger::Debug("ChoreographyScript: Parsed OverlayInputOut(layer=" + std::to_string(layer) + ")");
         return ChoreographyEvent::OverlayInputOut(layer);
     }
     else if (typeLower == "replaystartrecording") {
+        Logger::Debug("ChoreographyScript: Parsed ReplayStartRecording");
         return ChoreographyEvent::ReplayStartRecording();
     }
     else if (typeLower == "replaystoprecording") {
+        Logger::Debug("ChoreographyScript: Parsed ReplayStopRecording");
         return ChoreographyEvent::ReplayStopRecording();
     }
     else if (typeLower == "replaymarkin") {
+        Logger::Debug("ChoreographyScript: Parsed ReplayMarkIn");
         return ChoreographyEvent::ReplayMarkIn();
     }
     else if (typeLower == "replaymarkout") {
+        Logger::Debug("ChoreographyScript: Parsed ReplayMarkOut");
         return ChoreographyEvent::ReplayMarkOut();
     }
     else if (typeLower == "replaylive") {
+        Logger::Debug("ChoreographyScript: Parsed ReplayLive");
         return ChoreographyEvent::ReplayLive();
     }
     else if (typeLower == "replaysetspeed") {
@@ -170,33 +216,46 @@ std::optional<ChoreographyEvent> ChoreographyScript::ParseJsonEvent(const void* 
                 std::string speedStr = j["speed"].get<std::string>();
                 // Remove % if present
                 speedStr.erase(std::remove(speedStr.begin(), speedStr.end(), '%'), speedStr.end());
-                speed = std::stoi(speedStr);
+                try {
+                    speed = std::stoi(speedStr);
+                } catch (const std::exception& e) {
+                    Logger::Warning("ChoreographyScript: Invalid speed value '" + speedStr + "', using default 100%");
+                    speed = 100;
+                }
             }
         }
+        Logger::Debug("ChoreographyScript: Parsed ReplaySetSpeed(speed=" + std::to_string(speed) + "%)");
         return ChoreographyEvent::ReplaySetSpeed(speed);
     }
     else if (typeLower == "replayselectlastevent") {
+        Logger::Debug("ChoreographyScript: Parsed ReplaySelectLastEvent");
         return ChoreographyEvent::ReplaySelectLastEvent();
     }
     else if (typeLower == "timer") {
         int ms = j.value("ms", j.value("milliseconds", 1000));
+        Logger::Debug("ChoreographyScript: Parsed Timer(ms=" + std::to_string(ms) + ")");
         return ChoreographyEvent::Timer(ms);
     }
     else if (typeLower == "ndislotchange") {
         int slot = j.value("slot", 0);
         int camera = j.value("camera", 1);
+        Logger::Debug("ChoreographyScript: Parsed NDISlotChange(slot=" + std::to_string(slot) + 
+                     ", camera=" + std::to_string(camera) + ")");
         return ChoreographyEvent::NDISlotChange(slot, camera);
     }
     else if (typeLower == "sceneswitch") {
         int config = j.value("config", j.value("configIndex", 0));
+        Logger::Debug("ChoreographyScript: Parsed SceneSwitch(config=" + std::to_string(config) + ")");
         return ChoreographyEvent::SceneSwitch(config);
     }
     else if (typeLower == "comment") {
         std::string text = j.value("text", "");
+        // Don't log debug for comments - they're meta-events
         return ChoreographyEvent::Comment(text);
     }
     else if (typeLower == "label") {
         std::string name = j.value("name", "");
+        Logger::Debug("ChoreographyScript: Parsed Label(name=" + name + ")");
         return ChoreographyEvent::Label(name);
     }
     
@@ -288,6 +347,7 @@ std::optional<ChoreographyEvent> ChoreographyScript::ParseDslLine(const std::str
         if (cmdName == "replaylive") return ChoreographyEvent::ReplayLive();
         if (cmdName == "replayselectlastevent") return ChoreographyEvent::ReplaySelectLastEvent();
         
+        Logger::Debug("ChoreographyScript: Unknown command without params: " + cmdName);
         return std::nullopt;
     }
     
@@ -297,83 +357,123 @@ std::optional<ChoreographyEvent> ChoreographyScript::ParseDslLine(const std::str
     
     size_t parenEnd = cmd.rfind(')');
     if (parenEnd == std::string::npos || parenEnd <= parenStart) {
+        Logger::Warning("ChoreographyScript: Malformed DSL line (missing closing parenthesis): " + line);
         return std::nullopt;
     }
     
     std::string paramsStr = cmd.substr(parenStart + 1, parenEnd - parenStart - 1);
     auto params = SplitParams(paramsStr);
     
-    // Parse based on command name
-    if (cmdName == "cutdirect") {
-        if (params.empty()) return std::nullopt;
-        std::string guid = Trim(params[0]);
-        int layer = params.size() > 1 ? std::stoi(Trim(params[1])) : -1;
-        return ChoreographyEvent::CutDirect(guid, layer);
-    }
-    else if (cmdName == "quickplay") {
-        if (params.empty()) return std::nullopt;
-        return ChoreographyEvent::QuickPlay(Trim(params[0]));
-    }
-    else if (cmdName == "play") {
-        if (params.empty()) return std::nullopt;
-        return ChoreographyEvent::Play(Trim(params[0]));
-    }
-    else if (cmdName == "pause") {
-        if (params.empty()) return std::nullopt;
-        return ChoreographyEvent::Pause(Trim(params[0]));
-    }
-    else if (cmdName == "restart") {
-        if (params.empty()) return std::nullopt;
-        return ChoreographyEvent::Restart(Trim(params[0]));
-    }
-    else if (cmdName == "audioon") {
-        if (params.empty()) return std::nullopt;
-        return ChoreographyEvent::AudioOn(Trim(params[0]));
-    }
-    else if (cmdName == "audiooff") {
-        if (params.empty()) return std::nullopt;
-        return ChoreographyEvent::AudioOff(Trim(params[0]));
-    }
-    else if (cmdName == "browserreload") {
-        if (params.empty()) return std::nullopt;
-        return ChoreographyEvent::BrowserReload(Trim(params[0]));
-    }
-    else if (cmdName == "overlayinputxin" || cmdName == "overlayinputin") {
-        if (params.size() < 2) return std::nullopt;
-        std::string guid = Trim(params[0]);
-        int layer = std::stoi(Trim(params[1]));
-        return ChoreographyEvent::OverlayInputIn(guid, layer);
-    }
-    else if (cmdName == "overlayinputxout" || cmdName == "overlayinputout") {
-        if (params.empty()) return std::nullopt;
-        int layer = std::stoi(Trim(params[0]));
-        return ChoreographyEvent::OverlayInputOut(layer);
-    }
-    else if (cmdName == "replaysetspeed") {
-        if (params.empty()) return std::nullopt;
-        std::string speedStr = Trim(params[0]);
-        speedStr.erase(std::remove(speedStr.begin(), speedStr.end(), '%'), speedStr.end());
-        int speed = std::stoi(speedStr);
-        return ChoreographyEvent::ReplaySetSpeed(speed);
-    }
-    else if (cmdName == "timer") {
-        if (params.empty()) return std::nullopt;
-        int ms = std::stoi(Trim(params[0]));
-        return ChoreographyEvent::Timer(ms);
-    }
-    else if (cmdName == "ndislotchange") {
-        if (params.size() < 2) return std::nullopt;
-        int slot = std::stoi(Trim(params[0]));
-        int camera = std::stoi(Trim(params[1]));
-        return ChoreographyEvent::NDISlotChange(slot, camera);
-    }
-    else if (cmdName == "sceneswitch") {
-        if (params.empty()) return std::nullopt;
-        int config = std::stoi(Trim(params[0]));
-        return ChoreographyEvent::SceneSwitch(config);
-    }
+    // Helper lambda for safe integer conversion
+    auto safeStoi = [](const std::string& str, int defaultValue = 0) -> std::optional<int> {
+        try {
+            return std::stoi(str);
+        } catch (const std::invalid_argument& e) {
+            Logger::Warning("ChoreographyScript: Invalid integer value: '" + str + "' - " + e.what());
+            return std::nullopt;
+        } catch (const std::out_of_range& e) {
+            Logger::Warning("ChoreographyScript: Integer out of range: '" + str + "' - " + e.what());
+            return std::nullopt;
+        }
+    };
     
-    return std::nullopt;
+    // Parse based on command name (with try-catch for numeric conversions)
+    try {
+        if (cmdName == "cutdirect") {
+            if (params.empty()) return std::nullopt;
+            std::string guid = Trim(params[0]);
+            int layer = -1;
+            if (params.size() > 1) {
+                auto layerOpt = safeStoi(Trim(params[1]));
+                if (!layerOpt) return std::nullopt;
+                layer = *layerOpt;
+            }
+            Logger::Debug("ChoreographyScript: Parsed CutDirect(guid=" + guid + ", layer=" + std::to_string(layer) + ")");
+            return ChoreographyEvent::CutDirect(guid, layer);
+        }
+        else if (cmdName == "quickplay") {
+            if (params.empty()) return std::nullopt;
+            return ChoreographyEvent::QuickPlay(Trim(params[0]));
+        }
+        else if (cmdName == "play") {
+            if (params.empty()) return std::nullopt;
+            return ChoreographyEvent::Play(Trim(params[0]));
+        }
+        else if (cmdName == "pause") {
+            if (params.empty()) return std::nullopt;
+            return ChoreographyEvent::Pause(Trim(params[0]));
+        }
+        else if (cmdName == "restart") {
+            if (params.empty()) return std::nullopt;
+            return ChoreographyEvent::Restart(Trim(params[0]));
+        }
+        else if (cmdName == "audioon") {
+            if (params.empty()) return std::nullopt;
+            return ChoreographyEvent::AudioOn(Trim(params[0]));
+        }
+        else if (cmdName == "audiooff") {
+            if (params.empty()) return std::nullopt;
+            return ChoreographyEvent::AudioOff(Trim(params[0]));
+        }
+        else if (cmdName == "browserreload") {
+            if (params.empty()) return std::nullopt;
+            return ChoreographyEvent::BrowserReload(Trim(params[0]));
+        }
+        else if (cmdName == "overlayinputxin" || cmdName == "overlayinputin") {
+            if (params.size() < 2) return std::nullopt;
+            std::string guid = Trim(params[0]);
+            auto layerOpt = safeStoi(Trim(params[1]));
+            if (!layerOpt) return std::nullopt;
+            Logger::Debug("ChoreographyScript: Parsed OverlayInputIn(guid=" + guid + ", layer=" + std::to_string(*layerOpt) + ")");
+            return ChoreographyEvent::OverlayInputIn(guid, *layerOpt);
+        }
+        else if (cmdName == "overlayinputxout" || cmdName == "overlayinputout") {
+            if (params.empty()) return std::nullopt;
+            auto layerOpt = safeStoi(Trim(params[0]));
+            if (!layerOpt) return std::nullopt;
+            Logger::Debug("ChoreographyScript: Parsed OverlayInputOut(layer=" + std::to_string(*layerOpt) + ")");
+            return ChoreographyEvent::OverlayInputOut(*layerOpt);
+        }
+        else if (cmdName == "replaysetspeed") {
+            if (params.empty()) return std::nullopt;
+            std::string speedStr = Trim(params[0]);
+            speedStr.erase(std::remove(speedStr.begin(), speedStr.end(), '%'), speedStr.end());
+            auto speedOpt = safeStoi(speedStr);
+            if (!speedOpt) return std::nullopt;
+            Logger::Debug("ChoreographyScript: Parsed ReplaySetSpeed(speed=" + std::to_string(*speedOpt) + "%)");
+            return ChoreographyEvent::ReplaySetSpeed(*speedOpt);
+        }
+        else if (cmdName == "timer") {
+            if (params.empty()) return std::nullopt;
+            auto msOpt = safeStoi(Trim(params[0]));
+            if (!msOpt) return std::nullopt;
+            Logger::Debug("ChoreographyScript: Parsed Timer(ms=" + std::to_string(*msOpt) + ")");
+            return ChoreographyEvent::Timer(*msOpt);
+        }
+        else if (cmdName == "ndislotchange") {
+            if (params.size() < 2) return std::nullopt;
+            auto slotOpt = safeStoi(Trim(params[0]));
+            auto cameraOpt = safeStoi(Trim(params[1]));
+            if (!slotOpt || !cameraOpt) return std::nullopt;
+            Logger::Debug("ChoreographyScript: Parsed NDISlotChange(slot=" + std::to_string(*slotOpt) + 
+                         ", camera=" + std::to_string(*cameraOpt) + ")");
+            return ChoreographyEvent::NDISlotChange(*slotOpt, *cameraOpt);
+        }
+        else if (cmdName == "sceneswitch") {
+            if (params.empty()) return std::nullopt;
+            auto configOpt = safeStoi(Trim(params[0]));
+            if (!configOpt) return std::nullopt;
+            Logger::Debug("ChoreographyScript: Parsed SceneSwitch(config=" + std::to_string(*configOpt) + ")");
+            return ChoreographyEvent::SceneSwitch(*configOpt);
+        }
+        
+        Logger::Debug("ChoreographyScript: Unknown DSL command: " + cmdName);
+        return std::nullopt;
+        
+    } catch (const std::exception& e) {
+        Logger::Warning("ChoreographyScript: Exception parsing DSL command '" + cmdName + "': " + e.what());
+        return std::nullopt;
+    }
 }
 
 std::vector<std::string> ChoreographyScript::SplitParams(const std::string& paramsStr) {
