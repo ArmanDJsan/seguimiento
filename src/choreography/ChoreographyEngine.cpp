@@ -178,15 +178,24 @@ bool ChoreographyEngine::Start() {
     m_executionThread = std::thread(&ChoreographyEngine::ExecutionThreadFunc, this);
     
     Logger::Info("ChoreographyEngine: Started execution of '" + m_script.metadata.name + "'");
+    Logger::Debug("ChoreographyEngine: Start config - vmixRequired=" + std::to_string(m_vmixRequired) +
+                 ", continueOnError=" + std::to_string(m_continueOnError) +
+                 ", vmixConnected=" + std::to_string(m_vmixController ? m_vmixController->IsTcpConnected() : false) +
+                 ", videoHubAvailable=" + std::to_string(m_videoHub != nullptr));
     return true;
 }
 
 void ChoreographyEngine::Stop() {
+    Logger::Debug("ChoreographyEngine: Stop() called, current state=" + GetStateString(m_state.load()));
+    
     m_stopRequested = true;
     m_pauseCV.notify_all();
     
+    // Only join if thread is joinable (prevents double-join)
     if (m_executionThread.joinable()) {
+        Logger::Debug("ChoreographyEngine: Waiting for execution thread to finish...");
         m_executionThread.join();
+        Logger::Debug("ChoreographyEngine: Execution thread joined");
     }
     
     SetState(EngineState::Ready);
@@ -196,7 +205,10 @@ void ChoreographyEngine::Stop() {
 void ChoreographyEngine::Pause() {
     if (m_state == EngineState::Running) {
         m_pauseRequested = true;
-        Logger::Info("ChoreographyEngine: Pause requested");
+        size_t currentIdx = m_currentEventIndex.load();
+        Logger::Info("ChoreographyEngine: Pause requested at event " + std::to_string(currentIdx));
+    } else {
+        Logger::Debug("ChoreographyEngine: Pause ignored (not running, state=" + GetStateString(m_state.load()) + ")");
     }
 }
 
@@ -205,16 +217,21 @@ void ChoreographyEngine::Resume() {
         m_pauseRequested = false;
         m_pauseCV.notify_all();
         SetState(EngineState::Running);
-        Logger::Info("ChoreographyEngine: Resumed");
+        size_t currentIdx = m_currentEventIndex.load();
+        Logger::Info("ChoreographyEngine: Resuming from event " + std::to_string(currentIdx));
+    } else {
+        Logger::Debug("ChoreographyEngine: Resume ignored (not paused, state=" + GetStateString(m_state.load()) + ")");
     }
 }
 
 void ChoreographyEngine::Skip() {
     m_skipRequested = true;
-    Logger::Info("ChoreographyEngine: Skip requested");
+    size_t currentIdx = m_currentEventIndex.load();
+    Logger::Info("ChoreographyEngine: Skip requested for event " + std::to_string(currentIdx));
 }
 
 EventResult ChoreographyEngine::ExecuteEvent(const ChoreographyEvent& event) {
+    Logger::Debug("ChoreographyEngine: ExecuteEvent called for " + event.GetTypeName());
     return ExecuteEventInternal(event);
 }
 
@@ -237,31 +254,39 @@ EngineStatus ChoreographyEngine::GetStatus() const {
     status.scriptName = m_scriptLoaded ? m_script.metadata.name : "";
     status.totalEvents = m_scriptLoaded ? m_script.events.size() : 0;
     status.currentEventIndex = m_currentEventIndex.load();
+    status.errorCount = m_errorCount;
     
-    if (m_scriptLoaded && status.currentEventIndex < m_script.events.size()) {
+    // Safely access current event type with bounds check to prevent race condition
+    const size_t eventCount = m_scriptLoaded ? m_script.events.size() : 0;
+    if (m_scriptLoaded && status.currentEventIndex < eventCount) {
         status.currentEventType = m_script.events[status.currentEventIndex].GetTypeName();
+    } else {
+        status.currentEventType = "None";
     }
     
     auto now = std::chrono::steady_clock::now();
     status.elapsedTime = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_startTime);
     
-    // Calculate remaining time (sum of remaining Timer events)
+    // Calculate remaining time (sum of remaining Timer events) with bounds check
     int remainingMs = 0;
-    for (size_t i = status.currentEventIndex; i < m_script.events.size(); ++i) {
-        if (m_script.events[i].type == EventType::Timer) {
-            if (auto* params = std::get_if<TimerParams>(&m_script.events[i].params)) {
-                remainingMs += params->milliseconds;
+    if (m_scriptLoaded) {
+        for (size_t i = status.currentEventIndex; i < eventCount; ++i) {
+            if (m_script.events[i].type == EventType::Timer) {
+                if (auto* params = std::get_if<TimerParams>(&m_script.events[i].params)) {
+                    remainingMs += params->milliseconds;
+                }
             }
         }
     }
     status.estimatedRemainingTime = std::chrono::milliseconds(remainingMs);
-    status.errorCount = m_errorCount;
     
     return status;
 }
 
 void ChoreographyEngine::ExecutionThreadFunc() {
     SetState(EngineState::Running);
+    Logger::Debug("ChoreographyEngine: Execution thread started, " + 
+                 std::to_string(m_script.events.size()) + " events to process");
     
     while (!m_stopRequested && m_currentEventIndex < m_script.events.size()) {
         // Check for pause
@@ -391,6 +416,12 @@ std::string ChoreographyEngine::BuildVMixCommand(const ChoreographyEvent& event)
             auto* params = std::get_if<CutDirectParams>(&event.params);
             if (params) {
                 cmd << "CutDirect Input=" << params->guid;
+                // Include Layer parameter if specified (>= 0)
+                if (params->layer >= 0) {
+                    cmd << " Layer=" << params->layer;
+                }
+                Logger::Debug("ChoreographyEngine: BuildVMixCommand CutDirect Input=" + params->guid + 
+                             (params->layer >= 0 ? " Layer=" + std::to_string(params->layer) : ""));
             }
             break;
         }
@@ -529,20 +560,28 @@ bool ChoreographyEngine::SendVMixCommand(const std::string& command) {
     
     bool success = m_vmixController->SendTcpCommand(command);
     if (success) {
-        Logger::Debug("ChoreographyEngine: Sent vMix command: " + 
+        Logger::Debug("ChoreographyEngine: vMix command sent successfully: " + 
+                     command.substr(0, command.find('\r')));
+    } else {
+        Logger::Error("ChoreographyEngine: vMix send failed for command: " + 
                      command.substr(0, command.find('\r')));
     }
     return success;
 }
 
 bool ChoreographyEngine::ExecuteNDISlotChange(int slot, int cameraID) {
+    Logger::Debug("ChoreographyEngine: ExecuteNDISlotChange(slot=" + std::to_string(slot) + 
+                 ", cameraID=" + std::to_string(cameraID) + ")");
+    
     // Validate parameters
     if (slot < 0 || slot > 7) {
-        Logger::Error("ChoreographyEngine: Invalid slot index: " + std::to_string(slot));
+        Logger::Error("ChoreographyEngine: Invalid slot index: " + std::to_string(slot) + 
+                     " (must be 0-7 for G1-G8)");
         return false;
     }
     if (cameraID < 1 || cameraID > 12) {
-        Logger::Error("ChoreographyEngine: Invalid camera ID: " + std::to_string(cameraID));
+        Logger::Error("ChoreographyEngine: Invalid camera ID: " + std::to_string(cameraID) + 
+                     " (must be 1-12 for CAM_01-CAM_12)");
         return false;
     }
     
@@ -557,10 +596,16 @@ bool ChoreographyEngine::ExecuteNDISlotChange(int slot, int cameraID) {
         std::ostringstream cameraName;
         cameraName << "CAM_" << std::setw(2) << std::setfill('0') << cameraID;
         
+        Logger::Debug("ChoreographyEngine: Routing via VideoHub: slot G" + 
+                     std::to_string(slot + 1) + " <- " + cameraName.str());
+        
         bool success = m_videoHub->RouteInputToOutput(slot, cameraName.str());
         if (success) {
-            Logger::Info("ChoreographyEngine: NDI slot change via VideoHub: slot G" + 
+            Logger::Info("ChoreographyEngine: NDI slot change successful via VideoHub: slot G" + 
                         std::to_string(slot + 1) + " -> " + cameraName.str());
+        } else {
+            Logger::Error("ChoreographyEngine: NDI slot change failed via VideoHub: slot G" + 
+                         std::to_string(slot + 1) + " -> " + cameraName.str());
         }
         return success;
     }
@@ -573,19 +618,24 @@ bool ChoreographyEngine::ExecuteNDISlotChange(int slot, int cameraID) {
         return true;  // Not an error, just informational
     }
     
-    Logger::Warning("ChoreographyEngine: No VideoHub available for NDI slot change");
+    Logger::Warning("ChoreographyEngine: No VideoHub or SceneManager available for NDI slot change");
     return true;  // Not an error, just skip
 }
 
 bool ChoreographyEngine::ExecuteSceneSwitch(int configIndex) {
+    Logger::Debug("ChoreographyEngine: ExecuteSceneSwitch(configIndex=" + std::to_string(configIndex) + ")");
+    
     if (!m_sceneManager) {
-        Logger::Warning("ChoreographyEngine: No SceneManager, skipping scene switch");
+        Logger::Warning("ChoreographyEngine: No SceneManager, skipping scene switch to config " + 
+                       std::to_string(configIndex));
         return true;
     }
     
     bool success = m_sceneManager->TriggerGroupSwitch(configIndex);
     if (success) {
         Logger::Info("ChoreographyEngine: Switched to scene config " + std::to_string(configIndex));
+    } else {
+        Logger::Error("ChoreographyEngine: Failed to switch to scene config " + std::to_string(configIndex));
     }
     return success;
 }
@@ -593,6 +643,8 @@ bool ChoreographyEngine::ExecuteSceneSwitch(int configIndex) {
 void ChoreographyEngine::PreciseSleep(std::chrono::milliseconds duration) {
     auto start = std::chrono::high_resolution_clock::now();
     auto end = start + duration;
+    
+    Logger::Debug("ChoreographyEngine: PreciseSleep starting for " + std::to_string(duration.count()) + "ms");
     
     // Use a combination of sleep and spin-wait for precision
     // Sleep for most of the duration, then spin for the last few ms
@@ -604,6 +656,11 @@ void ChoreographyEngine::PreciseSleep(std::chrono::milliseconds duration) {
         auto checkInterval = std::chrono::milliseconds(100);
         while (std::chrono::high_resolution_clock::now() < start + sleepDuration) {
             if (m_stopRequested || m_skipRequested) {
+                auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::high_resolution_clock::now() - start);
+                Logger::Debug("ChoreographyEngine: PreciseSleep interrupted at " + 
+                             std::to_string(elapsed.count()) + "ms" +
+                             (m_skipRequested ? " (skip)" : " (stop)"));
                 return;
             }
             
@@ -616,20 +673,34 @@ void ChoreographyEngine::PreciseSleep(std::chrono::milliseconds duration) {
     // Spin-wait for remaining time (for precision)
     while (std::chrono::high_resolution_clock::now() < end) {
         if (m_stopRequested || m_skipRequested) {
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::high_resolution_clock::now() - start);
+            Logger::Debug("ChoreographyEngine: PreciseSleep interrupted at " + 
+                         std::to_string(elapsed.count()) + "ms (spin phase)");
             return;
         }
         std::this_thread::yield();
     }
+    
+    auto actualDuration = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::high_resolution_clock::now() - start);
+    Logger::Debug("ChoreographyEngine: PreciseSleep completed - requested=" + 
+                 std::to_string(duration.count()) + "ms, actual=" + 
+                 std::to_string(actualDuration.count()) + "ms");
 }
 
 void ChoreographyEngine::SetState(EngineState state) {
     EngineState oldState = m_state.exchange(state);
     
     if (oldState != state) {
-        Logger::Debug("ChoreographyEngine: State changed from " + 
-                     GetStateString(oldState) + " to " + GetStateString(state));
+        auto now = std::chrono::system_clock::now();
+        auto time = std::chrono::system_clock::to_time_t(now);
+        
+        Logger::Debug("ChoreographyEngine: State transition: " + 
+                     GetStateString(oldState) + " -> " + GetStateString(state));
         
         if (m_stateCallback) {
+            Logger::Debug("ChoreographyEngine: Invoking state callback");
             m_stateCallback(state);
         }
     }
@@ -637,9 +708,12 @@ void ChoreographyEngine::SetState(EngineState state) {
 
 void ChoreographyEngine::SetError(const std::string& error) {
     m_lastError = error;
+    // Note: m_errorCount is incremented in ExecutionThreadFunc, not here
+    // This function is also called for non-execution errors (e.g., load failures)
     Logger::Error("ChoreographyEngine: " + error);
     
     if (m_errorCallback) {
+        Logger::Debug("ChoreographyEngine: Invoking error callback");
         m_errorCallback(error);
     }
 }

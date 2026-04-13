@@ -134,6 +134,7 @@
     "continue_on_error": true,
     "vmix_required": false,
     "trigger_key": "F12",
+    "debug": false,
     "description": "vMix choreography automation - executes sequences of vMix commands and NDI slot changes"
   },
   "ports": [
