@@ -129,6 +129,8 @@
     <ClCompile Include="control\VMixController.cpp" />
     <ClCompile Include="ui\UserMenu.cpp" />
     <ClCompile Include="diagnostics\StressTester.cpp" />
+    <ClCompile Include="choreography\ChoreographyScript.cpp" />
+    <ClCompile Include="choreography\ChoreographyEngine.cpp" />
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="capture\CudaColorConversion.cu">
@@ -166,6 +168,9 @@
     <ClInclude Include="core\Config.h" />
     <ClInclude Include="ui\UserMenu.h" />
     <ClInclude Include="diagnostics\StressTester.h" />
+    <ClInclude Include="choreography\ChoreographyEvent.h" />
+    <ClInclude Include="choreography\ChoreographyScript.h" />
+    <ClInclude Include="choreography\ChoreographyEngine.h" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="shaders\ColorConversion.hlsl">
