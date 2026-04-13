@@ -546,18 +546,10 @@ bool ChoreographyEngine::ExecuteNDISlotChange(int slot, int cameraID) {
         return false;
     }
     
-    // Try SceneManager first
-    if (m_sceneManager) {
-        // Use SceneManager's internal VideoHub routing
-        // For now, we'll use a direct approach - SceneManager would need a public method
-        // to route a single slot without changing the entire configuration
-        Logger::Info("ChoreographyEngine: NDI slot change via SceneManager: slot G" + 
-                    std::to_string(slot + 1) + " -> CAM_" + 
-                    std::to_string(cameraID));
-        
-        // TODO: Add SceneManager::RouteSlot(int slot, int cameraID) method
-        // For now, fall through to VideoHub if available
-    }
+    // NOTE: NDISlotChange currently uses VideoHub directly for individual slot routing.
+    // SceneManager's TriggerGroupSwitch() changes all 8 slots at once based on predefined
+    // configurations, which is better suited for the SceneSwitch event type.
+    // For granular per-slot control, we route directly through VideoHub.
     
     // Try VideoHub directly
     if (m_videoHub) {
@@ -573,7 +565,15 @@ bool ChoreographyEngine::ExecuteNDISlotChange(int slot, int cameraID) {
         return success;
     }
     
-    Logger::Warning("ChoreographyEngine: No SceneManager or VideoHub available for NDI slot change");
+    // If VideoHub not available but SceneManager is, log info
+    if (m_sceneManager) {
+        Logger::Info("ChoreographyEngine: NDI slot change logged (no VideoHub): slot G" + 
+                    std::to_string(slot + 1) + " -> CAM_" + std::to_string(cameraID));
+        // SceneManager doesn't support individual slot routing, would need full config switch
+        return true;  // Not an error, just informational
+    }
+    
+    Logger::Warning("ChoreographyEngine: No VideoHub available for NDI slot change");
     return true;  // Not an error, just skip
 }
 

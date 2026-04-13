@@ -229,9 +229,14 @@ std::optional<Script> ChoreographyScript::LoadFromDslString(const std::string& d
         
         // Skip empty lines and pure comments
         if (line.empty()) continue;
-        if (line[0] == '#' || (line.size() >= 2 && line[0] == '/' && line[1] == '/')) {
-            // Comment line - add as comment event
-            script.events.push_back(ChoreographyEvent::Comment(line.substr(line[0] == '#' ? 1 : 2)));
+        if (line[0] == '#') {
+            // Hash comment - add as comment event
+            script.events.push_back(ChoreographyEvent::Comment(line.size() > 1 ? line.substr(1) : ""));
+            continue;
+        }
+        if (line.size() >= 2 && line[0] == '/' && line[1] == '/') {
+            // Double-slash comment - add as comment event
+            script.events.push_back(ChoreographyEvent::Comment(line.size() > 2 ? line.substr(2) : ""));
             continue;
         }
         

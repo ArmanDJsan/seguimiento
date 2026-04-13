@@ -58,7 +58,7 @@
     { "type": "ReplayMarkOut" },
     { "type": "Timer", "ms": 2000 },
     { "type": "ReplayStopRecording" },
-    { "type": "ReplaySetSpeed", "speed": 50 },
+    { "type": "ReplaySetSpeed", "speed": 50, "comment": "50% speed (range: 0-200, where 100 = normal)" },
     { "type": "ReplaySelectLastEvent" },
     { "type": "QuickPlay", "guid": "e001f2f2-ba0b-49c1-ad9e-194f7f4b8900" },
     { "type": "Timer", "ms": 43000, "comment": "Replay largo" },
