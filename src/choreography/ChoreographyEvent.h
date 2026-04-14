@@ -53,6 +53,11 @@ enum class EventType {
     // Scene control
     SceneSwitch,            // Switch to a specific scene configuration
     
+    // Sphere verification events
+    SpherePresenceCheck,    // Verify presence of spheres
+    SpherePositionCapture,  // Capture positions of spheres
+    SphereArrivalWait,      // Wait for sphere arrivals
+    
     // Meta events
     Comment,                // Comment (no-op, for documentation)
     Label                   // Label for jump targets (future use)
@@ -143,6 +148,22 @@ struct TextParam {
 };
 
 /**
+ * Parameters for Sphere Verification
+ */
+struct SphereVerificationParams {
+    int cameraID;           // Camera to use (1-12)
+    int expectedSpheres;    // Number of spheres expected (for presence check/arrival wait)
+    int timeoutMs;          // Timeout in milliseconds
+    std::string mode;       // "presence", "positions", "arrivals"
+    
+    SphereVerificationParams()
+        : cameraID(1), expectedSpheres(10), timeoutMs(5000), mode("presence") {}
+    
+    SphereVerificationParams(int cam, int expected, int timeout, const std::string& m)
+        : cameraID(cam), expectedSpheres(expected), timeoutMs(timeout), mode(m) {}
+};
+
+/**
  * Union of all possible event parameters
  */
 using EventParams = std::variant<
@@ -154,7 +175,8 @@ using EventParams = std::variant<
     ReplaySpeedParams,
     NDISlotParams,
     SceneSwitchParams,
-    TextParam
+    TextParam,
+    SphereVerificationParams
 >;
 
 /**
@@ -263,6 +285,19 @@ struct ChoreographyEvent {
         return {EventType::SceneSwitch, SceneSwitchParams(configIndex)};
     }
     
+    // Sphere verification events
+    static ChoreographyEvent SpherePresenceCheck(int cameraID, int expectedSpheres, int timeoutMs = 5000) {
+        return {EventType::SpherePresenceCheck, SphereVerificationParams(cameraID, expectedSpheres, timeoutMs, "presence")};
+    }
+    
+    static ChoreographyEvent SpherePositionCapture(int cameraID, int timeoutMs = 5000) {
+        return {EventType::SpherePositionCapture, SphereVerificationParams(cameraID, 0, timeoutMs, "positions")};
+    }
+    
+    static ChoreographyEvent SphereArrivalWait(int cameraID, int expectedSpheres, int timeoutMs = 60000) {
+        return {EventType::SphereArrivalWait, SphereVerificationParams(cameraID, expectedSpheres, timeoutMs, "arrivals")};
+    }
+    
     // Meta events
     static ChoreographyEvent Comment(const std::string& text) {
         ChoreographyEvent e{EventType::Comment, TextParam(text)};
@@ -299,6 +334,9 @@ struct ChoreographyEvent {
             case EventType::Timer: return "Timer";
             case EventType::NDISlotChange: return "NDISlotChange";
             case EventType::SceneSwitch: return "SceneSwitch";
+            case EventType::SpherePresenceCheck: return "SpherePresenceCheck";
+            case EventType::SpherePositionCapture: return "SpherePositionCapture";
+            case EventType::SphereArrivalWait: return "SphereArrivalWait";
             case EventType::Comment: return "Comment";
             case EventType::Label: return "Label";
             default: return "Unknown";
@@ -310,6 +348,9 @@ struct ChoreographyEvent {
             case EventType::Timer:
             case EventType::NDISlotChange:
             case EventType::SceneSwitch:
+            case EventType::SpherePresenceCheck:
+            case EventType::SpherePositionCapture:
+            case EventType::SphereArrivalWait:
             case EventType::Comment:
             case EventType::Label:
                 return false;
@@ -319,11 +360,20 @@ struct ChoreographyEvent {
     }
     
     bool RequiresVideoHub() const {
-        return type == EventType::NDISlotChange;
+        return type == EventType::NDISlotChange ||
+               type == EventType::SpherePresenceCheck ||
+               type == EventType::SpherePositionCapture ||
+               type == EventType::SphereArrivalWait;
     }
     
     bool RequiresSceneManager() const {
         return type == EventType::SceneSwitch || type == EventType::NDISlotChange;
+    }
+    
+    bool RequiresSphereVerifier() const {
+        return type == EventType::SpherePresenceCheck ||
+               type == EventType::SpherePositionCapture ||
+               type == EventType::SphereArrivalWait;
     }
 };
 
