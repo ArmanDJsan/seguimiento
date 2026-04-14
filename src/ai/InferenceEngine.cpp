@@ -354,9 +354,9 @@ bool InferenceEngine::LoadEngine(const std::string& enginePath) {
             // Verify input dimensions match config
             // Expected: [batch, channels, height, width] = [12, 3, 640, 640]
             if (dims.nbDims >= 4) {
-                int engineBatch = dims.d[0];
-                int engineHeight = dims.d[2];
-                int engineWidth = dims.d[3];
+                int engineBatch = static_cast<int>(dims.d[0]);
+                int engineHeight = static_cast<int>(dims.d[2]);
+                int engineWidth = static_cast<int>(dims.d[3]);
                 
                 if (engineBatch < m_config.batchSize) {
                     Logger::Warning("InferenceEngine: Engine batch size (" + std::to_string(engineBatch) + 
@@ -386,17 +386,17 @@ bool InferenceEngine::LoadEngine(const std::string& enginePath) {
                     // Common format: [batch, detections, attributes] or [batch, attributes, detections]
                     if (dims.d[1] > dims.d[2]) {
                         // [batch, detections, attributes]
-                        m_maxDetections = dims.d[1];
-                        m_outputStride = dims.d[2];
+                        m_maxDetections = static_cast<int>(dims.d[1]);
+                        m_outputStride = static_cast<int>(dims.d[2]);
                     } else {
                         // [batch, attributes, detections] - transposed format
-                        m_maxDetections = dims.d[2];
-                        m_outputStride = dims.d[1];
+                        m_maxDetections = static_cast<int>(dims.d[2]);
+                        m_outputStride = static_cast<int>(dims.d[1]);
                     }
                 } else if (dims.nbDims == 2) {
                     // [total_detections, attributes]
-                    m_maxDetections = dims.d[0] / m_config.batchSize;
-                    m_outputStride = dims.d[1];
+                    m_maxDetections = static_cast<int>(dims.d[0]) / m_config.batchSize;
+                    m_outputStride = static_cast<int>(dims.d[1]);
                 }
                 
                 Logger::Info("InferenceEngine: Detected output format - max_detections=" + 
