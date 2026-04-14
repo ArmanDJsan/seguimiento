@@ -14,6 +14,10 @@
 #include <algorithm>
 #include <cstring>
 
+// YOLO output format constants
+// Base attributes: [x, y, w, h, objectness]
+constexpr int kYoloBaseAttributes = 5;
+
 // External preprocessing kernel functions from PreprocessKernel.cu
 extern "C" {
     cudaError_t LaunchPreprocessBatch(
@@ -76,14 +80,20 @@ InferenceEngine::~InferenceEngine() {
     FreeBuffers();
     
     // Free TensorRT resources in reverse order of creation
+    // Note: In TensorRT 10.x, IExecutionContext should be deleted, not destroy()
+    // The destroy() pattern is deprecated in TensorRT 8+
     if (m_context) {
         delete m_context;
         m_context = nullptr;
     }
-    // Note: Engine and Runtime use reference counting in TensorRT 10
-    // delete is not called directly; they are destroyed when their refcount reaches 0
-    m_engine = nullptr;
-    m_runtime = nullptr;
+    if (m_engine) {
+        delete m_engine;
+        m_engine = nullptr;
+    }
+    if (m_runtime) {
+        delete m_runtime;
+        m_runtime = nullptr;
+    }
 }
 
 bool InferenceEngine::Initialize(const InferenceEngineConfig& config) {
@@ -208,10 +218,11 @@ std::vector<BallDetection> InferenceEngine::ProcessBatch(
     }
     
     // Real TensorRT inference:
-    // 1. Preprocess frames
+    // 1. Preprocess frames (launches CUDA kernels on stream)
     auto preprocessStart = std::chrono::high_resolution_clock::now();
     PreprocessBatch(cudaBuffers, widths, heights, numFrames, stream);
-    cudaStreamSynchronize(stream);  // Ensure preprocessing is complete
+    // Note: No sync needed here - TensorRT inference will wait for preprocessing
+    // kernels on the same stream to complete (implicit stream ordering)
     auto preprocessEnd = std::chrono::high_resolution_clock::now();
     
     // 2. Run TensorRT inference
@@ -228,6 +239,7 @@ std::vector<BallDetection> InferenceEngine::ProcessBatch(
     }
     
     // Execute inference asynchronously on the stream
+    // This implicitly waits for preprocessing kernels to complete (same stream)
     if (!m_context->enqueueV3(stream)) {
         Logger::Error("InferenceEngine: TensorRT inference execution failed");
         return {};
@@ -235,9 +247,9 @@ std::vector<BallDetection> InferenceEngine::ProcessBatch(
     
     auto inferenceEnd = std::chrono::high_resolution_clock::now();
     
-    // 3. Copy results to host asynchronously
+    // 3. Copy results to host asynchronously, then sync
     cudaMemcpyAsync(m_hostOutput, m_outputBuffer, m_outputSize, cudaMemcpyDeviceToHost, stream);
-    cudaStreamSynchronize(stream);  // Wait for copy to complete
+    cudaStreamSynchronize(stream);  // Wait for all GPU work to complete before post-processing
     
     // 4. Post-process
     auto postprocessStart = std::chrono::high_resolution_clock::now();
@@ -345,12 +357,15 @@ bool InferenceEngine::LoadEngine(const std::string& enginePath) {
                 
                 if (engineBatch < m_config.batchSize) {
                     Logger::Warning("InferenceEngine: Engine batch size (" + std::to_string(engineBatch) + 
-                                   ") < configured batch size (" + std::to_string(m_config.batchSize) + ")");
+                                   ") < configured batch size (" + std::to_string(m_config.batchSize) + 
+                                   "). Will process at most " + std::to_string(engineBatch) + " frames per batch.");
                 }
                 if (engineHeight != m_config.inputHeight || engineWidth != m_config.inputWidth) {
-                    Logger::Warning("InferenceEngine: Engine input size (" + 
+                    // Note: We update config to match engine dimensions for correct buffer allocation
+                    // The engine was compiled with specific dimensions that must be honored
+                    Logger::Warning("InferenceEngine: Adapting to engine input size (" + 
                                    std::to_string(engineWidth) + "x" + std::to_string(engineHeight) +
-                                   ") != configured size (" + 
+                                   ") from configured (" + 
                                    std::to_string(m_config.inputWidth) + "x" + std::to_string(m_config.inputHeight) + ")");
                     m_config.inputWidth = engineWidth;
                     m_config.inputHeight = engineHeight;
@@ -404,7 +419,7 @@ bool InferenceEngine::AllocateBuffers() {
     // Calculate output buffer size using discovered tensor dimensions
     // Use discovered values if available, otherwise use defaults
     if (m_outputStride == 0) {
-        m_outputStride = 5 + m_config.numClasses;  // Default: [x, y, w, h, conf, class_scores...]
+        m_outputStride = kYoloBaseAttributes + m_config.numClasses;  // Default: [x, y, w, h, conf, class_scores...]
     }
     m_outputSize = static_cast<size_t>(m_config.batchSize) * m_maxDetections * 
                    m_outputStride * sizeof(float);
@@ -505,14 +520,14 @@ std::vector<BallDetection> InferenceEngine::PostProcess(const float* rawOutput,
     
     // Parse YOLO output format
     // Using discovered dimensions from engine loading
-    // Typically: [batch, num_detections, 5 + num_classes]
-    // where [x, y, w, h, conf, class_scores...]
+    // Typically: [batch, num_detections, kYoloBaseAttributes + num_classes]
+    // where kYoloBaseAttributes = [x, y, w, h, conf]
     
     int64_t now = GetCurrentTimeMs();
     
     // Use member variables that were set during engine loading
-    int stride = (m_outputStride > 0) ? m_outputStride : (5 + m_config.numClasses);
-    int numClasses = stride - 5;
+    int stride = (m_outputStride > 0) ? m_outputStride : (kYoloBaseAttributes + m_config.numClasses);
+    int numClasses = stride - kYoloBaseAttributes;
     
     for (int b = 0; b < numFrames; ++b) {
         const float* batchOutput = rawOutput + b * m_maxDetections * stride;
@@ -520,17 +535,18 @@ std::vector<BallDetection> InferenceEngine::PostProcess(const float* rawOutput,
         for (int d = 0; d < m_maxDetections; ++d) {
             const float* det = batchOutput + d * stride;
             
+            // Index 4 is objectness confidence (after x, y, w, h)
             float objectness = det[4];
             if (objectness < m_config.confidenceThreshold) {
                 continue;
             }
             
-            // Find best class
+            // Find best class (class scores start at index kYoloBaseAttributes)
             int bestClass = 0;
             float bestScore = 0;
             for (int c = 0; c < numClasses; ++c) {
-                if (det[5 + c] > bestScore) {
-                    bestScore = det[5 + c];
+                if (det[kYoloBaseAttributes + c] > bestScore) {
+                    bestScore = det[kYoloBaseAttributes + c];
                     bestClass = c;
                 }
             }
