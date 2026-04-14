@@ -1,11 +1,10 @@
 /**
  * InferenceEngine.cpp
  * 
- * Implementation of TensorRT-based inference engine
+ * Implementation of TensorRT-based inference engine for YOLO ball detection
  * 
- * Note: This implementation provides a working stub mode and the
- * framework for TensorRT integration. Full TensorRT integration
- * requires the TensorRT SDK and a compiled engine file.
+ * TensorRT integration for high-performance batch inference on RTX GPUs.
+ * Optimized for processing 12 camera streams simultaneously.
  */
 
 #include "InferenceEngine.h"
@@ -15,9 +14,46 @@
 #include <algorithm>
 #include <cstring>
 
-// TensorRT headers would be included here:
-// #include <NvInfer.h>
-// #include <NvInferRuntime.h>
+// External preprocessing kernel functions from PreprocessKernel.cu
+extern "C" {
+    cudaError_t LaunchPreprocessBatch(
+        void** srcBuffers,
+        float* dstRGB,
+        const int* srcWidths,
+        const int* srcHeights,
+        int dstWidth, int dstHeight,
+        int numFrames,
+        bool isUYVY,
+        cudaStream_t stream);
+    
+    cudaError_t LaunchPreprocessBGRA(
+        const void* srcBGRA,
+        float* dstRGB,
+        int srcWidth, int srcHeight,
+        int dstWidth, int dstHeight,
+        int batchIdx,
+        cudaStream_t stream);
+}
+
+// TensorRT Logger implementation
+void InferenceEngine::TRTLogger::log(Severity severity, const char* msg) noexcept {
+    // Filter out verbose info/warning messages in production
+    switch (severity) {
+        case Severity::kINTERNAL_ERROR:
+        case Severity::kERROR:
+            Logger::Error(std::string("TensorRT: ") + msg);
+            break;
+        case Severity::kWARNING:
+            Logger::Warning(std::string("TensorRT: ") + msg);
+            break;
+        case Severity::kINFO:
+            Logger::Info(std::string("TensorRT: ") + msg);
+            break;
+        case Severity::kVERBOSE:
+            // Suppress verbose messages in production
+            break;
+    }
+}
 
 InferenceEngine::InferenceEngine()
     : m_initialized(false)
@@ -29,6 +65,8 @@ InferenceEngine::InferenceEngine()
     , m_outputBuffer(nullptr)
     , m_inputSize(0)
     , m_outputSize(0)
+    , m_maxDetections(8400)
+    , m_outputStride(0)
     , m_hostOutput(nullptr)
 {
     std::memset(&m_lastTelemetry, 0, sizeof(m_lastTelemetry));
@@ -37,10 +75,15 @@ InferenceEngine::InferenceEngine()
 InferenceEngine::~InferenceEngine() {
     FreeBuffers();
     
-    // Free TensorRT resources
-    // if (m_context) { static_cast<nvinfer1::IExecutionContext*>(m_context)->destroy(); }
-    // if (m_engine) { static_cast<nvinfer1::ICudaEngine*>(m_engine)->destroy(); }
-    // if (m_runtime) { static_cast<nvinfer1::IRuntime*>(m_runtime)->destroy(); }
+    // Free TensorRT resources in reverse order of creation
+    if (m_context) {
+        delete m_context;
+        m_context = nullptr;
+    }
+    // Note: Engine and Runtime use reference counting in TensorRT 10
+    // delete is not called directly; they are destroyed when their refcount reaches 0
+    m_engine = nullptr;
+    m_runtime = nullptr;
 }
 
 bool InferenceEngine::Initialize(const InferenceEngineConfig& config) {
@@ -164,25 +207,37 @@ std::vector<BallDetection> InferenceEngine::ProcessBatch(
         return detections;
     }
     
-    // Real TensorRT inference would go here:
+    // Real TensorRT inference:
     // 1. Preprocess frames
     auto preprocessStart = std::chrono::high_resolution_clock::now();
     PreprocessBatch(cudaBuffers, widths, heights, numFrames, stream);
+    cudaStreamSynchronize(stream);  // Ensure preprocessing is complete
     auto preprocessEnd = std::chrono::high_resolution_clock::now();
     
-    // 2. Run inference
+    // 2. Run TensorRT inference
     auto inferenceStart = std::chrono::high_resolution_clock::now();
     
-    // TensorRT inference:
-    // void* bindings[] = { m_inputBuffer, m_outputBuffer };
-    // static_cast<nvinfer1::IExecutionContext*>(m_context)->enqueueV2(bindings, stream, nullptr);
-    // cudaStreamSynchronize(stream);
+    // Set up I/O tensor addresses for TensorRT 10.x API
+    if (!m_context->setTensorAddress(m_inputTensorName.c_str(), m_inputBuffer)) {
+        Logger::Error("InferenceEngine: Failed to set input tensor address");
+        return {};
+    }
+    if (!m_context->setTensorAddress(m_outputTensorName.c_str(), m_outputBuffer)) {
+        Logger::Error("InferenceEngine: Failed to set output tensor address");
+        return {};
+    }
+    
+    // Execute inference asynchronously on the stream
+    if (!m_context->enqueueV3(stream)) {
+        Logger::Error("InferenceEngine: TensorRT inference execution failed");
+        return {};
+    }
     
     auto inferenceEnd = std::chrono::high_resolution_clock::now();
     
-    // 3. Copy results to host
-    // cudaMemcpyAsync(m_hostOutput, m_outputBuffer, m_outputSize, cudaMemcpyDeviceToHost, stream);
-    // cudaStreamSynchronize(stream);
+    // 3. Copy results to host asynchronously
+    cudaMemcpyAsync(m_hostOutput, m_outputBuffer, m_outputSize, cudaMemcpyDeviceToHost, stream);
+    cudaStreamSynchronize(stream);  // Wait for copy to complete
     
     // 4. Post-process
     auto postprocessStart = std::chrono::high_resolution_clock::now();
@@ -241,41 +296,129 @@ bool InferenceEngine::LoadEngine(const std::string& enginePath) {
     }
     file.close();
     
-    // ==========================================================================
-    // NOTE: TensorRT INTEGRATION PENDING
-    // ==========================================================================
-    // This function currently ALWAYS returns false, forcing stub mode.
-    // To enable real TensorRT inference:
-    // 1. Include TensorRT headers: <NvInfer.h>, <NvInferRuntime.h>
-    // 2. Implement engine deserialization:
-    //    m_runtime = nvinfer1::createInferRuntime(gLogger);
-    //    m_engine = m_runtime->deserializeCudaEngine(engineData.data(), fileSize);
-    //    m_context = m_engine->createExecutionContext();
-    // 3. Return true on success
-    // 4. Link against nvinfer.lib, nvinfer_plugin.lib
-    //
-    // The engine file must be created with:
-    //    trtexec --onnx=yolo26l.onnx --saveEngine=yolo26l_fp16_b12.engine \
-    //            --fp16 --workspace=8192 --batch=12
-    // ==========================================================================
+    // Create TensorRT runtime
+    m_runtime = nvinfer1::createInferRuntime(m_trtLogger);
+    if (!m_runtime) {
+        Logger::Error("InferenceEngine: Failed to create TensorRT runtime");
+        return false;
+    }
     
-    Logger::Info("InferenceEngine: Engine file validated (" + 
-                 std::to_string(fileSize / 1024 / 1024) + " MB), TensorRT integration pending");
-    return false;  // Return false to use stub mode until TensorRT is integrated
+    // Deserialize the CUDA engine from the engine data
+    m_engine = m_runtime->deserializeCudaEngine(engineData.data(), fileSize);
+    if (!m_engine) {
+        Logger::Error("InferenceEngine: Failed to deserialize TensorRT engine");
+        return false;
+    }
+    
+    // Create execution context
+    m_context = m_engine->createExecutionContext();
+    if (!m_context) {
+        Logger::Error("InferenceEngine: Failed to create TensorRT execution context");
+        return false;
+    }
+    
+    // Discover input/output tensor names and shapes
+    int numIOTensors = m_engine->getNbIOTensors();
+    Logger::Info("InferenceEngine: Engine has " + std::to_string(numIOTensors) + " I/O tensors");
+    
+    for (int i = 0; i < numIOTensors; ++i) {
+        const char* tensorName = m_engine->getIOTensorName(i);
+        nvinfer1::TensorIOMode ioMode = m_engine->getTensorIOMode(tensorName);
+        nvinfer1::Dims dims = m_engine->getTensorShape(tensorName);
+        
+        std::string dimsStr;
+        for (int d = 0; d < dims.nbDims; ++d) {
+            if (d > 0) dimsStr += "x";
+            dimsStr += std::to_string(dims.d[d]);
+        }
+        
+        if (ioMode == nvinfer1::TensorIOMode::kINPUT) {
+            m_inputTensorName = tensorName;
+            Logger::Info("InferenceEngine: Input tensor '" + m_inputTensorName + "' shape: " + dimsStr);
+            
+            // Verify input dimensions match config
+            // Expected: [batch, channels, height, width] = [12, 3, 640, 640]
+            if (dims.nbDims >= 4) {
+                int engineBatch = dims.d[0];
+                int engineHeight = dims.d[2];
+                int engineWidth = dims.d[3];
+                
+                if (engineBatch < m_config.batchSize) {
+                    Logger::Warning("InferenceEngine: Engine batch size (" + std::to_string(engineBatch) + 
+                                   ") < configured batch size (" + std::to_string(m_config.batchSize) + ")");
+                }
+                if (engineHeight != m_config.inputHeight || engineWidth != m_config.inputWidth) {
+                    Logger::Warning("InferenceEngine: Engine input size (" + 
+                                   std::to_string(engineWidth) + "x" + std::to_string(engineHeight) +
+                                   ") != configured size (" + 
+                                   std::to_string(m_config.inputWidth) + "x" + std::to_string(m_config.inputHeight) + ")");
+                    m_config.inputWidth = engineWidth;
+                    m_config.inputHeight = engineHeight;
+                }
+            }
+        } else if (ioMode == nvinfer1::TensorIOMode::kOUTPUT) {
+            m_outputTensorName = tensorName;
+            Logger::Info("InferenceEngine: Output tensor '" + m_outputTensorName + "' shape: " + dimsStr);
+            
+            // Parse output dimensions to determine detection format
+            // Typical YOLO output: [batch, num_detections, 5+num_classes] or [batch, 5+num_classes, num_detections]
+            if (dims.nbDims >= 2) {
+                // Determine which dimension is detections vs attributes
+                if (dims.nbDims == 3) {
+                    // Common format: [batch, detections, attributes] or [batch, attributes, detections]
+                    if (dims.d[1] > dims.d[2]) {
+                        // [batch, detections, attributes]
+                        m_maxDetections = dims.d[1];
+                        m_outputStride = dims.d[2];
+                    } else {
+                        // [batch, attributes, detections] - transposed format
+                        m_maxDetections = dims.d[2];
+                        m_outputStride = dims.d[1];
+                    }
+                } else if (dims.nbDims == 2) {
+                    // [total_detections, attributes]
+                    m_maxDetections = dims.d[0] / m_config.batchSize;
+                    m_outputStride = dims.d[1];
+                }
+                
+                Logger::Info("InferenceEngine: Detected output format - max_detections=" + 
+                            std::to_string(m_maxDetections) + ", stride=" + std::to_string(m_outputStride));
+            }
+        }
+    }
+    
+    if (m_inputTensorName.empty() || m_outputTensorName.empty()) {
+        Logger::Error("InferenceEngine: Failed to find input/output tensors");
+        return false;
+    }
+    
+    Logger::Info("InferenceEngine: TensorRT engine loaded successfully from " + enginePath);
+    return true;
 }
 
 bool InferenceEngine::AllocateBuffers() {
-    // Calculate buffer sizes
+    // Calculate input buffer size
     m_inputSize = static_cast<size_t>(m_config.batchSize) * kInputChannels * 
                   m_config.inputWidth * m_config.inputHeight * sizeof(float);
     
-    // Output size depends on YOLO architecture
-    // For YOLO, typically [batch, num_detections, 6] where 6 = [x, y, w, h, conf, class]
-    int maxDetections = 8400;  // Typical for YOLOv8
-    m_outputSize = static_cast<size_t>(m_config.batchSize) * maxDetections * 
-                   (5 + m_config.numClasses) * sizeof(float);
+    // Calculate output buffer size using discovered tensor dimensions
+    // Use discovered values if available, otherwise use defaults
+    if (m_outputStride == 0) {
+        m_outputStride = 5 + m_config.numClasses;  // Default: [x, y, w, h, conf, class_scores...]
+    }
+    m_outputSize = static_cast<size_t>(m_config.batchSize) * m_maxDetections * 
+                   m_outputStride * sizeof(float);
     
-    // Allocate device memory
+    Logger::Info("InferenceEngine: Allocating buffers - Input: " + 
+                 std::to_string(m_inputSize / (1024 * 1024)) + " MB (" +
+                 std::to_string(m_config.batchSize) + "x" + std::to_string(kInputChannels) + "x" +
+                 std::to_string(m_config.inputHeight) + "x" + std::to_string(m_config.inputWidth) + ")");
+    Logger::Info("InferenceEngine: Output: " + 
+                 std::to_string(m_outputSize / (1024 * 1024)) + " MB (" +
+                 std::to_string(m_config.batchSize) + "x" + std::to_string(m_maxDetections) + "x" +
+                 std::to_string(m_outputStride) + ")");
+    
+    // Allocate device memory for input
     cudaError_t err = cudaMalloc(&m_inputBuffer, m_inputSize);
     if (err != cudaSuccess) {
         Logger::Error("InferenceEngine: Failed to allocate input buffer: " + 
@@ -283,19 +426,22 @@ bool InferenceEngine::AllocateBuffers() {
         return false;
     }
     
+    // Allocate device memory for output
     err = cudaMalloc(&m_outputBuffer, m_outputSize);
     if (err != cudaSuccess) {
         cudaFree(m_inputBuffer);
         m_inputBuffer = nullptr;
-        Logger::Error("InferenceEngine: Failed to allocate output buffer");
+        Logger::Error("InferenceEngine: Failed to allocate output buffer: " + 
+                      std::string(cudaGetErrorString(err)));
         return false;
     }
     
-    // Allocate pinned host memory for results
+    // Allocate pinned host memory for results (faster GPU→CPU transfer)
     err = cudaMallocHost(&m_hostOutput, m_outputSize);
     if (err != cudaSuccess) {
         FreeBuffers();
-        Logger::Error("InferenceEngine: Failed to allocate host output buffer");
+        Logger::Error("InferenceEngine: Failed to allocate host output buffer: " + 
+                      std::string(cudaGetErrorString(err)));
         return false;
     }
     
@@ -324,19 +470,28 @@ void InferenceEngine::FreeBuffers() {
 void InferenceEngine::PreprocessBatch(void** cudaBuffers, const unsigned int* widths,
                                        const unsigned int* heights, int numFrames, 
                                        cudaStream_t stream) {
-    // CUDA preprocessing would go here:
-    // - Resize from source size to 640x640
-    // - Convert BGRA to RGB
-    // - Normalize to [0, 1]
-    // - Arrange in NCHW format
-    //
-    // This would be implemented as a CUDA kernel in PreprocessKernel.cu
+    // Call CUDA preprocessing kernel for each frame in the batch
+    // The kernel performs: resize, BGRA→RGB conversion, normalization to [0,1], NCHW layout
     
-    (void)cudaBuffers;
-    (void)widths;
-    (void)heights;
-    (void)numFrames;
-    (void)stream;
+    float* inputFloat = static_cast<float*>(m_inputBuffer);
+    
+    for (int i = 0; i < numFrames; ++i) {
+        cudaError_t err = LaunchPreprocessBGRA(
+            cudaBuffers[i],
+            inputFloat,
+            static_cast<int>(widths[i]),
+            static_cast<int>(heights[i]),
+            m_config.inputWidth,
+            m_config.inputHeight,
+            i,  // batch index
+            stream
+        );
+        
+        if (err != cudaSuccess) {
+            Logger::Error("InferenceEngine: Preprocessing failed for frame " + std::to_string(i) + 
+                         ": " + std::string(cudaGetErrorString(err)));
+        }
+    }
 }
 
 std::vector<BallDetection> InferenceEngine::PostProcess(const float* rawOutput,
@@ -349,19 +504,21 @@ std::vector<BallDetection> InferenceEngine::PostProcess(const float* rawOutput,
     }
     
     // Parse YOLO output format
-    // This depends on the specific YOLO version being used
+    // Using discovered dimensions from engine loading
     // Typically: [batch, num_detections, 5 + num_classes]
     // where [x, y, w, h, conf, class_scores...]
     
     int64_t now = GetCurrentTimeMs();
-    int maxDetections = 8400;
-    int outputStride = 5 + m_config.numClasses;
+    
+    // Use member variables that were set during engine loading
+    int stride = (m_outputStride > 0) ? m_outputStride : (5 + m_config.numClasses);
+    int numClasses = stride - 5;
     
     for (int b = 0; b < numFrames; ++b) {
-        const float* batchOutput = rawOutput + b * maxDetections * outputStride;
+        const float* batchOutput = rawOutput + b * m_maxDetections * stride;
         
-        for (int d = 0; d < maxDetections; ++d) {
-            const float* det = batchOutput + d * outputStride;
+        for (int d = 0; d < m_maxDetections; ++d) {
+            const float* det = batchOutput + d * stride;
             
             float objectness = det[4];
             if (objectness < m_config.confidenceThreshold) {
@@ -371,7 +528,7 @@ std::vector<BallDetection> InferenceEngine::PostProcess(const float* rawOutput,
             // Find best class
             int bestClass = 0;
             float bestScore = 0;
-            for (int c = 0; c < m_config.numClasses; ++c) {
+            for (int c = 0; c < numClasses; ++c) {
                 if (det[5 + c] > bestScore) {
                     bestScore = det[5 + c];
                     bestClass = c;
