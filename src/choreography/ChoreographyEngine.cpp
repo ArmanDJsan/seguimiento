@@ -665,7 +665,7 @@ void ChoreographyEngine::PreciseSleep(std::chrono::milliseconds duration) {
             }
             
             auto remaining = (start + sleepDuration) - std::chrono::high_resolution_clock::now();
-            auto sleepTime = std::min(remaining, checkInterval);
+            auto sleepTime = (std::min<std::chrono::steady_clock::duration>)(remaining, checkInterval);
             std::this_thread::sleep_for(sleepTime);
         }
     }
