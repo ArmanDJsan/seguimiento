@@ -1,0 +1,86 @@
+{
+  "name": "Race Setup with Sphere Verification",
+  "description": "Example choreography demonstrating sphere verification events",
+  "version": "1.0",
+  "author": "VIB System",
+  "events": [
+    {
+      "type": "Comment",
+      "text": "=== RACE SETUP PHASE ==="
+    },
+    {
+      "type": "SpherePresenceCheck",
+      "cameraID": 1,
+      "expectedSpheres": 10,
+      "timeoutMs": 5000,
+      "mode": "presence"
+    },
+    {
+      "type": "Comment",
+      "text": "All spheres verified at starting position"
+    },
+    {
+      "type": "Timer",
+      "ms": 1000
+    },
+    {
+      "type": "Comment",
+      "text": "=== CAPTURE STARTING POSITIONS ==="
+    },
+    {
+      "type": "SpherePositionCapture",
+      "cameraID": 1,
+      "timeoutMs": 3000,
+      "mode": "positions"
+    },
+    {
+      "type": "Comment",
+      "text": "Starting positions recorded"
+    },
+    {
+      "type": "Timer",
+      "ms": 2000
+    },
+    {
+      "type": "Comment",
+      "text": "=== RACE STARTS HERE ==="
+    },
+    {
+      "type": "Timer",
+      "ms": 30000
+    },
+    {
+      "type": "Comment",
+      "text": "=== WAIT FOR FINISH LINE ARRIVALS ==="
+    },
+    {
+      "type": "SphereArrivalWait",
+      "cameraID": 12,
+      "expectedSpheres": 10,
+      "timeoutMs": 60000,
+      "mode": "arrivals"
+    },
+    {
+      "type": "Comment",
+      "text": "All spheres crossed finish line"
+    },
+    {
+      "type": "Timer",
+      "ms": 1000
+    },
+    {
+      "type": "Comment",
+      "text": "=== CAPTURE FINISH POSITIONS ==="
+    },
+    {
+      "type": "SpherePositionCapture",
+      "cameraID": 12,
+      "timeoutMs": 3000,
+      "mode": "positions"
+    },
+    {
+      "type": "Comment",
+      "text": "Race complete - all data captured"
+    }
+  ]
+}

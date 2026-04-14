@@ -8,6 +8,7 @@
 #include "../control/VMixController.h"
 #include "../scene/SceneManager.h"
 #include "../control/VideoHubClient.h"
+#include "../verification/SphereVerifier.h"
 #include "../utils/Logger.h"
 #include <sstream>
 #include <iomanip>
@@ -18,6 +19,7 @@ ChoreographyEngine::ChoreographyEngine(VMixController* vmixController, SceneMana
     : m_vmixController(vmixController)
     , m_sceneManager(sceneManager)
     , m_videoHub(nullptr)
+    , m_sphereVerifier(nullptr)
     , m_scriptLoaded(false)
     , m_state(EngineState::Idle)
     , m_currentEventIndex(0)
@@ -388,6 +390,13 @@ EventResult ChoreographyEngine::ExecuteEventInternal(const ChoreographyEvent& ev
             break;
         }
         
+        case EventType::SpherePresenceCheck:
+        case EventType::SpherePositionCapture:
+        case EventType::SphereArrivalWait: {
+            result.success = ExecuteSphereVerification(event, result);
+            break;
+        }
+        
         default: {
             // vMix commands
             std::string command = BuildVMixCommand(event);
@@ -725,6 +734,59 @@ std::string ChoreographyEngine::GetStateString(EngineState state) const {
         case EngineState::Error: return "Error";
         default: return "Unknown";
     }
+}
+
+bool ChoreographyEngine::ExecuteSphereVerification(const ChoreographyEvent& event, EventResult& result) {
+    if (!m_sphereVerifier) {
+        result.errorMessage = "SphereVerifier not available";
+        Logger::Error("ChoreographyEngine: " + result.errorMessage);
+        return false;
+    }
+    
+    auto* params = std::get_if<SphereVerificationParams>(&event.params);
+    if (!params) {
+        result.errorMessage = "Invalid sphere verification parameters";
+        Logger::Error("ChoreographyEngine: " + result.errorMessage);
+        return false;
+    }
+    
+    Logger::Info("ChoreographyEngine: Executing sphere verification - mode=" + params->mode +
+                 ", camera=" + std::to_string(params->cameraID) +
+                 ", expected=" + std::to_string(params->expectedSpheres) +
+                 ", timeout=" + std::to_string(params->timeoutMs) + "ms");
+    
+    // Execute the appropriate verification based on event type
+    Verification::VerificationResult verifyResult;
+    
+    switch (event.type) {
+        case EventType::SpherePresenceCheck:
+            verifyResult = m_sphereVerifier->CheckPresence(params->cameraID, params->expectedSpheres, params->timeoutMs);
+            break;
+        
+        case EventType::SpherePositionCapture:
+            verifyResult = m_sphereVerifier->CapturePositions(params->cameraID, params->timeoutMs);
+            break;
+        
+        case EventType::SphereArrivalWait:
+            verifyResult = m_sphereVerifier->WaitForArrivals(params->cameraID, params->expectedSpheres, params->timeoutMs);
+            break;
+        
+        default:
+            result.errorMessage = "Unknown sphere verification event type";
+            Logger::Error("ChoreographyEngine: " + result.errorMessage);
+            return false;
+    }
+    
+    // Log the result
+    if (verifyResult.success) {
+        Logger::Info("ChoreographyEngine: Sphere verification succeeded - detected " + 
+                    std::to_string(verifyResult.spheresDetected) + " spheres");
+    } else {
+        result.errorMessage = verifyResult.errorMessage;
+        Logger::Error("ChoreographyEngine: Sphere verification failed - " + verifyResult.errorMessage);
+    }
+    
+    return verifyResult.success;
 }
 
 } // namespace Choreography
