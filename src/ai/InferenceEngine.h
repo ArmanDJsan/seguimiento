@@ -16,6 +16,8 @@
 #pragma once
 
 #include <cuda_runtime.h>
+#include <NvInfer.h>
+#include <NvInferRuntime.h>
 #include <vector>
 #include <string>
 #include <memory>
@@ -163,26 +165,40 @@ public:
     const InferenceEngineConfig& GetConfig() const { return m_config; }
 
 private:
+    /**
+     * TensorRT Logger implementation
+     * Routes TensorRT log messages through our Logger system
+     */
+    class TRTLogger : public nvinfer1::ILogger {
+    public:
+        void log(Severity severity, const char* msg) noexcept override;
+    };
+    
     // Configuration
     InferenceEngineConfig m_config;
     std::atomic<bool> m_initialized;
     std::atomic<bool> m_stubMode;
     mutable std::mutex m_mutex;
     
-    // TensorRT resources (opaque pointers to avoid header dependency)
-    // In real implementation, these would be:
-    // nvinfer1::IRuntime* m_runtime;
-    // nvinfer1::ICudaEngine* m_engine;
-    // nvinfer1::IExecutionContext* m_context;
-    void* m_runtime;
-    void* m_engine;
-    void* m_context;
+    // TensorRT logger instance (must outlive runtime)
+    TRTLogger m_trtLogger;
+    
+    // TensorRT resources
+    nvinfer1::IRuntime* m_runtime;
+    nvinfer1::ICudaEngine* m_engine;
+    nvinfer1::IExecutionContext* m_context;
+    
+    // Input/output tensor names (discovered from engine)
+    std::string m_inputTensorName;
+    std::string m_outputTensorName;
     
     // GPU buffers
     void* m_inputBuffer;        // Preprocessed input [B, C, H, W]
     void* m_outputBuffer;       // Raw output from network
     size_t m_inputSize;         // Size in bytes
     size_t m_outputSize;        // Size in bytes
+    int m_maxDetections;        // Max detections per frame (from engine output shape)
+    int m_outputStride;         // Output stride per detection
     
     // Pinned host memory for results
     float* m_hostOutput;
