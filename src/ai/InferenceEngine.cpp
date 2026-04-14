@@ -18,6 +18,9 @@
 // Base attributes: [x, y, w, h, objectness]
 constexpr int kYoloBaseAttributes = 5;
 
+// Default max detections per frame for YOLOv8-style models
+constexpr int kDefaultMaxDetections = 8400;
+
 // External preprocessing kernel functions from PreprocessKernel.cu
 extern "C" {
     cudaError_t LaunchPreprocessBatch(
@@ -69,7 +72,7 @@ InferenceEngine::InferenceEngine()
     , m_outputBuffer(nullptr)
     , m_inputSize(0)
     , m_outputSize(0)
-    , m_maxDetections(8400)
+    , m_maxDetections(kDefaultMaxDetections)
     , m_outputStride(0)
     , m_hostOutput(nullptr)
 {
