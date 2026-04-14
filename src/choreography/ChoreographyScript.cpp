@@ -248,6 +248,29 @@ std::optional<ChoreographyEvent> ChoreographyScript::ParseJsonEvent(const void* 
         Logger::Debug("ChoreographyScript: Parsed SceneSwitch(config=" + std::to_string(config) + ")");
         return ChoreographyEvent::SceneSwitch(config);
     }
+    else if (typeLower == "spherepresencecheck") {
+        int cameraID = j.value("cameraID", j.value("camera", 1));
+        int expectedSpheres = j.value("expectedSpheres", j.value("expected", 10));
+        int timeoutMs = j.value("timeoutMs", j.value("timeout", 5000));
+        Logger::Debug("ChoreographyScript: Parsed SpherePresenceCheck(camera=" + std::to_string(cameraID) + 
+                     ", expected=" + std::to_string(expectedSpheres) + ", timeout=" + std::to_string(timeoutMs) + ")");
+        return ChoreographyEvent::SpherePresenceCheck(cameraID, expectedSpheres, timeoutMs);
+    }
+    else if (typeLower == "spherepositioncapture") {
+        int cameraID = j.value("cameraID", j.value("camera", 1));
+        int timeoutMs = j.value("timeoutMs", j.value("timeout", 5000));
+        Logger::Debug("ChoreographyScript: Parsed SpherePositionCapture(camera=" + std::to_string(cameraID) + 
+                     ", timeout=" + std::to_string(timeoutMs) + ")");
+        return ChoreographyEvent::SpherePositionCapture(cameraID, timeoutMs);
+    }
+    else if (typeLower == "spherearrivalwait") {
+        int cameraID = j.value("cameraID", j.value("camera", 1));
+        int expectedSpheres = j.value("expectedSpheres", j.value("expected", 10));
+        int timeoutMs = j.value("timeoutMs", j.value("timeout", 60000));
+        Logger::Debug("ChoreographyScript: Parsed SphereArrivalWait(camera=" + std::to_string(cameraID) + 
+                     ", expected=" + std::to_string(expectedSpheres) + ", timeout=" + std::to_string(timeoutMs) + ")");
+        return ChoreographyEvent::SphereArrivalWait(cameraID, expectedSpheres, timeoutMs);
+    }
     else if (typeLower == "comment") {
         std::string text = j.value("text", "");
         // Don't log debug for comments - they're meta-events
@@ -592,6 +615,12 @@ std::string ChoreographyScript::ToJsonString(const Script& script) {
         }
         else if (auto* p = std::get_if<SceneSwitchParams>(&event.params)) {
             eventJson["config"] = p->configIndex;
+        }
+        else if (auto* p = std::get_if<SphereVerificationParams>(&event.params)) {
+            eventJson["cameraID"] = p->cameraID;
+            eventJson["expectedSpheres"] = p->expectedSpheres;
+            eventJson["timeoutMs"] = p->timeoutMs;
+            eventJson["mode"] = p->mode;
         }
         else if (auto* p = std::get_if<TextParam>(&event.params)) {
             eventJson["text"] = p->text;
