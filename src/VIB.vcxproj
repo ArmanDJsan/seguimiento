@@ -131,6 +131,7 @@
     <ClCompile Include="diagnostics\StressTester.cpp" />
     <ClCompile Include="choreography\ChoreographyScript.cpp" />
     <ClCompile Include="choreography\ChoreographyEngine.cpp" />
+    <ClCompile Include="verification\SphereVerifier.cpp" />
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="capture\CudaColorConversion.cu">
@@ -171,6 +172,7 @@
     <ClInclude Include="choreography\ChoreographyEvent.h" />
     <ClInclude Include="choreography\ChoreographyScript.h" />
     <ClInclude Include="choreography\ChoreographyEngine.h" />
+    <ClInclude Include="verification\SphereVerifier.h" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="shaders\ColorConversion.hlsl">

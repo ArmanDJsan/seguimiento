@@ -35,6 +35,10 @@ class VMixController;
 class SceneManager;
 class VideoHubClient;
 
+namespace Verification {
+    class SphereVerifier;
+}
+
 namespace Choreography {
 
 /**
@@ -237,11 +241,17 @@ public:
      */
     void SetVideoHubClient(VideoHubClient* client) { m_videoHub = client; }
     
+    /**
+     * Set SphereVerifier for sphere verification events
+     */
+    void SetSphereVerifier(Verification::SphereVerifier* verifier) { m_sphereVerifier = verifier; }
+
 private:
     // Controllers
     VMixController* m_vmixController;
     SceneManager* m_sceneManager;
     VideoHubClient* m_videoHub;
+    Verification::SphereVerifier* m_sphereVerifier;
     
     // Script
     Script m_script;
@@ -284,6 +294,7 @@ private:
     std::string BuildVMixCommand(const ChoreographyEvent& event);
     bool ExecuteNDISlotChange(int slot, int cameraID);
     bool ExecuteSceneSwitch(int configIndex);
+    bool ExecuteSphereVerification(const ChoreographyEvent& event, EventResult& result);
     
     // High-resolution timer
     void PreciseSleep(std::chrono::milliseconds duration);
