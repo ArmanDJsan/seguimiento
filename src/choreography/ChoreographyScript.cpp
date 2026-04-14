@@ -218,7 +218,7 @@ std::optional<ChoreographyEvent> ChoreographyScript::ParseJsonEvent(const void* 
                 speedStr.erase(std::remove(speedStr.begin(), speedStr.end(), '%'), speedStr.end());
                 try {
                     speed = std::stoi(speedStr);
-                } catch (const std::exception& e) {
+                } catch (const std::exception& /*e*/) {
                     Logger::Warning("ChoreographyScript: Invalid speed value '" + speedStr + "', using default 100%");
                     speed = 100;
                 }

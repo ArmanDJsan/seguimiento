@@ -7,7 +7,9 @@
  * Optimized for RTX 5080 with compute_100,sm_100
  */
 
+#ifndef _HAS_STD_BYTE
 #define _HAS_STD_BYTE 0
+#endif
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
 

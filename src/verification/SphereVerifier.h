@@ -26,6 +26,8 @@
 #include <mutex>
 #include <atomic>
 #include <cstdint>
+#include <mutex>        
+#include <functional>  
 
 // Forward declarations
 class VideoHubClient;

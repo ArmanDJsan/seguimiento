@@ -13,6 +13,8 @@
 #include <thread>
 #include <unordered_map>
 #include <set>
+#include <functional> // REQUERIDO para std::function
+#include <mutex>      // REQUERIDO para std::lock_guard y m_mutex
 
 namespace Verification {
 
@@ -263,7 +265,7 @@ bool SphereVerifier::RouteCamera(int cameraID) {
     
     // Assuming output 0 is the primary output for verification
     // Camera IDs are 1-based, VideoHub expects 0-based indexing
-    std::string cameraName = "CAM_" + (cameraID < 10 ? "0" : "") + std::to_string(cameraID);
+    std::string cameraName = std::string("CAM_") + (cameraID < 10 ? "0" : "") + std::to_string(cameraID);
     
     bool success = m_videoHub->RouteInputToOutput(0, cameraName);
     if (!success) {
