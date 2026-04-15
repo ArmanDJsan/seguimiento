@@ -71,7 +71,11 @@ struct InferenceEngineConfig {
 /**
  * InferenceEngine - TensorRT-based YOLO inference
  * 
- * Thread safety: ProcessBatch is thread-safe, Initialize must be called once
+ * Thread safety:
+ * - ProcessBatch/ProcessFrame are thread-safe via mutex serialization
+ * - Initialize must be called once before any inference calls
+ * - Concurrent calls from multiple threads are serialized (one at a time)
+ * - For higher throughput, consider using multiple InferenceEngine instances
  */
 class InferenceEngine {
 public:

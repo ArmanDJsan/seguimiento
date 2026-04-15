@@ -221,6 +221,11 @@ std::vector<BallDetection> InferenceEngine::ProcessBatch(
     }
     
     // Real TensorRT inference:
+    // IMPORTANT: TensorRT IExecutionContext is NOT thread-safe. Multiple threads
+    // calling enqueueV3() on the same context simultaneously causes "Called with an
+    // already loaded binary graph" Myelin errors. We use mutex serialization here.
+    // For better parallelism, consider using multiple execution contexts (one per stream).
+    
     // 1. Preprocess frames (launches CUDA kernels on stream)
     auto preprocessStart = std::chrono::high_resolution_clock::now();
     PreprocessBatch(cudaBuffers, widths, heights, numFrames, stream);
@@ -228,31 +233,42 @@ std::vector<BallDetection> InferenceEngine::ProcessBatch(
     // kernels on the same stream to complete (implicit stream ordering)
     auto preprocessEnd = std::chrono::high_resolution_clock::now();
     
-    // 2. Run TensorRT inference
+    // 2. Run TensorRT inference (serialized via mutex for thread safety)
     auto inferenceStart = std::chrono::high_resolution_clock::now();
     
-    // Set up I/O tensor addresses for TensorRT 10.x API
-    if (!m_context->setTensorAddress(m_inputTensorName.c_str(), m_inputBuffer)) {
-        Logger::Error("InferenceEngine: Failed to set input tensor address");
-        return {};
+    {
+        // Acquire lock before accessing execution context
+        // This serializes inference calls from multiple capture threads
+        std::lock_guard<std::mutex> lock(m_mutex);
+        
+        // Set up I/O tensor addresses for TensorRT 10.x API
+        if (!m_context->setTensorAddress(m_inputTensorName.c_str(), m_inputBuffer)) {
+            Logger::Error("InferenceEngine: Failed to set input tensor address");
+            return {};
+        }
+        if (!m_context->setTensorAddress(m_outputTensorName.c_str(), m_outputBuffer)) {
+            Logger::Error("InferenceEngine: Failed to set output tensor address");
+            return {};
+        }
+        
+        // Execute inference asynchronously on the stream
+        // This implicitly waits for preprocessing kernels to complete (same stream)
+        if (!m_context->enqueueV3(stream)) {
+            Logger::Error("InferenceEngine: TensorRT inference execution failed");
+            return {};
+        }
+        
+        // Copy results to host asynchronously while still holding the lock
+        // This ensures the output buffer isn't overwritten by another thread
+        cudaMemcpyAsync(m_hostOutput, m_outputBuffer, m_outputSize, cudaMemcpyDeviceToHost, stream);
+        
+        // Wait for copy to complete before releasing lock
+        // This is required because the output buffer is shared
+        cudaStreamSynchronize(stream);
     }
-    if (!m_context->setTensorAddress(m_outputTensorName.c_str(), m_outputBuffer)) {
-        Logger::Error("InferenceEngine: Failed to set output tensor address");
-        return {};
-    }
-    
-    // Execute inference asynchronously on the stream
-    // This implicitly waits for preprocessing kernels to complete (same stream)
-    if (!m_context->enqueueV3(stream)) {
-        Logger::Error("InferenceEngine: TensorRT inference execution failed");
-        return {};
-    }
+    // Lock released here - other threads can now run inference
     
     auto inferenceEnd = std::chrono::high_resolution_clock::now();
-    
-    // 3. Copy results to host asynchronously, then sync
-    cudaMemcpyAsync(m_hostOutput, m_outputBuffer, m_outputSize, cudaMemcpyDeviceToHost, stream);
-    cudaStreamSynchronize(stream);  // Wait for all GPU work to complete before post-processing
     
     // 4. Post-process
     auto postprocessStart = std::chrono::high_resolution_clock::now();
