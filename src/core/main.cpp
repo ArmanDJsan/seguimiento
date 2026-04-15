@@ -48,6 +48,7 @@
 #include "../control/TrackPhysicalController.h"
 #include "../control/VMixController.h"
 #include "../choreography/ChoreographyEngine.h"
+#include "../verification/SphereVerifier.h"
 #include "../ui/UserMenu.h"
 #include "../diagnostics/StressTester.h"
 #include "Config.h"
@@ -739,6 +740,19 @@ bool RunRunningMode() {
     }
     
     // ============================================================================
+    // Initialize SphereVerifier
+    // ============================================================================
+    Logger::Info("Initializing SphereVerifier...");
+    auto sphereVerifier = std::make_shared<Verification::SphereVerifier>(
+        &videoHub, inferenceEngine.get());
+    
+    if (!sphereVerifier->IsReady()) {
+        Logger::Warning("SphereVerifier: Not ready - check dependencies");
+    } else {
+        Logger::Info("SphereVerifier initialized successfully");
+    }
+    
+    // ============================================================================
     // Initialize Choreography Engine
     // ============================================================================
     std::shared_ptr<Choreography::ChoreographyEngine> choreographyEngine;
@@ -747,6 +761,7 @@ bool RunRunningMode() {
         choreographyEngine = std::make_shared<Choreography::ChoreographyEngine>(
             &vmix, sceneManager.get());
         choreographyEngine->SetVideoHubClient(&videoHub);
+        choreographyEngine->SetSphereVerifier(sphereVerifier.get());
         choreographyEngine->SetContinueOnError(config.choreographyConfig.continueOnError);
         choreographyEngine->SetVMixRequired(config.choreographyConfig.vmixRequired);
         
