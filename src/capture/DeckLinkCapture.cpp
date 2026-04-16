@@ -500,15 +500,22 @@ void DeckLinkCapture::ProcessFrame(IDeckLinkVideoInputFrame* videoFrame) {
                     m_channel.cudaYUVBuffer = devicePtr;
                     m_channel.hostMappedYUV = frameBuffer;
                     
-                    // Color conversion kernel (async on stream)
+                    // OPTIMIZATION: Skip BGRA conversion - inference uses UYVY directly
+                    // Only convert if frame handler needs BGRA (e.g., for NDI/MegaCanvas)
+                    // The fused kernel in InferenceEngine processes UYVY→RGB640 directly
+                    
+                    // For now, still do BGRA conversion for output compatibility
+                    // TODO: Add flag to skip if only inference is needed
                     if (ConvertYUV422ToBGRA(
                         static_cast<uint8_t*>(m_channel.cudaYUVBuffer),
                         static_cast<uchar4*>(m_channel.cudaBGRABuffer),
                         m_channel.width, m_channel.height, m_channel.stream))
                     {
-                        // Record event after color conversion (for async sync)
+                        // Record event after conversion (for output pipeline sync)
                         cudaEventRecord(m_channel.preprocessEvent, m_channel.stream);
                         
+                        // Note: ExecuteInference is a placeholder
+                        // Real inference now happens in main.cpp via ProcessFrameUYVY
                         ExecuteInference();
                         
                         if (m_frameReadyHandler) {
