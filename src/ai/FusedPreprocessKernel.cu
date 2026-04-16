@@ -192,8 +192,10 @@ __global__ void FusedUYVYToRGB640KernelShared(
     int batchIdx)
 {
     // Shared memory tile for source data (reserved for future optimization)
+    // Suppress NVCC warning #550-D for intentionally unused variable (placeholder for future shared memory optimization)
+#pragma nv_diag_suppress 550
     __shared__ unsigned char tile[32 * 32 * 2];  // 2 bytes per pixel (UYVY)
-    (void)tile;  // Suppress unused variable warning until shared memory optimization is implemented
+#pragma nv_diag_default 550
     
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
