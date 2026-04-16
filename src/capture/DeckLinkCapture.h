@@ -2,19 +2,18 @@
  * DeckLinkCapture.h
  * 
  * Custom memory allocator implementation for zero-copy DMA
- * Implements IDeckLinkMemoryAllocator and IDeckLinkVideoInputCallback
+ * Implements IDeckLinkVideoBufferAllocatorProvider and IDeckLinkVideoInputCallback
  * for direct GPU memory access from Blackmagic DeckLink cards
  * 
- * Architecture: Uses CUDA cudaMallocPinned for zero-copy DMA on RTX 5080
+ * Architecture: Uses CUDA cudaHostAllocMapped for zero-copy DMA on CUDA-capable GPUs
  * No DirectX dependencies - D3D11 only used for Spout output in separate pipeline
  * 
- * SDK Compatibility: Designed for Blackmagic DeckLink SDK 15.3
+ * SDK Compatibility: Designed for Blackmagic DeckLink SDK 15.3+
  * Required interfaces:
  * - IDeckLinkInputCallback::VideoInputFrameArrived(IDeckLinkVideoInputFrame*, IDeckLinkAudioInputPacket*)
- * - IDeckLinkMemoryAllocator::AllocateBuffer(uint32_t, void**)
- * - IDeckLinkMemoryAllocator::ReleaseBuffer(void*)
- * - IDeckLinkMemoryAllocator::Commit()
- * - IDeckLinkMemoryAllocator::Decommit()
+ * - IDeckLinkVideoBufferAllocatorProvider::GetVideoBufferAllocator(...)
+ * - IDeckLinkVideoBufferAllocator::AllocateVideoBuffer(IDeckLinkVideoBuffer**)
+ * - IDeckLinkVideoBuffer::GetBytes(void**), StartAccess(), EndAccess()
  */
 
 #pragma once
@@ -32,6 +31,8 @@
 #include <string>
 #include <memory>
 #include <queue>
+#include <vector>
+#include <atomic>
 #include <mutex>
 #include <thread>
 #include <stop_token>
@@ -103,32 +104,106 @@ public:
         IDeckLinkAudioInputPacket* audioPacket);
     
 private:
-    // Custom memory allocator for true zero-copy DMA
-    // Implements IDeckLinkMemoryAllocator_v14_2_1 interface
-    // Uses cudaHostAlloc with cudaHostAllocMapped for direct GPU access
-    class DeckLinkCudaAllocator : public IDeckLinkMemoryAllocator_v14_2_1 {
+    // Forward declarations for nested classes
+    class DeckLinkCudaVideoBuffer;
+    class DeckLinkCudaBufferAllocator;
+    
+    /**
+     * Custom video buffer for true zero-copy DMA
+     * Implements IDeckLinkVideoBuffer using CUDA pinned memory
+     */
+    class DeckLinkCudaVideoBuffer : public IDeckLinkVideoBuffer {
     public:
-        DeckLinkCudaAllocator();
-        virtual ~DeckLinkCudaAllocator();
+        DeckLinkCudaVideoBuffer(void* buffer, unsigned int size);
+        virtual ~DeckLinkCudaVideoBuffer();
         
         // IUnknown interface
         virtual HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, LPVOID* ppv);
         virtual ULONG STDMETHODCALLTYPE AddRef();
         virtual ULONG STDMETHODCALLTYPE Release();
         
-        // IDeckLinkMemoryAllocator_v14_2_1 interface
-        virtual HRESULT STDMETHODCALLTYPE AllocateBuffer(unsigned int bufferSize, void** allocatedBuffer);
-        virtual HRESULT STDMETHODCALLTYPE ReleaseBuffer(void* buffer);
-        virtual HRESULT STDMETHODCALLTYPE Commit();
-        virtual HRESULT STDMETHODCALLTYPE Decommit();
+        // IDeckLinkVideoBuffer interface
+        virtual HRESULT STDMETHODCALLTYPE GetBytes(void** buffer);
+        virtual HRESULT STDMETHODCALLTYPE StartAccess(BMDBufferAccessFlags flags);
+        virtual HRESULT STDMETHODCALLTYPE EndAccess(BMDBufferAccessFlags flags);
         
         // Helper to get device pointer from host pointer
+        void* GetDevicePointer();
+        void* GetHostPointer() const { return m_buffer; }
+        
+    private:
+        std::atomic<ULONG> m_refCount;
+        void* m_buffer;
+        unsigned int m_size;
+        void* m_devicePtr;  // Cached device pointer
+    };
+    
+    /**
+     * Custom buffer allocator for zero-copy DMA
+     * Implements IDeckLinkVideoBufferAllocator using CUDA pinned mapped memory
+     */
+    class DeckLinkCudaBufferAllocator : public IDeckLinkVideoBufferAllocator {
+    public:
+        DeckLinkCudaBufferAllocator(unsigned int bufferSize, unsigned int width, 
+                                     unsigned int height, unsigned int rowBytes,
+                                     BMDPixelFormat pixelFormat);
+        virtual ~DeckLinkCudaBufferAllocator();
+        
+        // IUnknown interface
+        virtual HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, LPVOID* ppv);
+        virtual ULONG STDMETHODCALLTYPE AddRef();
+        virtual ULONG STDMETHODCALLTYPE Release();
+        
+        // IDeckLinkVideoBufferAllocator interface
+        virtual HRESULT STDMETHODCALLTYPE AllocateVideoBuffer(IDeckLinkVideoBuffer** allocatedBuffer);
+        
+        // Helper to check if a buffer is from this allocator
+        bool IsOurBuffer(void* ptr);
         void* GetDevicePointer(void* hostPtr);
         
     private:
         std::atomic<ULONG> m_refCount;
         std::mutex m_mutex;
         std::vector<void*> m_allocatedBuffers;
+        unsigned int m_bufferSize;
+        unsigned int m_width;
+        unsigned int m_height;
+        unsigned int m_rowBytes;
+        BMDPixelFormat m_pixelFormat;
+    };
+    
+    /**
+     * Allocator provider for DeckLink SDK 15.3+
+     * Implements IDeckLinkVideoBufferAllocatorProvider
+     * Creates buffer allocators on demand for each video format
+     */
+    class DeckLinkCudaAllocatorProvider : public IDeckLinkVideoBufferAllocatorProvider {
+    public:
+        DeckLinkCudaAllocatorProvider();
+        virtual ~DeckLinkCudaAllocatorProvider();
+        
+        // IUnknown interface
+        virtual HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, LPVOID* ppv);
+        virtual ULONG STDMETHODCALLTYPE AddRef();
+        virtual ULONG STDMETHODCALLTYPE Release();
+        
+        // IDeckLinkVideoBufferAllocatorProvider interface
+        virtual HRESULT STDMETHODCALLTYPE GetVideoBufferAllocator(
+            unsigned int bufferSize,
+            unsigned int width,
+            unsigned int height,
+            unsigned int rowBytes,
+            BMDPixelFormat pixelFormat,
+            IDeckLinkVideoBufferAllocator** allocator);
+        
+        // Helper to get device pointer from host pointer (searches all allocators)
+        void* GetDevicePointer(void* hostPtr);
+        bool IsOurBuffer(void* ptr);
+        
+    private:
+        std::atomic<ULONG> m_refCount;
+        std::mutex m_mutex;
+        std::vector<DeckLinkCudaBufferAllocator*> m_allocators;
     };
     
     // Frame callback implementation (IDeckLinkInputCallback)
@@ -148,8 +223,8 @@ private:
     // COM reference count
     std::atomic<ULONG> m_refCount;
     
-    // Custom allocator for zero-copy DMA
-    DeckLinkCudaAllocator* m_allocator;
+    // Custom allocator provider for zero-copy DMA (DeckLink SDK 15.3+ interface)
+    DeckLinkCudaAllocatorProvider* m_allocatorProvider;
     
     // C++20 thread management for safe shutdown
     std::jthread m_captureThread;
