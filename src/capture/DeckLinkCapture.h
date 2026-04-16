@@ -44,9 +44,12 @@
  */
 struct VideoChannel {
     IDeckLinkInput* deckLinkInput;
-    void* cudaYUVBuffer;        // CUDA device memory for YUV input
+    void* cudaYUVBuffer;        // CUDA device memory for YUV input (mapped from host)
     void* cudaBGRABuffer;       // CUDA device memory for BGRA output
+    void* hostMappedYUV;        // Host-side mapped pointer (for DeckLink to write to)
     cudaStream_t stream;        // Dedicated CUDA stream per channel
+    cudaEvent_t preprocessEvent; // Event for async synchronization
+    cudaEvent_t inferenceEvent;  // Event for inference completion
     size_t bufferSize;          // Buffer size in bytes
     std::string channelName;
     int channelID;
@@ -100,18 +103,32 @@ public:
         IDeckLinkAudioInputPacket* audioPacket);
     
 private:
-    // Custom memory allocator implementation
-    // Uses cudaMallocPinned for zero-copy DMA on RTX 5080
-    class CustomAllocator {
+    // Custom memory allocator for true zero-copy DMA
+    // Implements IDeckLinkMemoryAllocator_v14_2_1 interface
+    // Uses cudaHostAlloc with cudaHostAllocMapped for direct GPU access
+    class DeckLinkCudaAllocator : public IDeckLinkMemoryAllocator_v14_2_1 {
     public:
-        CustomAllocator();
-        ~CustomAllocator();
+        DeckLinkCudaAllocator();
+        virtual ~DeckLinkCudaAllocator();
         
-        void* AllocateBuffer(unsigned int bufferSize);
-        void ReleaseBuffer(void* buffer);
+        // IUnknown interface
+        virtual HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, LPVOID* ppv);
+        virtual ULONG STDMETHODCALLTYPE AddRef();
+        virtual ULONG STDMETHODCALLTYPE Release();
+        
+        // IDeckLinkMemoryAllocator_v14_2_1 interface
+        virtual HRESULT STDMETHODCALLTYPE AllocateBuffer(unsigned int bufferSize, void** allocatedBuffer);
+        virtual HRESULT STDMETHODCALLTYPE ReleaseBuffer(void* buffer);
+        virtual HRESULT STDMETHODCALLTYPE Commit();
+        virtual HRESULT STDMETHODCALLTYPE Decommit();
+        
+        // Helper to get device pointer from host pointer
+        void* GetDevicePointer(void* hostPtr);
         
     private:
-        std::vector<void*> m_pinnedBuffers;
+        std::atomic<ULONG> m_refCount;
+        std::mutex m_mutex;
+        std::vector<void*> m_allocatedBuffers;
     };
     
     // Frame callback implementation (IDeckLinkInputCallback)
@@ -131,8 +148,8 @@ private:
     // COM reference count
     std::atomic<ULONG> m_refCount;
     
-    // Custom allocator
-    std::unique_ptr<CustomAllocator> m_allocator;
+    // Custom allocator for zero-copy DMA
+    DeckLinkCudaAllocator* m_allocator;
     
     // C++20 thread management for safe shutdown
     std::jthread m_captureThread;

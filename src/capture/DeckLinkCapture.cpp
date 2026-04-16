@@ -43,7 +43,10 @@ DeckLinkCapture::DeckLinkCapture()
     m_channel.deckLinkInput = nullptr;
     m_channel.cudaYUVBuffer = nullptr;
     m_channel.cudaBGRABuffer = nullptr;
+    m_channel.hostMappedYUV = nullptr;
     m_channel.stream = nullptr;
+    m_channel.preprocessEvent = nullptr;
+    m_channel.inferenceEvent = nullptr;
     m_channel.bufferSize = 0;
     m_channel.channelID = -1;
     m_channel.width = 3840;  // Default 4K
@@ -66,6 +69,16 @@ DeckLinkCapture::~DeckLinkCapture() {
         m_deckLink = nullptr;
     }
     
+    // Destroy CUDA events
+    if (m_channel.preprocessEvent) {
+        cudaEventDestroy(m_channel.preprocessEvent);
+        m_channel.preprocessEvent = nullptr;
+    }
+    if (m_channel.inferenceEvent) {
+        cudaEventDestroy(m_channel.inferenceEvent);
+        m_channel.inferenceEvent = nullptr;
+    }
+    
     // Destroy CUDA stream before freeing buffers
     if (m_channel.stream) {
         cudaStreamSynchronize(m_channel.stream);
@@ -74,13 +87,20 @@ DeckLinkCapture::~DeckLinkCapture() {
     }
     
     // Release CUDA resources
+    // Note: cudaYUVBuffer is managed by DeckLinkCudaAllocator
+    // It's automatically freed when allocator releases its buffers
     if (m_channel.cudaYUVBuffer) {
-        cudaFree(m_channel.cudaYUVBuffer);
-        m_channel.cudaYUVBuffer = nullptr;
+        m_channel.cudaYUVBuffer = nullptr;  // Just clear pointer, allocator owns the memory
     }
     if (m_channel.cudaBGRABuffer) {
         cudaFree(m_channel.cudaBGRABuffer);
         m_channel.cudaBGRABuffer = nullptr;
+    }
+    
+    // Release the allocator (decrements ref count)
+    if (m_allocator) {
+        m_allocator->Release();
+        m_allocator = nullptr;
     }
 }
 
@@ -93,23 +113,23 @@ bool DeckLinkCapture::Initialize(int deviceIndex, const std::string& channelName
     // Calculate buffer size for 4K YUV 4:2:2 (2 bytes per pixel)
     m_channel.bufferSize = m_channel.width * m_channel.height * 2;
     
-    // Allocate CUDA device memory for YUV input (from DeckLink)
-    cudaError_t err = cudaMalloc(&m_channel.cudaYUVBuffer, m_channel.bufferSize);
-    if (err != cudaSuccess) {
-        Logger::Error("Failed to allocate CUDA YUV buffer: " + 
-                     std::string(cudaGetErrorString(err)));
+    // Create zero-copy allocator for DeckLink buffers
+    m_allocator = new DeckLinkCudaAllocator();
+    if (!m_allocator) {
+        Logger::Error("Failed to create DeckLink CUDA allocator");
         return false;
     }
+    m_allocator->AddRef(); // Initial reference
     
-    // Allocate CUDA device memory for BGRA output (for TensorRT/Spout)
+    // Allocate BGRA buffer (still regular GPU memory for now)
     // BGRA is 4 bytes per pixel
     size_t bgraBufferSize = m_channel.width * m_channel.height * 4;
-    err = cudaMalloc(&m_channel.cudaBGRABuffer, bgraBufferSize);
+    cudaError_t err = cudaMalloc(&m_channel.cudaBGRABuffer, bgraBufferSize);
     if (err != cudaSuccess) {
         Logger::Error("Failed to allocate CUDA BGRA buffer: " + 
                      std::string(cudaGetErrorString(err)));
-        cudaFree(m_channel.cudaYUVBuffer);
-        m_channel.cudaYUVBuffer = nullptr;
+        m_allocator->Release();
+        m_allocator = nullptr;
         return false;
     }
 
@@ -120,13 +140,39 @@ bool DeckLinkCapture::Initialize(int deviceIndex, const std::string& channelName
                       std::string(cudaGetErrorString(err)));
         cudaFree(m_channel.cudaBGRABuffer);
         m_channel.cudaBGRABuffer = nullptr;
-        cudaFree(m_channel.cudaYUVBuffer);
-        m_channel.cudaYUVBuffer = nullptr;
+        m_allocator->Release();
+        m_allocator = nullptr;
         return false;
     }
     
-    Logger::Info("Allocated CUDA buffers: YUV=" + std::to_string(m_channel.bufferSize) + 
-                 " bytes, BGRA=" + std::to_string(bgraBufferSize) + " bytes");
+    // Create CUDA events for async synchronization
+    err = cudaEventCreateWithFlags(&m_channel.preprocessEvent, cudaEventDisableTiming);
+    if (err != cudaSuccess) {
+        Logger::Error("Failed to create preprocess event: " +
+                      std::string(cudaGetErrorString(err)));
+        cudaStreamDestroy(m_channel.stream);
+        cudaFree(m_channel.cudaBGRABuffer);
+        m_channel.cudaBGRABuffer = nullptr;
+        m_allocator->Release();
+        m_allocator = nullptr;
+        return false;
+    }
+    
+    err = cudaEventCreateWithFlags(&m_channel.inferenceEvent, cudaEventDisableTiming);
+    if (err != cudaSuccess) {
+        Logger::Error("Failed to create inference event: " +
+                      std::string(cudaGetErrorString(err)));
+        cudaEventDestroy(m_channel.preprocessEvent);
+        cudaStreamDestroy(m_channel.stream);
+        cudaFree(m_channel.cudaBGRABuffer);
+        m_channel.cudaBGRABuffer = nullptr;
+        m_allocator->Release();
+        m_allocator = nullptr;
+        return false;
+    }
+    
+    Logger::Info("Allocated CUDA buffers: BGRA=" + std::to_string(bgraBufferSize) + " bytes");
+    Logger::Info("Zero-copy allocator will handle YUV buffers dynamically");
     
     // Initialize Blackmagic SDK
     // 1. Create IDeckLink interface
@@ -141,12 +187,13 @@ bool DeckLinkCapture::Initialize(int deviceIndex, const std::string& channelName
     
     if (FAILED(hr) || !deckLinkIterator) {
         Logger::Error("Failed to create DeckLink Iterator. HRESULT: 0x" + std::to_string(hr));
+        cudaEventDestroy(m_channel.inferenceEvent);
+        cudaEventDestroy(m_channel.preprocessEvent);
+        cudaStreamDestroy(m_channel.stream);
         cudaFree(m_channel.cudaBGRABuffer);
         m_channel.cudaBGRABuffer = nullptr;
-        cudaFree(m_channel.cudaYUVBuffer);
-        m_channel.cudaYUVBuffer = nullptr;
-        cudaStreamDestroy(m_channel.stream);
-        m_channel.stream = nullptr;
+        m_allocator->Release();
+        m_allocator = nullptr;
         return false;
     }
     
@@ -161,12 +208,13 @@ bool DeckLinkCapture::Initialize(int deviceIndex, const std::string& channelName
         if (hr != S_OK) {
             Logger::Error("Failed to get DeckLink device at index " + std::to_string(deviceIndex));
             deckLinkIterator->Release();
+            cudaEventDestroy(m_channel.inferenceEvent);
+            cudaEventDestroy(m_channel.preprocessEvent);
+            cudaStreamDestroy(m_channel.stream);
             cudaFree(m_channel.cudaBGRABuffer);
             m_channel.cudaBGRABuffer = nullptr;
-            cudaFree(m_channel.cudaYUVBuffer);
-            m_channel.cudaYUVBuffer = nullptr;
-            cudaStreamDestroy(m_channel.stream);
-            m_channel.stream = nullptr;
+            m_allocator->Release();
+            m_allocator = nullptr;
             return false;
         }
     }
@@ -174,12 +222,13 @@ bool DeckLinkCapture::Initialize(int deviceIndex, const std::string& channelName
     
     if (!m_deckLink) {
         Logger::Error("DeckLink device is null");
+        cudaEventDestroy(m_channel.inferenceEvent);
+        cudaEventDestroy(m_channel.preprocessEvent);
+        cudaStreamDestroy(m_channel.stream);
         cudaFree(m_channel.cudaBGRABuffer);
         m_channel.cudaBGRABuffer = nullptr;
-        cudaFree(m_channel.cudaYUVBuffer);
-        m_channel.cudaYUVBuffer = nullptr;
-        cudaStreamDestroy(m_channel.stream);
-        m_channel.stream = nullptr;
+        m_allocator->Release();
+        m_allocator = nullptr;
         return false;
     }
     
@@ -189,16 +238,27 @@ bool DeckLinkCapture::Initialize(int deviceIndex, const std::string& channelName
         Logger::Error("Failed to get IDeckLinkInput interface. HRESULT: 0x" + std::to_string(hr));
         m_deckLink->Release();
         m_deckLink = nullptr;
+        cudaEventDestroy(m_channel.inferenceEvent);
+        cudaEventDestroy(m_channel.preprocessEvent);
+        cudaStreamDestroy(m_channel.stream);
         cudaFree(m_channel.cudaBGRABuffer);
         m_channel.cudaBGRABuffer = nullptr;
-        cudaFree(m_channel.cudaYUVBuffer);
-        m_channel.cudaYUVBuffer = nullptr;
-        cudaStreamDestroy(m_channel.stream);
-        m_channel.stream = nullptr;
+        m_allocator->Release();
+        m_allocator = nullptr;
         return false;
     }
     
-    // 4. Set frame callback (this object implements IDeckLinkInputCallback)
+    // 4. Register zero-copy allocator with DeckLink (CRITICAL for zero-copy DMA)
+    hr = m_channel.deckLinkInput->SetVideoInputFrameMemoryAllocator(m_allocator);
+    if (FAILED(hr)) {
+        Logger::Warning("Failed to set custom memory allocator (will use standard path). HRESULT: 0x" + 
+                       std::to_string(hr));
+        // Don't fail - fall back to standard allocation
+    } else {
+        Logger::Info("✓ Zero-copy memory allocator registered with DeckLink");
+    }
+    
+    // 5. Set frame callback (this object implements IDeckLinkInputCallback)
     hr = m_channel.deckLinkInput->SetCallback(this);
     if (FAILED(hr)) {
         Logger::Error("Failed to set DeckLink callback. HRESULT: 0x" + std::to_string(hr));
@@ -206,16 +266,17 @@ bool DeckLinkCapture::Initialize(int deviceIndex, const std::string& channelName
         m_channel.deckLinkInput = nullptr;
         m_deckLink->Release();
         m_deckLink = nullptr;
+        cudaEventDestroy(m_channel.inferenceEvent);
+        cudaEventDestroy(m_channel.preprocessEvent);
+        cudaStreamDestroy(m_channel.stream);
         cudaFree(m_channel.cudaBGRABuffer);
         m_channel.cudaBGRABuffer = nullptr;
-        cudaFree(m_channel.cudaYUVBuffer);
-        m_channel.cudaYUVBuffer = nullptr;
-        cudaStreamDestroy(m_channel.stream);
-        m_channel.stream = nullptr;
+        m_allocator->Release();
+        m_allocator = nullptr;
         return false;
     }
     
-    // 5. Set video input format to 4K@30fps (bmdMode4K2160p30)
+    // 6. Set video input format to 4K@30fps (bmdMode4K2160p30)
     // Using YUV 4:2:2 8-bit format for compatibility
     hr = m_channel.deckLinkInput->EnableVideoInput(
         bmdMode4K2160p30,           // 4K 30fps mode
@@ -418,43 +479,91 @@ void DeckLinkCapture::ProcessFrame(IDeckLinkVideoInputFrame* videoFrame) {
 void DeckLinkCapture::ProcessFrame(IDeckLinkVideoInputFrame* videoFrame) {
     if (!videoFrame || !m_channel.isActive) return;
 
-    // 1. Obtener la interfaz de buffer (Necesario en Windows para acceder a los bytes)
+    // Get the buffer interface
     IDeckLinkVideoBuffer* videoBuffer = nullptr;
     HRESULT hr = videoFrame->QueryInterface(IID_IDeckLinkVideoBuffer, (void**)&videoBuffer);
 
     if (SUCCEEDED(hr) && videoBuffer) {
         void* frameBuffer = nullptr;
 
-        // 2. Bloquear acceso para lectura segura
+        // Lock access for safe reading
         if (videoBuffer->StartAccess(bmdBufferAccessRead) == S_OK) {
-            // 3. Obtener el puntero (Ahora sí funciona GetBytes)
+            // Get the pointer (works with GetBytes now)
             if (SUCCEEDED(videoBuffer->GetBytes(&frameBuffer)) && frameBuffer) {
-
-                // 4. Transferencia Directa a VRAM (DMA)
-                // Al usar cudaMallocHost en tu CustomAllocator, esta copia es ultra rápida
-                cudaError_t err = cudaMemcpyAsync(
-                    m_channel.cudaYUVBuffer,
-                    frameBuffer,
-                    m_channel.bufferSize,
-                    cudaMemcpyHostToDevice,
-                    m_channel.stream
-                );
-
-                if (err == cudaSuccess) {
-                    // 5. Conversión de color en GPU (Sin tocar la CPU)
+                
+                // TRUE ZERO-COPY PATH: Check if this is a mapped buffer from our allocator
+                void* devicePtr = m_allocator->GetDevicePointer(frameBuffer);
+                
+                if (devicePtr) {
+                    // ✓ ZERO-COPY: DeckLink wrote directly to GPU-mapped memory
+                    // No cudaMemcpy needed! Use device pointer directly
+                    m_channel.cudaYUVBuffer = devicePtr;
+                    m_channel.hostMappedYUV = frameBuffer;
+                    
+                    // OPTIMIZATION: Skip BGRA conversion - inference uses UYVY directly
+                    // Only convert if frame handler needs BGRA (e.g., for NDI/MegaCanvas)
+                    // The fused kernel in InferenceEngine processes UYVY→RGB640 directly
+                    
+                    // For now, still do BGRA conversion for output compatibility
+                    // TODO: Add flag to skip if only inference is needed
                     if (ConvertYUV422ToBGRA(
                         static_cast<uint8_t*>(m_channel.cudaYUVBuffer),
                         static_cast<uchar4*>(m_channel.cudaBGRABuffer),
                         m_channel.width, m_channel.height, m_channel.stream))
                     {
-                        ExecuteInference(); // YOLO en RTX 2050
-                        if (m_frameReadyHandler) m_frameReadyHandler(m_channel, m_channel.stream);
+                        // Record event after conversion (for output pipeline sync)
+                        cudaEventRecord(m_channel.preprocessEvent, m_channel.stream);
+                        
+                        // Note: ExecuteInference is a placeholder
+                        // Real inference now happens in main.cpp via ProcessFrameUYVY
+                        ExecuteInference();
+                        
+                        if (m_frameReadyHandler) {
+                            m_frameReadyHandler(m_channel, m_channel.stream);
+                        }
+                    }
+                } else {
+                    // Fallback path: Standard copy (if allocator wasn't used)
+                    Logger::Warning("Frame buffer not from CUDA allocator, using fallback copy");
+                    
+                    // Need temporary device buffer
+                    if (!m_channel.cudaYUVBuffer) {
+                        cudaError_t allocErr = cudaMalloc(&m_channel.cudaYUVBuffer, m_channel.bufferSize);
+                        if (allocErr != cudaSuccess) {
+                            Logger::Error("Failed to allocate fallback YUV buffer: " + 
+                                         std::string(cudaGetErrorString(allocErr)));
+                            videoBuffer->EndAccess(bmdBufferAccessRead);
+                            videoBuffer->Release();
+                            return;
+                        }
+                    }
+                    
+                    cudaError_t err = cudaMemcpyAsync(
+                        m_channel.cudaYUVBuffer,
+                        frameBuffer,
+                        m_channel.bufferSize,
+                        cudaMemcpyHostToDevice,
+                        m_channel.stream
+                    );
+
+                    if (err == cudaSuccess) {
+                        if (ConvertYUV422ToBGRA(
+                            static_cast<uint8_t*>(m_channel.cudaYUVBuffer),
+                            static_cast<uchar4*>(m_channel.cudaBGRABuffer),
+                            m_channel.width, m_channel.height, m_channel.stream))
+                        {
+                            cudaEventRecord(m_channel.preprocessEvent, m_channel.stream);
+                            ExecuteInference();
+                            if (m_frameReadyHandler) m_frameReadyHandler(m_channel, m_channel.stream);
+                        }
+                    } else {
+                        Logger::Error("Fallback cudaMemcpy failed: " + std::string(cudaGetErrorString(err)));
                     }
                 }
             }
             videoBuffer->EndAccess(bmdBufferAccessRead);
         }
-        videoBuffer->Release(); // Liberar interfaz COM
+        videoBuffer->Release();
     }
 }
 
@@ -580,60 +689,147 @@ int DeckLinkCapture::EnumerateDevices() {
     return deviceCount;
 }
 
-// CustomAllocator implementation
-// Uses CUDA cudaMallocPinned for zero-copy DMA with DeckLink cards
-DeckLinkCapture::CustomAllocator::CustomAllocator() {
-    Logger::Info("CustomAllocator initialized with CUDA pinned memory");
+// =============================================================================
+// DeckLinkCudaAllocator Implementation
+// Implements IDeckLinkMemoryAllocator_v14_2_1 for true zero-copy DMA
+// =============================================================================
+
+DeckLinkCapture::DeckLinkCudaAllocator::DeckLinkCudaAllocator()
+    : m_refCount(1)
+{
+    Logger::Info("DeckLinkCudaAllocator: Initialized with CUDA zero-copy mapped memory");
 }
 
-DeckLinkCapture::CustomAllocator::~CustomAllocator() {
-    // Free all pinned buffers
-    for (void* buffer : m_pinnedBuffers) {
+DeckLinkCapture::DeckLinkCudaAllocator::~DeckLinkCudaAllocator() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    
+    // Free all allocated buffers
+    for (void* buffer : m_allocatedBuffers) {
         if (buffer) {
             cudaFreeHost(buffer);
+            Logger::Info("DeckLinkCudaAllocator: Freed mapped buffer");
         }
     }
-    m_pinnedBuffers.clear();
+    m_allocatedBuffers.clear();
 }
 
-void* DeckLinkCapture::CustomAllocator::AllocateBuffer(unsigned int bufferSize) {
-    // Allocate pinned (page-locked) host memory that GPU can access directly
-    // This is the key to zero-copy DMA performance on PCIe
-    // cudaMallocPinned provides host memory that is mapped into the CUDA address space
+// IUnknown interface implementation
+HRESULT STDMETHODCALLTYPE DeckLinkCapture::DeckLinkCudaAllocator::QueryInterface(REFIID iid, LPVOID* ppv) {
+    if (!ppv) return E_POINTER;
     
-    void* buffer = nullptr;
-    cudaError_t err = cudaMallocHost(&buffer, bufferSize);
+    if (iid == IID_IUnknown) {
+        *ppv = static_cast<IUnknown*>(this);
+        AddRef();
+        return S_OK;
+    }
+    if (iid == IID_IDeckLinkMemoryAllocator_v14_2_1) {
+        *ppv = static_cast<IDeckLinkMemoryAllocator_v14_2_1*>(this);
+        AddRef();
+        return S_OK;
+    }
+    
+    *ppv = nullptr;
+    return E_NOINTERFACE;
+}
+
+ULONG STDMETHODCALLTYPE DeckLinkCapture::DeckLinkCudaAllocator::AddRef() {
+    return ++m_refCount;
+}
+
+ULONG STDMETHODCALLTYPE DeckLinkCapture::DeckLinkCudaAllocator::Release() {
+    ULONG newRefCount = --m_refCount;
+    if (newRefCount == 0) {
+        delete this;
+    }
+    return newRefCount;
+}
+
+// IDeckLinkMemoryAllocator_v14_2_1 interface implementation
+HRESULT STDMETHODCALLTYPE DeckLinkCapture::DeckLinkCudaAllocator::AllocateBuffer(
+    unsigned int bufferSize,
+    void** allocatedBuffer)
+{
+    if (!allocatedBuffer) return E_POINTER;
+    
+    std::lock_guard<std::mutex> lock(m_mutex);
+    
+    // Allocate CUDA host memory with cudaHostAllocMapped flag
+    // This creates memory that is:
+    // 1. Pinned (page-locked) for fast DMA
+    // 2. Mapped into GPU address space for zero-copy access
+    void* hostPtr = nullptr;
+    cudaError_t err = cudaHostAlloc(&hostPtr, bufferSize, cudaHostAllocMapped);
+    
+    if (err != cudaSuccess || !hostPtr) {
+        Logger::Error("DeckLinkCudaAllocator: Failed to allocate mapped memory: " + 
+                     std::string(cudaGetErrorString(err)));
+        return E_OUTOFMEMORY;
+    }
+    
+    m_allocatedBuffers.push_back(hostPtr);
+    *allocatedBuffer = hostPtr;
+    
+    Logger::Info("DeckLinkCudaAllocator: Allocated " + std::to_string(bufferSize) + 
+                " bytes of CUDA mapped memory (host ptr: " + 
+                std::to_string(reinterpret_cast<uintptr_t>(hostPtr)) + ")");
+    
+    return S_OK;
+}
+
+HRESULT STDMETHODCALLTYPE DeckLinkCapture::DeckLinkCudaAllocator::ReleaseBuffer(void* buffer) {
+    if (!buffer) return S_OK;
+    
+    std::lock_guard<std::mutex> lock(m_mutex);
+    
+    // Find and remove from tracking
+    auto it = std::find(m_allocatedBuffers.begin(), m_allocatedBuffers.end(), buffer);
+    if (it != m_allocatedBuffers.end()) {
+        cudaError_t err = cudaFreeHost(buffer);
+        if (err != cudaSuccess) {
+            Logger::Error("DeckLinkCudaAllocator: Failed to free mapped memory: " + 
+                         std::string(cudaGetErrorString(err)));
+            return E_FAIL;
+        }
+        m_allocatedBuffers.erase(it);
+        Logger::Info("DeckLinkCudaAllocator: Released mapped buffer");
+    }
+    
+    return S_OK;
+}
+
+HRESULT STDMETHODCALLTYPE DeckLinkCapture::DeckLinkCudaAllocator::Commit() {
+    // No resource commitment needed for our implementation
+    Logger::Info("DeckLinkCudaAllocator: Commit called");
+    return S_OK;
+}
+
+HRESULT STDMETHODCALLTYPE DeckLinkCapture::DeckLinkCudaAllocator::Decommit() {
+    // No resource decommitment needed for our implementation
+    Logger::Info("DeckLinkCudaAllocator: Decommit called");
+    return S_OK;
+}
+
+void* DeckLinkCapture::DeckLinkCudaAllocator::GetDevicePointer(void* hostPtr) {
+    if (!hostPtr) return nullptr;
+    
+    std::lock_guard<std::mutex> lock(m_mutex);
+    
+    // Check if this is one of our allocated buffers
+    auto it = std::find(m_allocatedBuffers.begin(), m_allocatedBuffers.end(), hostPtr);
+    if (it == m_allocatedBuffers.end()) {
+        // Not from our allocator
+        return nullptr;
+    }
+    
+    // Get the device pointer for this mapped host memory
+    void* devicePtr = nullptr;
+    cudaError_t err = cudaHostGetDevicePointer(&devicePtr, hostPtr, 0);
     
     if (err != cudaSuccess) {
-        Logger::Error("Failed to allocate pinned memory: " + 
+        Logger::Error("DeckLinkCudaAllocator: Failed to get device pointer: " + 
                      std::string(cudaGetErrorString(err)));
         return nullptr;
     }
     
-    if (buffer) {
-        m_pinnedBuffers.push_back(buffer);
-        Logger::Info("Allocated " + std::to_string(bufferSize) + 
-                    " bytes of CUDA pinned memory");
-    }
-    
-    return buffer;
-}
-
-void DeckLinkCapture::CustomAllocator::ReleaseBuffer(void* buffer) {
-    if (!buffer) {
-        return;
-    }
-    
-    // Free CUDA pinned host memory
-    cudaError_t err = cudaFreeHost(buffer);
-    if (err != cudaSuccess) {
-        Logger::Error("Failed to free pinned memory: " + 
-                     std::string(cudaGetErrorString(err)));
-    }
-    
-    // Remove from tracked buffers
-    auto it = std::find(m_pinnedBuffers.begin(), m_pinnedBuffers.end(), buffer);
-    if (it != m_pinnedBuffers.end()) {
-        m_pinnedBuffers.erase(it);
-    }
+    return devicePtr;
 }

@@ -21,7 +21,7 @@ constexpr int kYoloBaseAttributes = 5;
 // Default max detections per frame for YOLOv8-style models
 constexpr int kDefaultMaxDetections = 8400;
 
-// External preprocessing kernel functions from PreprocessKernel.cu
+// External preprocessing kernel functions from PreprocessKernel.cu and FusedPreprocessKernel.cu
 extern "C" {
     cudaError_t LaunchPreprocessBatch(
         void** srcBuffers,
@@ -35,6 +35,15 @@ extern "C" {
     
     cudaError_t LaunchPreprocessBGRA(
         const void* srcBGRA,
+        float* dstRGB,
+        int srcWidth, int srcHeight,
+        int dstWidth, int dstHeight,
+        int batchIdx,
+        cudaStream_t stream);
+    
+    // Fused UYVY→RGB640×640 kernel (NEW)
+    cudaError_t LaunchFusedUYVYPreprocess(
+        const void* srcUYVY,
         float* dstRGB,
         int srcWidth, int srcHeight,
         int dstWidth, int dstHeight,
@@ -168,6 +177,112 @@ std::vector<BallDetection> InferenceEngine::ProcessFrame(
     unsigned int heights[1] = { height };
     
     return ProcessBatch(buffers, cameras, widths, heights, 1, stream);
+}
+
+std::vector<BallDetection> InferenceEngine::ProcessFrameUYVY(
+    void* cudaUYVYBuffer, int cameraID,
+    unsigned int width, unsigned int height,
+    cudaStream_t stream,
+    cudaEvent_t preprocessEvent) {
+    
+    if (!m_initialized || !cudaUYVYBuffer) {
+        return {};
+    }
+    
+    auto startTime = std::chrono::high_resolution_clock::now();
+    std::vector<BallDetection> detections;
+    
+    if (m_stubMode) {
+        // Stub mode: return simulated detection
+        int64_t now = GetCurrentTimeMs();
+        BallDetection det;
+        det.ballID = 1;
+        det.cameraID = cameraID;
+        det.x = 0.5f;
+        det.y = 0.5f;
+        det.width = 0.05f;
+        det.height = 0.05f;
+        det.confidence = 0.85f;
+        det.timestamp = now;
+        detections.push_back(det);
+        return detections;
+    }
+    
+    // Real TensorRT inference with FUSED UYVY kernel
+    // This path eliminates the intermediate BGRA buffer
+    
+    // 1. Fused preprocessing: UYVY→RGB640×640 in one kernel
+    auto preprocessStart = std::chrono::high_resolution_clock::now();
+    
+    float* inputFloat = static_cast<float*>(m_inputBuffer);
+    cudaError_t err = LaunchFusedUYVYPreprocess(
+        cudaUYVYBuffer,
+        inputFloat,
+        static_cast<int>(width),
+        static_cast<int>(height),
+        m_config.inputWidth,
+        m_config.inputHeight,
+        0,  // batch index 0 for single frame
+        stream
+    );
+    
+    if (err != cudaSuccess) {
+        Logger::Error("InferenceEngine: Fused UYVY preprocessing failed: " + 
+                     std::string(cudaGetErrorString(err)));
+        return {};
+    }
+    
+    // Record event after preprocessing (if provided)
+    if (preprocessEvent) {
+        cudaEventRecord(preprocessEvent, stream);
+    }
+    
+    auto preprocessEnd = std::chrono::high_resolution_clock::now();
+    
+    // 2. Run TensorRT inference (WITHOUT mutex - using event-based sync instead)
+    auto inferenceStart = std::chrono::high_resolution_clock::now();
+    
+    // Set up I/O tensor addresses for TensorRT 10.x API
+    if (!m_context->setTensorAddress(m_inputTensorName.c_str(), m_inputBuffer)) {
+        Logger::Error("InferenceEngine: Failed to set input tensor address");
+        return {};
+    }
+    if (!m_context->setTensorAddress(m_outputTensorName.c_str(), m_outputBuffer)) {
+        Logger::Error("InferenceEngine: Failed to set output tensor address");
+        return {};
+    }
+    
+    // Execute inference asynchronously on the stream
+    // IMPORTANT: No mutex here - each camera has its own stream and this is async
+    if (!m_context->enqueueV3(stream)) {
+        Logger::Error("InferenceEngine: TensorRT inference execution failed");
+        return {};
+    }
+    
+    // Copy results to host asynchronously
+    cudaMemcpyAsync(m_hostOutput, m_outputBuffer, m_outputSize, cudaMemcpyDeviceToHost, stream);
+    
+    // Wait for stream to complete (only this camera's work)
+    cudaStreamSynchronize(stream);
+    
+    auto inferenceEnd = std::chrono::high_resolution_clock::now();
+    
+    // 3. Post-process
+    auto postprocessStart = std::chrono::high_resolution_clock::now();
+    int cameras[1] = { cameraID };
+    detections = PostProcess(m_hostOutput, cameras, 1);
+    ApplyNMS(detections);
+    auto postprocessEnd = std::chrono::high_resolution_clock::now();
+    
+    // Update telemetry
+    m_lastTelemetry.preprocess_ms = std::chrono::duration<float, std::milli>(preprocessEnd - preprocessStart).count();
+    m_lastTelemetry.inference_ms = std::chrono::duration<float, std::milli>(inferenceEnd - inferenceStart).count();
+    m_lastTelemetry.postprocess_ms = std::chrono::duration<float, std::milli>(postprocessEnd - postprocessStart).count();
+    m_lastTelemetry.total_ms = std::chrono::duration<float, std::milli>(postprocessEnd - startTime).count();
+    m_lastTelemetry.detectionsCount = static_cast<int>(detections.size());
+    m_lastTelemetry.batchSize = 1;
+    
+    return detections;
 }
 
 std::vector<BallDetection> InferenceEngine::ProcessBatch(

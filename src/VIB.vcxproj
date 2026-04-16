@@ -143,6 +143,9 @@
     <CudaCompile Include="ai\PreprocessKernel.cu">
       <CudaArch>compute_100,sm_100</CudaArch>
     </CudaCompile>
+    <CudaCompile Include="ai\FusedPreprocessKernel.cu">
+      <CudaArch>compute_100,sm_100</CudaArch>
+    </CudaCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="capture\CudaColorConversion.h" />
