@@ -191,8 +191,9 @@ __global__ void FusedUYVYToRGB640KernelShared(
     int dstWidth, int dstHeight,
     int batchIdx)
 {
-    // Shared memory tile for source data
+    // Shared memory tile for source data (reserved for future optimization)
     __shared__ unsigned char tile[32 * 32 * 2];  // 2 bytes per pixel (UYVY)
+    (void)tile;  // Suppress unused variable warning until shared memory optimization is implemented
     
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
