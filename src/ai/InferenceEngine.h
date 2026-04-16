@@ -121,6 +121,23 @@ public:
         cudaStream_t stream);
     
     /**
+     * Process single UYVY frame with fused kernel (OPTIMIZED PATH)
+     * Bypasses BGRA intermediate buffer for lower latency
+     * @param cudaUYVYBuffer CUDA device pointer to UYVY frame
+     * @param cameraID Camera identifier
+     * @param width Frame width
+     * @param height Frame height
+     * @param stream CUDA stream for async execution
+     * @param preprocessEvent Optional event to record after preprocessing
+     * @return Detections for this frame
+     */
+    std::vector<BallDetection> ProcessFrameUYVY(
+        void* cudaUYVYBuffer, int cameraID,
+        unsigned int width, unsigned int height,
+        cudaStream_t stream,
+        cudaEvent_t preprocessEvent = nullptr);
+    
+    /**
      * Process batch of frames from CUDA memory
      * @param cudaBuffers Array of CUDA device pointers to BGRA frames
      * @param cameraIDs Camera identifiers for each frame
