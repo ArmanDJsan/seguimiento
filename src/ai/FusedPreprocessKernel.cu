@@ -30,6 +30,52 @@
 #define UYVY_Y1_OFFSET 3   // Second Y (odd pixel) at byte 3
 
 /**
+ * Device function: Convert single UYVY pixel to RGB
+ * 
+ * @param srcUYVY Source UYVY buffer
+ * @param srcWidth Source width
+ * @param px Pixel x coordinate
+ * @param py Pixel y coordinate
+ * @param ro Output red [0, 255]
+ * @param go Output green [0, 255]
+ * @param bo Output blue [0, 255]
+ */
+__device__ __forceinline__ void convertUYVYPixelToRGB(
+    const unsigned char* __restrict__ srcUYVY,
+    int srcWidth,
+    int px, int py,
+    float& ro, float& go, float& bo)
+{
+    // Calculate macropixel index and position within macropixel
+    int macropixelIdx = px / UYVY_PIXELS_PER_MACROPIXEL;
+    int pixelInMacro = px % UYVY_PIXELS_PER_MACROPIXEL;
+    
+    // Calculate byte offset
+    int srcByteOffset = (py * srcWidth + macropixelIdx * UYVY_PIXELS_PER_MACROPIXEL) * UYVY_BYTES_PER_PIXEL;
+    
+    // Extract YUV components
+    unsigned char u = srcUYVY[srcByteOffset + UYVY_U_OFFSET];
+    unsigned char v = srcUYVY[srcByteOffset + UYVY_V_OFFSET];
+    unsigned char y_val = (pixelInMacro == 0) 
+        ? srcUYVY[srcByteOffset + UYVY_Y0_OFFSET]
+        : srcUYVY[srcByteOffset + UYVY_Y1_OFFSET];
+    
+    // YUV to RGB conversion (BT.709)
+    float yf = static_cast<float>(y_val);
+    float uf = static_cast<float>(u) - 128.0f;
+    float vf = static_cast<float>(v) - 128.0f;
+    
+    ro = yf + 1.5748f * vf;
+    go = yf - 0.1873f * uf - 0.4681f * vf;
+    bo = yf + 1.8556f * uf;
+    
+    // Clamp to [0, 255]
+    ro = fmaxf(0.0f, fminf(255.0f, ro));
+    go = fmaxf(0.0f, fminf(255.0f, go));
+    bo = fmaxf(0.0f, fminf(255.0f, bo));
+}
+
+/**
  * Device function: Sample UYVY pixel with bilinear interpolation
  * 
  * @param srcUYVY Source UYVY buffer
@@ -63,42 +109,11 @@ __device__ __forceinline__ void sampleUYVYBilinear(
     // Sample 4 corners and convert YUV→RGB for each
     float r00, g00, b00, r01, g01, b01, r10, g10, b10, r11, g11, b11;
     
-    // Helper lambda to convert a single pixel from UYVY to RGB
-    auto convertPixel = [&](int px, int py, float& ro, float& go, float& bo) {
-        // Calculate macropixel index and position within macropixel
-        int macropixelIdx = px / UYVY_PIXELS_PER_MACROPIXEL;
-        int pixelInMacro = px % UYVY_PIXELS_PER_MACROPIXEL;
-        
-        // Calculate byte offset
-        int srcByteOffset = (py * srcWidth + macropixelIdx * UYVY_PIXELS_PER_MACROPIXEL) * UYVY_BYTES_PER_PIXEL;
-        
-        // Extract YUV components
-        unsigned char u = srcUYVY[srcByteOffset + UYVY_U_OFFSET];
-        unsigned char v = srcUYVY[srcByteOffset + UYVY_V_OFFSET];
-        unsigned char y_val = (pixelInMacro == 0) 
-            ? srcUYVY[srcByteOffset + UYVY_Y0_OFFSET]
-            : srcUYVY[srcByteOffset + UYVY_Y1_OFFSET];
-        
-        // YUV to RGB conversion (BT.709)
-        float yf = static_cast<float>(y_val);
-        float uf = static_cast<float>(u) - 128.0f;
-        float vf = static_cast<float>(v) - 128.0f;
-        
-        ro = yf + 1.5748f * vf;
-        go = yf - 0.1873f * uf - 0.4681f * vf;
-        bo = yf + 1.8556f * uf;
-        
-        // Clamp to [0, 255]
-        ro = fmaxf(0.0f, fminf(255.0f, ro));
-        go = fmaxf(0.0f, fminf(255.0f, go));
-        bo = fmaxf(0.0f, fminf(255.0f, bo));
-    };
-    
-    // Convert 4 corner pixels
-    convertPixel(x0, y0, r00, g00, b00);
-    convertPixel(x1, y0, r01, g01, b01);
-    convertPixel(x0, y1, r10, g10, b10);
-    convertPixel(x1, y1, r11, g11, b11);
+    // Convert 4 corner pixels using helper function
+    convertUYVYPixelToRGB(srcUYVY, srcWidth, x0, y0, r00, g00, b00);
+    convertUYVYPixelToRGB(srcUYVY, srcWidth, x1, y0, r01, g01, b01);
+    convertUYVYPixelToRGB(srcUYVY, srcWidth, x0, y1, r10, g10, b10);
+    convertUYVYPixelToRGB(srcUYVY, srcWidth, x1, y1, r11, g11, b11);
     
     // Bilinear interpolation
     float r0 = r00 * (1.0f - dx) + r01 * dx;

@@ -87,10 +87,10 @@ DeckLinkCapture::~DeckLinkCapture() {
     }
     
     // Release CUDA resources
-    // Note: hostMappedYUV is freed by the allocator
+    // Note: cudaYUVBuffer is managed by DeckLinkCudaAllocator
+    // It's automatically freed when allocator releases its buffers
     if (m_channel.cudaYUVBuffer) {
-        // This was allocated with cudaHostAlloc, freed by allocator
-        m_channel.cudaYUVBuffer = nullptr;
+        m_channel.cudaYUVBuffer = nullptr;  // Just clear pointer, allocator owns the memory
     }
     if (m_channel.cudaBGRABuffer) {
         cudaFree(m_channel.cudaBGRABuffer);
@@ -528,7 +528,14 @@ void DeckLinkCapture::ProcessFrame(IDeckLinkVideoInputFrame* videoFrame) {
                     
                     // Need temporary device buffer
                     if (!m_channel.cudaYUVBuffer) {
-                        cudaMalloc(&m_channel.cudaYUVBuffer, m_channel.bufferSize);
+                        cudaError_t allocErr = cudaMalloc(&m_channel.cudaYUVBuffer, m_channel.bufferSize);
+                        if (allocErr != cudaSuccess) {
+                            Logger::Error("Failed to allocate fallback YUV buffer: " + 
+                                         std::string(cudaGetErrorString(allocErr)));
+                            videoBuffer->EndAccess(bmdBufferAccessRead);
+                            videoBuffer->Release();
+                            return;
+                        }
                     }
                     
                     cudaError_t err = cudaMemcpyAsync(
@@ -549,6 +556,8 @@ void DeckLinkCapture::ProcessFrame(IDeckLinkVideoInputFrame* videoFrame) {
                             ExecuteInference();
                             if (m_frameReadyHandler) m_frameReadyHandler(m_channel, m_channel.stream);
                         }
+                    } else {
+                        Logger::Error("Fallback cudaMemcpy failed: " + std::string(cudaGetErrorString(err)));
                     }
                 }
             }
