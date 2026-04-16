@@ -852,10 +852,19 @@ HRESULT STDMETHODCALLTYPE DeckLinkCapture::DeckLinkCudaBufferAllocator::Allocate
         return E_OUTOFMEMORY;
     }
     
-    m_allocatedBuffers.push_back(hostPtr);
+    // Create video buffer wrapper first, then track the allocation
+    // This ensures proper cleanup if the constructor fails
+    DeckLinkCudaVideoBuffer* videoBuffer = nullptr;
+    try {
+        videoBuffer = new DeckLinkCudaVideoBuffer(hostPtr, m_bufferSize);
+    } catch (...) {
+        cudaFreeHost(hostPtr);
+        Logger::Error("DeckLinkCudaBufferAllocator: Failed to create video buffer wrapper");
+        return E_OUTOFMEMORY;
+    }
     
-    // Create video buffer wrapper
-    DeckLinkCudaVideoBuffer* videoBuffer = new DeckLinkCudaVideoBuffer(hostPtr, m_bufferSize);
+    // Track allocation after successful buffer creation
+    m_allocatedBuffers.push_back(hostPtr);
     *allocatedBuffer = videoBuffer;
     
     Logger::Info("DeckLinkCudaBufferAllocator: Allocated " + std::to_string(m_bufferSize) + 
@@ -982,9 +991,14 @@ void* DeckLinkCapture::DeckLinkCudaAllocatorProvider::GetDevicePointer(void* hos
     std::lock_guard<std::mutex> lock(m_mutex);
     
     // Search all allocators for this buffer
+    // Note: Locking order is always provider mutex → allocator mutex (no deadlock)
     for (auto* allocator : m_allocators) {
-        if (allocator && allocator->IsOurBuffer(hostPtr)) {
-            return allocator->GetDevicePointer(hostPtr);
+        if (allocator) {
+            // GetDevicePointer will check IsOurBuffer internally and return nullptr if not found
+            void* devicePtr = allocator->GetDevicePointer(hostPtr);
+            if (devicePtr) {
+                return devicePtr;
+            }
         }
     }
     
@@ -996,6 +1010,7 @@ bool DeckLinkCapture::DeckLinkCudaAllocatorProvider::IsOurBuffer(void* ptr) {
     
     std::lock_guard<std::mutex> lock(m_mutex);
     
+    // Locking order is always provider mutex → allocator mutex (no deadlock)
     for (auto* allocator : m_allocators) {
         if (allocator && allocator->IsOurBuffer(ptr)) {
             return true;

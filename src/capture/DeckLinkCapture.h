@@ -5,7 +5,7 @@
  * Implements IDeckLinkVideoBufferAllocatorProvider and IDeckLinkVideoInputCallback
  * for direct GPU memory access from Blackmagic DeckLink cards
  * 
- * Architecture: Uses CUDA cudaHostAllocMapped for zero-copy DMA on RTX 5080
+ * Architecture: Uses CUDA cudaHostAllocMapped for zero-copy DMA on CUDA-capable GPUs
  * No DirectX dependencies - D3D11 only used for Spout output in separate pipeline
  * 
  * SDK Compatibility: Designed for Blackmagic DeckLink SDK 15.3+
