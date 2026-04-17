@@ -847,6 +847,8 @@ bool RunRunningMode() {
                                           sceneManager, rankingPublisher, inferenceReady]
                                          (const VideoChannel& channel, cudaStream_t stream) {
                 // Static flag to save only one frame per channel
+                // This array is shared across all lambda invocations, ensuring each channel
+                // saves exactly one frame regardless of how many times the lambda is called
                 static std::atomic<bool> framesSaved[kMaxNDIChannels] = {};
                 
                 auto frameStart = std::chrono::high_resolution_clock::now();

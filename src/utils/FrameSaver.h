@@ -154,10 +154,11 @@ public:
         // UYVY format: U0 Y0 V0 Y1 (2 pixels per 4 bytes)
         for (int i = 0; i < width * height / 2; ++i) {
             int idx = i * 4;
-            int u = hostBuffer[idx + 0];
-            int y0 = hostBuffer[idx + 1];
-            int v = hostBuffer[idx + 2];
-            int y1 = hostBuffer[idx + 3];
+            // Cast to int to avoid sign extension issues
+            int u = static_cast<int>(hostBuffer[idx + 0]);
+            int y0 = static_cast<int>(hostBuffer[idx + 1]);
+            int v = static_cast<int>(hostBuffer[idx + 2]);
+            int y1 = static_cast<int>(hostBuffer[idx + 3]);
 
             // Convert to RGB using ITU-R BT.601 standard
             // Pixel 1

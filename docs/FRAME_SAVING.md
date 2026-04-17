@@ -134,14 +134,14 @@ If file size is significantly different, the frame may be corrupted or resolutio
 
 When frames are saved, you'll see messages like:
 ```
-[INFO] Guardando frame de detección para verificación...
-[INFO] Frame guardado exitosamente en detection_frame.ppm
-[INFO] Dimensiones: 3840x2160
+[INFO] Saving detection frame for verification...
+[INFO] Frame saved successfully to detection_frame.ppm
+[INFO] Dimensions: 3840x2160
 ```
 
 Or in Running Mode:
 ```
-[INFO] Frame guardado: detection_cam01.ppm (3840x2160) - 3 detecciones
+[INFO] Frame saved: detection_cam01.ppm (3840x2160) - 3 detections
 ```
 
 ## Technical Notes
