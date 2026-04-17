@@ -45,6 +45,7 @@
 #include "../utils/Logger.h"
 #include "../utils/ThreadOptimizer.h"
 #include "../utils/GPUDiagnostics.h"
+#include "../utils/FrameSaver.h"
 #include "../control/VideoHubClient.h"
 #include "../control/TrackPhysicalController.h"
 #include "../control/VMixController.h"
@@ -845,6 +846,9 @@ bool RunRunningMode() {
                                           inferenceEngine, positionMapper, ballTracker, 
                                           sceneManager, rankingPublisher, inferenceReady]
                                          (const VideoChannel& channel, cudaStream_t stream) {
+                // Static flag para guardar solo un frame por canal
+                static std::atomic<bool> framesSaved[kMaxNDIChannels] = {};
+                
                 auto frameStart = std::chrono::high_resolution_clock::now();
                 Telemetry telemetry = {0, 0, 0, 0, 0};
                 
@@ -894,6 +898,27 @@ bool RunRunningMode() {
                         inferenceStream,
                         channel.preprocessEvent   // Event for async sync
                     );
+                    
+                    // Guardar frame cuando hay detecciones (solo una vez por canal)
+                    if (!ballDetections.empty() && channel.channelID < kMaxNDIChannels && 
+                        !framesSaved[channel.channelID].load()) {
+                        
+                        std::ostringstream filename;
+                        filename << "detection_cam" << std::setw(2) << std::setfill('0') 
+                                << (channel.channelID + 1) << ".ppm";
+                        
+                        if (FrameSaver::SaveYUVFrameAsPPM(
+                                channel.cudaYUVBuffer,
+                                channel.width,
+                                channel.height,
+                                filename.str())) {
+                            Logger::Info("Frame guardado: " + filename.str() + 
+                                       " (" + std::to_string(channel.width) + "x" + 
+                                       std::to_string(channel.height) + ") - " +
+                                       std::to_string(ballDetections.size()) + " detecciones");
+                            framesSaved[channel.channelID].store(true);
+                        }
+                    }
                 }
                 
                 std::vector<GlobalPosition> globalPositions;
@@ -1379,6 +1404,7 @@ bool RunRadarTestMode() {
     std::atomic<int> lastSphereCount{0};
     std::mutex detectionMutex;
     std::vector<int> detectedBallIDs;
+    std::atomic<bool> framesSaved{false}; // Flag para guardar solo un frame
     
     // Usar device 0 para captura (el que recibe la señal del VideoHub)
     // El VideoHub ya está enrutado a RADAR_01
@@ -1406,7 +1432,7 @@ bool RunRadarTestMode() {
     // Configurar callback de frame para inferencia
     capture->SetFrameReadyHandler([&inferenceEngine, &inferenceStream, &inferenceReady,
                                    &framesProcessed, &totalSpheresDetected, &lastSphereCount,
-                                   &detectionMutex, &detectedBallIDs]
+                                   &detectionMutex, &detectedBallIDs, &framesSaved]
                                   (const VideoChannel& channel, cudaStream_t stream) {
         framesProcessed++;
         
@@ -1435,6 +1461,28 @@ bool RunRadarTestMode() {
             detectedBallIDs.clear();
             for (const auto& det : detections) {
                 detectedBallIDs.push_back(det.ballID);
+            }
+            
+            // Guardar frame de detección para verificar que estamos recibiendo imagen de la cámara
+            // Solo se guarda el primer frame con detección
+            if (!framesSaved.load()) {
+                Logger::Info("Guardando frame de detección para verificación...");
+                
+                // Guardar frame YUV como PPM (más fácil de visualizar)
+                bool saved = FrameSaver::SaveYUVFrameAsPPM(
+                    channel.cudaYUVBuffer,
+                    channel.width,
+                    channel.height,
+                    "detection_frame.ppm"
+                );
+                
+                if (saved) {
+                    Logger::Info("Frame guardado exitosamente en detection_frame.ppm");
+                    Logger::Info("Dimensiones: " + std::to_string(channel.width) + "x" + std::to_string(channel.height));
+                    framesSaved.store(true);
+                } else {
+                    Logger::Warning("No se pudo guardar el frame de detección");
+                }
             }
             
             // Log de detecciones
