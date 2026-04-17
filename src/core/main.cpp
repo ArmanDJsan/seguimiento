@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <sstream>
 #include <iomanip>
+#include <limits>
 #include <Windows.h>
 #include <objbase.h>  // For COM: CoInitializeEx, CoUninitialize
 #include <d3d11.h>
@@ -1306,6 +1307,235 @@ bool RunStressTestMode() {
     return results.allPassed;
 }
 
+/**
+ * Ejecutar el modo de test de RADAR 1 (Cámara 13)
+ * Solo captura de una cámara para verificar inferencia de esferas
+ * @return true si finalizó correctamente
+ */
+bool RunRadarTestMode() {
+    Logger::Info("=== INICIANDO MODO TEST RADAR 1 (CAMARA 13) ===");
+    Logger::Info("Este modo captura SOLO del Radar 1 para probar la inferencia");
+    Logger::Info("Las demas camaras NO se capturan para dedicar recursos a la prueba");
+    
+    // Load configuration
+    Config config = LoadConfig("config.json");
+    
+    // Controllers para enrutar a la cámara 13 (Radar 1)
+    auto inputLookup = BuildInputLookup();
+    VideoHubClient videoHub(config.videohubIp, config.videohubPort, inputLookup);
+    
+    if (!videoHub.Connect()) {
+        Logger::Error("[HW/SW ERROR] No se pudo establecer conexión con VideoHub");
+        return false;
+    }
+    
+    // Enrutar VideoHub a RADAR_01 (índice 12 en 0-based)
+    Logger::Info("Enrutando VideoHub a RADAR_01 (entrada 13)...");
+    if (!videoHub.RouteInputToOutput(kVideoHubPrimaryOutput, "RADAR_01")) {
+        Logger::Error("[HW/SW ERROR] No se pudo enrutar a RADAR_01");
+        return false;
+    }
+    Logger::Info("VideoHub enrutado correctamente a RADAR_01");
+    
+    // ============================================================================
+    // Initialize CUDA stream para inferencia
+    // ============================================================================
+    cudaStream_t inferenceStream = nullptr;
+    cudaError_t err = cudaStreamCreate(&inferenceStream);
+    if (err != cudaSuccess) {
+        Logger::Error("Failed to create inference CUDA stream: " + std::string(cudaGetErrorString(err)));
+        return false;
+    }
+    
+    // ============================================================================
+    // Initialize InferenceEngine
+    // ============================================================================
+    Logger::Info("Inicializando InferenceEngine...");
+    auto inferenceEngine = std::make_shared<InferenceEngine>();
+    bool inferenceReady = false;
+    if (inferenceEngine->Initialize(config.inferenceConfig)) {
+        inferenceReady = true;
+        if (inferenceEngine->IsStubMode()) {
+            Logger::Warning("InferenceEngine en modo STUB - No hay modelo real");
+        } else {
+            Logger::Info("InferenceEngine inicializado con TensorRT");
+        }
+    } else {
+        Logger::Warning("InferenceEngine no pudo inicializarse");
+    }
+    
+    // ============================================================================
+    // Initialize SOLO el canal de captura para RADAR 1 (device index para radar)
+    // ============================================================================
+    // NOTA: RADAR_01 es la cámara 13 en el VideoHub, pero en DeckLink depende 
+    // de cómo están conectadas las tarjetas. Asumimos device index 0 para el test.
+    // Ajustar según la configuración física real.
+    
+    Logger::Info("Inicializando captura SOLO para Radar 1...");
+    
+    // Contadores para estadísticas
+    std::atomic<int> framesProcessed{0};
+    std::atomic<int> totalSpheresDetected{0};
+    std::atomic<int> lastSphereCount{0};
+    std::mutex detectionMutex;
+    std::vector<int> detectedBallIDs;
+    
+    // Usar device 0 para captura (el que recibe la señal del VideoHub)
+    // El VideoHub ya está enrutado a RADAR_01
+    auto capture = std::make_unique<DeckLinkCapture>();
+    const std::string channelName = "RADAR_01_TEST";
+    
+    int numDevices = DeckLinkCapture::EnumerateDevices();
+    Logger::Info("Dispositivos DeckLink encontrados: " + std::to_string(numDevices));
+    
+    if (numDevices <= 0) {
+        Logger::Error("No se encontraron dispositivos DeckLink");
+        cudaStreamDestroy(inferenceStream);
+        return false;
+    }
+    
+    // Inicializar device 0 (el que recibe la salida del VideoHub)
+    if (!capture->Initialize(0, channelName)) {
+        Logger::Error("No se pudo inicializar captura del device 0");
+        cudaStreamDestroy(inferenceStream);
+        return false;
+    }
+    
+    Logger::Info("Captura inicializada correctamente para " + channelName);
+    
+    // Configurar callback de frame para inferencia
+    capture->SetFrameReadyHandler([&inferenceEngine, &inferenceStream, &inferenceReady,
+                                   &framesProcessed, &totalSpheresDetected, &lastSphereCount,
+                                   &detectionMutex, &detectedBallIDs]
+                                  (const VideoChannel& channel, cudaStream_t stream) {
+        framesProcessed++;
+        
+        if (!inferenceReady || !inferenceEngine) {
+            return;
+        }
+        
+        // Procesar frame con inferencia UYVY optimizada
+        std::vector<BallDetection> detections = inferenceEngine->ProcessFrameUYVY(
+            channel.cudaYUVBuffer,
+            13,  // cameraID = 13 (RADAR_01)
+            channel.width,
+            channel.height,
+            inferenceStream,
+            channel.preprocessEvent
+        );
+        
+        // Actualizar estadísticas
+        int sphereCount = static_cast<int>(detections.size());
+        lastSphereCount.store(sphereCount);
+        totalSpheresDetected.fetch_add(sphereCount);
+        
+        // Guardar IDs de esferas detectadas
+        if (!detections.empty()) {
+            std::lock_guard<std::mutex> lock(detectionMutex);
+            detectedBallIDs.clear();
+            for (const auto& det : detections) {
+                detectedBallIDs.push_back(det.ballID);
+            }
+            
+            // Log de detecciones
+            std::ostringstream oss;
+            oss << "[DETECCION] Frame " << framesProcessed.load() 
+                << " - Esferas detectadas: " << sphereCount << " [";
+            for (size_t i = 0; i < detections.size(); ++i) {
+                if (i > 0) oss << ", ";
+                oss << "B" << detections[i].ballID 
+                    << "(x=" << std::fixed << std::setprecision(2) << detections[i].x
+                    << ",y=" << detections[i].y
+                    << ",conf=" << detections[i].confidence << ")";
+            }
+            oss << "]";
+            Logger::Info(oss.str());
+        }
+    });
+    
+    // Iniciar captura
+    capture->Start();
+    Logger::Info("Captura iniciada. Monitoreando Radar 1...");
+    
+    // ============================================================================
+    // Bucle de monitoreo
+    // ============================================================================
+    Logger::Info("====================================");
+    Logger::Info("ESC - Volver al menu principal");
+    Logger::Info("====================================");
+    Logger::Info("Presione ESC para terminar el test...\n");
+    
+    bool running = true;
+    auto lastStatusLog = std::chrono::steady_clock::now();
+    const auto statusInterval = std::chrono::seconds(2);
+    
+    while (running) {
+        // Check for exit condition
+        if (GetAsyncKeyState(VK_ESCAPE) & 0x8000) {
+            Logger::Info("ESC presionado - Terminando test de Radar 1...");
+            running = false;
+        }
+        
+        // Log periódico de estadísticas
+        auto now = std::chrono::steady_clock::now();
+        if (now - lastStatusLog >= statusInterval) {
+            int frames = framesProcessed.load();
+            int lastCount = lastSphereCount.load();
+            
+            std::ostringstream oss;
+            oss << "[ESTADISTICAS] Frames procesados: " << frames
+                << " | Ultima deteccion: " << lastCount << " esferas";
+            
+            // Mostrar IDs detectados
+            {
+                std::lock_guard<std::mutex> lock(detectionMutex);
+                if (!detectedBallIDs.empty()) {
+                    oss << " | IDs: [";
+                    for (size_t i = 0; i < detectedBallIDs.size(); ++i) {
+                        if (i > 0) oss << ",";
+                        oss << detectedBallIDs[i];
+                    }
+                    oss << "]";
+                }
+            }
+            
+            Logger::Info(oss.str());
+            
+            // Mostrar también en consola de forma destacada
+            std::cout << "\n  *** RADAR 1 - ESFERAS DETECTADAS: " << lastCount << " ***\n" << std::endl;
+            
+            lastStatusLog = now;
+        }
+        
+        std::this_thread::sleep_for(std::chrono::milliseconds(16));
+    }
+    
+    // ============================================================================
+    // Cleanup
+    // ============================================================================
+    Logger::Info("Deteniendo captura de Radar 1...");
+    capture->Stop();
+    capture.reset();
+    
+    if (inferenceStream) {
+        cudaStreamDestroy(inferenceStream);
+    }
+    
+    // Resumen final
+    Logger::Info("====================================");
+    Logger::Info("=== RESUMEN DEL TEST RADAR 1 ===");
+    Logger::Info("Total frames procesados: " + std::to_string(framesProcessed.load()));
+    Logger::Info("Ultima deteccion: " + std::to_string(lastSphereCount.load()) + " esferas");
+    Logger::Info("====================================");
+    
+    std::cout << "\n  Presione ENTER para volver al menu...";
+    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    std::cin.get();
+    
+    Logger::Info("Test de Radar 1 finalizado");
+    return true;
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {
@@ -1352,9 +1582,16 @@ int main(int argc, char* argv[]) {
                     // Vuelve al menú
                     break;
                     
+                case MenuOption::RADAR_TEST_MODE:
+                    if (!RunRadarTestMode()) {
+                        Logger::Warning("Test de Radar 1 finalizó con advertencias");
+                    }
+                    // Vuelve al menú
+                    break;
+                    
                 case MenuOption::INVALID:
                 default:
-                    std::cout << "\n  Opcion invalida. Por favor seleccione 1-4.\n";
+                    std::cout << "\n  Opcion invalida. Por favor seleccione 1-5.\n";
                     std::this_thread::sleep_for(std::chrono::seconds(1));
                     break;
             }
