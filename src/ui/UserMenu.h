@@ -21,6 +21,7 @@ enum class MenuOption {
     RUNNING_MODE = 2,
     CLOSE_SYSTEM = 3,
     TOOLS_CONFIG = 4,
+    RADAR_TEST_MODE = 5,    // Test de inferencia con Radar 1 (cámara 13)
     INVALID = -1
 };
 
