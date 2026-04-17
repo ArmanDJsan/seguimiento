@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <sstream>
 #include <iomanip>
+#include <limits>
 #include <Windows.h>
 #include <objbase.h>  // For COM: CoInitializeEx, CoUninitialize
 #include <d3d11.h>
@@ -1528,6 +1529,7 @@ bool RunRadarTestMode() {
     Logger::Info("====================================");
     
     std::cout << "\n  Presione ENTER para volver al menu...";
+    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     std::cin.get();
     
     Logger::Info("Test de Radar 1 finalizado");
