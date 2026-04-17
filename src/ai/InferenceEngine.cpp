@@ -13,6 +13,8 @@
 #include <chrono>
 #include <algorithm>
 #include <cstring>
+#include <sstream>
+#include <iomanip>
 
 // YOLO output format constants
 // Base attributes: [x, y, w, h, objectness]
@@ -662,6 +664,46 @@ std::vector<BallDetection> InferenceEngine::PostProcess(const float* rawOutput,
     // Use member variables that were set during engine loading
     int stride = (m_outputStride > 0) ? m_outputStride : (kYoloBaseAttributes + m_config.numClasses);
     int numClasses = stride - kYoloBaseAttributes;
+    
+    // ============================================================================
+    // DEBUG: Print raw YOLO output for verification
+    // ============================================================================
+    static int debugFrameCount = 0;
+    debugFrameCount++;
+    
+    // Print raw output every 30 frames (approx 1 second at 30fps)
+    if (debugFrameCount % 30 == 1) {
+        Logger::Info("=== DEBUG YOLO RAW OUTPUT (Frame " + std::to_string(debugFrameCount) + ") ===");
+        Logger::Info("Output format: maxDetections=" + std::to_string(m_maxDetections) + 
+                     ", stride=" + std::to_string(stride) + ", numClasses=" + std::to_string(numClasses));
+        Logger::Info("Confidence threshold: " + std::to_string(m_config.confidenceThreshold));
+        
+        // Print first 10 detections raw values
+        int printCount = std::min(10, m_maxDetections);
+        for (int d = 0; d < printCount; ++d) {
+            const float* det = rawOutput + d * stride;
+            std::ostringstream oss;
+            oss << "Det[" << d << "]: ";
+            for (int s = 0; s < stride; ++s) {
+                oss << std::fixed << std::setprecision(4) << det[s];
+                if (s < stride - 1) oss << ", ";
+            }
+            Logger::Info(oss.str());
+        }
+        
+        // Find and print max confidence value in entire output
+        float maxConf = 0.0f;
+        int maxConfIdx = -1;
+        for (int d = 0; d < m_maxDetections; ++d) {
+            const float* det = rawOutput + d * stride;
+            if (det[4] > maxConf) {
+                maxConf = det[4];
+                maxConfIdx = d;
+            }
+        }
+        Logger::Info("Max confidence found: " + std::to_string(maxConf) + " at detection index " + std::to_string(maxConfIdx));
+        Logger::Info("=== END DEBUG YOLO RAW OUTPUT ===");
+    }
     
     for (int b = 0; b < numFrames; ++b) {
         const float* batchOutput = rawOutput + b * m_maxDetections * stride;

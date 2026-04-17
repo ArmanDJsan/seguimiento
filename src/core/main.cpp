@@ -1438,6 +1438,45 @@ bool RunRadarTestMode() {
                                   (const VideoChannel& channel, cudaStream_t stream) {
         framesProcessed++;
         
+        // ============================================================================
+        // DEBUG: Guardar frame SIEMPRE en el primer frame para verificar la imagen
+        // ============================================================================
+        if (framesProcessed.load() == 1) {
+            Logger::Info("=== DEBUG: Guardando PRIMER frame para verificar imagen de camara ===");
+            Logger::Info("Frame dimensions: " + std::to_string(channel.width) + "x" + std::to_string(channel.height));
+            
+            // Save YUV frame as PPM 
+            bool saved = FrameSaver::SaveYUVFrameAsPPM(
+                channel.cudaYUVBuffer,
+                channel.width,
+                channel.height,
+                "debug_first_frame.ppm"
+            );
+            
+            if (saved) {
+                Logger::Info("DEBUG: Primer frame guardado en debug_first_frame.ppm");
+            } else {
+                Logger::Error("DEBUG: No se pudo guardar el primer frame");
+            }
+        }
+        
+        // Guardar también en el frame 30 y 60 para asegurar
+        if (framesProcessed.load() == 30 || framesProcessed.load() == 60) {
+            std::string filename = "debug_frame_" + std::to_string(framesProcessed.load()) + ".ppm";
+            Logger::Info("=== DEBUG: Guardando frame " + std::to_string(framesProcessed.load()) + " ===");
+            
+            bool saved = FrameSaver::SaveYUVFrameAsPPM(
+                channel.cudaYUVBuffer,
+                channel.width,
+                channel.height,
+                filename.c_str()
+            );
+            
+            if (saved) {
+                Logger::Info("DEBUG: Frame guardado en " + filename);
+            }
+        }
+        
         if (!inferenceReady || !inferenceEngine) {
             return;
         }
@@ -1456,6 +1495,12 @@ bool RunRadarTestMode() {
         int sphereCount = static_cast<int>(detections.size());
         lastSphereCount.store(sphereCount);
         totalSpheresDetected.fetch_add(sphereCount);
+        
+        // Log cada 30 frames aunque no haya detecciones (para debug)
+        if (framesProcessed.load() % 30 == 0) {
+            Logger::Info("[DEBUG] Frame " + std::to_string(framesProcessed.load()) + 
+                        " - Detecciones: " + std::to_string(sphereCount));
+        }
         
         // Guardar IDs de esferas detectadas
         if (!detections.empty()) {
