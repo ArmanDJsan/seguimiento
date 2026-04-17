@@ -40,8 +40,10 @@ constexpr int kLogIntervalMs = 1000;        // Intervalo de log en ms
 static std::atomic<int> g_framesProcessed{0};
 static std::atomic<int> g_totalDetections{0};
 static std::atomic<float> g_maxConfidence{0.0f};
-static std::atomic<float> g_totalInferenceMs{0.0f};
 static std::atomic<int> g_inferenceCount{0};
+static std::atomic<uint64_t> g_totalInferenceMicroseconds{0}; // Microsegundos para precisión
+static std::chrono::steady_clock::time_point g_testStartTime;
+static std::chrono::steady_clock::time_point g_testEndTime;
 
 /**
  * Cargar configuración del motor de inferencia desde config.json
@@ -114,23 +116,26 @@ void OnFrameReceived(
     );
     
     auto endTime = std::chrono::high_resolution_clock::now();
-    float inferenceMs = std::chrono::duration<float, std::milli>(endTime - startTime).count();
+    auto inferenceMicros = std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime).count();
+    float inferenceMs = static_cast<float>(inferenceMicros) / 1000.0f;
     
-    // Actualizar estadísticas
-    g_framesProcessed++;
-    g_totalDetections += static_cast<int>(detections.size());
-    g_totalInferenceMs = g_totalInferenceMs.load() + inferenceMs;
-    g_inferenceCount++;
+    // Actualizar estadísticas usando operaciones atómicas correctas
+    g_framesProcessed.fetch_add(1, std::memory_order_relaxed);
+    g_totalDetections.fetch_add(static_cast<int>(detections.size()), std::memory_order_relaxed);
+    g_totalInferenceMicroseconds.fetch_add(static_cast<uint64_t>(inferenceMicros), std::memory_order_relaxed);
+    g_inferenceCount.fetch_add(1, std::memory_order_relaxed);
     
     // Log de detecciones individuales (solo si hay detecciones)
     if (!detections.empty()) {
         for (const auto& det : detections) {
-            // Actualizar máxima confianza
-            float currentMax = g_maxConfidence.load();
+            // Actualizar máxima confianza usando compare_exchange_strong
+            float currentMax = g_maxConfidence.load(std::memory_order_relaxed);
             while (det.confidence > currentMax) {
-                if (g_maxConfidence.compare_exchange_weak(currentMax, det.confidence)) {
+                if (g_maxConfidence.compare_exchange_strong(currentMax, det.confidence,
+                        std::memory_order_relaxed, std::memory_order_relaxed)) {
                     break;
                 }
+                // currentMax se actualiza automáticamente si falla compare_exchange_strong
             }
             
             // Log cada detección
@@ -149,28 +154,54 @@ void OnFrameReceived(
  * Mostrar estadísticas finales del test
  */
 void ShowStatistics() {
-    int frames = g_framesProcessed.load();
-    int detections = g_totalDetections.load();
-    float maxConf = g_maxConfidence.load();
-    int infCount = g_inferenceCount.load();
-    float totalInfMs = g_totalInferenceMs.load();
+    int frames = g_framesProcessed.load(std::memory_order_relaxed);
+    int detections = g_totalDetections.load(std::memory_order_relaxed);
+    float maxConf = g_maxConfidence.load(std::memory_order_relaxed);
+    int infCount = g_inferenceCount.load(std::memory_order_relaxed);
+    uint64_t totalInfMicros = g_totalInferenceMicroseconds.load(std::memory_order_relaxed);
+    float totalInfMs = static_cast<float>(totalInfMicros) / 1000.0f;
+    
+    // Calcular tiempo real transcurrido
+    auto actualElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        g_testEndTime - g_testStartTime);
+    float actualSeconds = static_cast<float>(actualElapsed.count()) / 1000.0f;
     
     float avgInferenceMs = (infCount > 0) ? (totalInfMs / infCount) : 0.0f;
     float detectionsPerFrame = (frames > 0) ? (static_cast<float>(detections) / frames) : 0.0f;
-    float fps = (frames > 0) ? (frames / static_cast<float>(kTestDurationSeconds)) : 0.0f;
+    // Usar tiempo real transcurrido en lugar de constante de duración
+    float fps = (frames > 0 && actualSeconds > 0) ? (frames / actualSeconds) : 0.0f;
     
     Logger::Info("===============================================");
     Logger::Info("         RESULTADOS DEL TEST DE INFERENCIA     ");
     Logger::Info("===============================================");
     Logger::Info("Cámara probada: CAM_" + std::to_string(kTestCameraID));
-    Logger::Info("Duración del test: " + std::to_string(kTestDurationSeconds) + " segundos");
+    
+    // Mostrar tiempo real transcurrido
+    std::ostringstream durationOss;
+    durationOss << std::fixed << std::setprecision(1) << actualSeconds;
+    Logger::Info("Duración real del test: " + durationOss.str() + " segundos");
+    
     Logger::Info("-----------------------------------------------");
     Logger::Info("Frames procesados: " + std::to_string(frames));
-    Logger::Info("FPS promedio: " + std::to_string(fps));
+    
+    std::ostringstream fpsOss;
+    fpsOss << std::fixed << std::setprecision(1) << fps;
+    Logger::Info("FPS promedio: " + fpsOss.str());
+    
     Logger::Info("Total de detecciones: " + std::to_string(detections));
-    Logger::Info("Detecciones por frame: " + std::to_string(detectionsPerFrame));
-    Logger::Info("Confianza máxima: " + std::to_string(maxConf));
-    Logger::Info("Tiempo promedio de inferencia: " + std::to_string(avgInferenceMs) + " ms");
+    
+    std::ostringstream detPerFrameOss;
+    detPerFrameOss << std::fixed << std::setprecision(2) << detectionsPerFrame;
+    Logger::Info("Detecciones por frame: " + detPerFrameOss.str());
+    
+    std::ostringstream maxConfOss;
+    maxConfOss << std::fixed << std::setprecision(2) << maxConf;
+    Logger::Info("Confianza máxima: " + maxConfOss.str());
+    
+    std::ostringstream avgInfOss;
+    avgInfOss << std::fixed << std::setprecision(2) << avgInferenceMs;
+    Logger::Info("Tiempo promedio de inferencia: " + avgInfOss.str() + " ms");
+    
     Logger::Info("===============================================");
     
     if (detections > 0) {
@@ -283,6 +314,7 @@ int main(int argc, char* argv[]) {
     
     // Loop principal del test
     auto testStart = std::chrono::steady_clock::now();
+    g_testStartTime = testStart;  // Guardar para estadísticas
     auto lastLog = testStart;
     bool running = true;
     
@@ -307,8 +339,8 @@ int main(int argc, char* argv[]) {
         // Log periódico de estado
         auto sinceLast = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastLog);
         if (sinceLast.count() >= kLogIntervalMs) {
-            int frames = g_framesProcessed.load();
-            int detections = g_totalDetections.load();
+            int frames = g_framesProcessed.load(std::memory_order_relaxed);
+            int detections = g_totalDetections.load(std::memory_order_relaxed);
             int remaining = kTestDurationSeconds - static_cast<int>(elapsed.count());
             
             Logger::Info("[STATUS] Frames=" + std::to_string(frames) + 
@@ -321,6 +353,7 @@ int main(int argc, char* argv[]) {
     }
     
     // Detener captura
+    g_testEndTime = std::chrono::steady_clock::now();  // Guardar tiempo final para estadísticas
     Logger::Info("Deteniendo captura...");
     capture->Stop();
     
