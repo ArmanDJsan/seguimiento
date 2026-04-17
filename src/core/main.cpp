@@ -846,7 +846,7 @@ bool RunRunningMode() {
                                           inferenceEngine, positionMapper, ballTracker, 
                                           sceneManager, rankingPublisher, inferenceReady]
                                          (const VideoChannel& channel, cudaStream_t stream) {
-                // Static flag para guardar solo un frame por canal
+                // Static flag to save only one frame per channel
                 static std::atomic<bool> framesSaved[kMaxNDIChannels] = {};
                 
                 auto frameStart = std::chrono::high_resolution_clock::now();
@@ -899,7 +899,7 @@ bool RunRunningMode() {
                         channel.preprocessEvent   // Event for async sync
                     );
                     
-                    // Guardar frame cuando hay detecciones (solo una vez por canal)
+                    // Save frame when there are detections (only once per channel)
                     if (!ballDetections.empty() && channel.channelID < kMaxNDIChannels && 
                         !framesSaved[channel.channelID].load()) {
                         
@@ -912,10 +912,10 @@ bool RunRunningMode() {
                                 channel.width,
                                 channel.height,
                                 filename.str())) {
-                            Logger::Info("Frame guardado: " + filename.str() + 
+                            Logger::Info("Frame saved: " + filename.str() + 
                                        " (" + std::to_string(channel.width) + "x" + 
                                        std::to_string(channel.height) + ") - " +
-                                       std::to_string(ballDetections.size()) + " detecciones");
+                                       std::to_string(ballDetections.size()) + " detections");
                             framesSaved[channel.channelID].store(true);
                         }
                     }
@@ -1404,7 +1404,7 @@ bool RunRadarTestMode() {
     std::atomic<int> lastSphereCount{0};
     std::mutex detectionMutex;
     std::vector<int> detectedBallIDs;
-    std::atomic<bool> framesSaved{false}; // Flag para guardar solo un frame
+    std::atomic<bool> framesSaved{false}; // Flag to save only one frame
     
     // Usar device 0 para captura (el que recibe la señal del VideoHub)
     // El VideoHub ya está enrutado a RADAR_01
@@ -1463,12 +1463,12 @@ bool RunRadarTestMode() {
                 detectedBallIDs.push_back(det.ballID);
             }
             
-            // Guardar frame de detección para verificar que estamos recibiendo imagen de la cámara
-            // Solo se guarda el primer frame con detección
+            // Save detection frame to verify we are receiving camera image
+            // Only the first frame with detection is saved
             if (!framesSaved.load()) {
-                Logger::Info("Guardando frame de detección para verificación...");
+                Logger::Info("Saving detection frame for verification...");
                 
-                // Guardar frame YUV como PPM (más fácil de visualizar)
+                // Save YUV frame as PPM (easier to visualize)
                 bool saved = FrameSaver::SaveYUVFrameAsPPM(
                     channel.cudaYUVBuffer,
                     channel.width,
@@ -1477,11 +1477,11 @@ bool RunRadarTestMode() {
                 );
                 
                 if (saved) {
-                    Logger::Info("Frame guardado exitosamente en detection_frame.ppm");
-                    Logger::Info("Dimensiones: " + std::to_string(channel.width) + "x" + std::to_string(channel.height));
+                    Logger::Info("Frame saved successfully to detection_frame.ppm");
+                    Logger::Info("Dimensions: " + std::to_string(channel.width) + "x" + std::to_string(channel.height));
                     framesSaved.store(true);
                 } else {
-                    Logger::Warning("No se pudo guardar el frame de detección");
+                    Logger::Warning("Could not save detection frame");
                 }
             }
             
