@@ -13,7 +13,7 @@
 │  ┌────────────────────┐    DMA Zero-Copy    ┌────────────────────────────┐  │
 │  │ Blackmagic DeckLink│ ──────────────────► │ CUDA Pinned Memory (GPU)   │  │
 │  │ 8K Pro Mini (x3)   │    (UYVY 4:2:2)     │ cudaHostAllocMapped        │  │
-│  │ 12 x 4K@60fps      │                     │                            │  │
+│  │ 12 x 4K@30fps      │                     │                            │  │
 │  └────────────────────┘                     └────────────────────────────┘  │
 │         ▼                                              │                     │
 │  IDeckLinkVideoBufferAllocator                         │                     │
