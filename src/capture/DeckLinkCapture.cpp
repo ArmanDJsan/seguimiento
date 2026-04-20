@@ -504,7 +504,7 @@ void DeckLinkCapture::ProcessFrame(IDeckLinkVideoInputFrame* videoFrame) {
                     
                     // OPTIMIZATION: Skip BGRA conversion - inference uses UYVY directly
                     // Only convert if frame handler needs BGRA (e.g., for NDI/MegaCanvas)
-                    // The fused kernel in InferenceEngine processes UYVY→RGB640 directly
+                    // The fused kernel in InferenceEngine processes UYVY→RGB at configured dimensions
                     
                     // For now, still do BGRA conversion for output compatibility
                     // TODO: Add flag to skip if only inference is needed

@@ -48,14 +48,14 @@ __device__ __forceinline__ float bilinearInterpolate(
 
 /**
  * Kernel: Preprocess single frame
- * BGRA 4K → RGB 640x640 normalized to [0,1]
+ * BGRA 4K → RGB normalized to [0,1]
  * 
  * @param srcBGRA Source BGRA buffer (4K resolution)
- * @param dstRGB Destination RGB buffer (640x640, float, NCHW format)
+ * @param dstRGB Destination RGB buffer (float, NCHW format)
  * @param srcWidth Source width
  * @param srcHeight Source height
- * @param dstWidth Destination width (640)
- * @param dstHeight Destination height (640)
+ * @param dstWidth Destination width (e.g., 640 or 1280)
+ * @param dstHeight Destination height (e.g., 640 or 720)
  * @param batchIdx Batch index for output offset
  */
 __global__ void PreprocessFrameKernel(
@@ -100,7 +100,7 @@ __global__ void PreprocessFrameKernel(
 
 /**
  * Kernel: Preprocess UYVY frame
- * UYVY 4K → RGB 640x640 normalized to [0,1]
+ * UYVY 4K → RGB normalized to [0,1]
  * 
  * UYVY Format (4:2:2 packed):
  * - Each macropixel contains 2 pixels in 4 bytes: [U0 Y0 V0 Y1]
@@ -108,11 +108,11 @@ __global__ void PreprocessFrameKernel(
  * - Y (luminance) is stored per-pixel
  * 
  * @param srcUYVY Source UYVY buffer (4K resolution)
- * @param dstRGB Destination RGB buffer (640x640, float, NCHW format)
+ * @param dstRGB Destination RGB buffer (float, NCHW format)
  * @param srcWidth Source width
  * @param srcHeight Source height
- * @param dstWidth Destination width (640)
- * @param dstHeight Destination height (640)
+ * @param dstWidth Destination width (e.g., 640 or 1280)
+ * @param dstHeight Destination height (e.g., 640 or 720)
  * @param batchIdx Batch index for output offset
  */
 

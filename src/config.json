@@ -90,14 +90,15 @@
     }
   },
   "inference_engine": {
-    "model_path": "models/yolo26l_fp16_batch12.engine",
-    "batch_size": 12,
+    "model_path": "models/best.engine",
+    "batch_size": 4,
     "precision": "FP16",
-    "input_size": 640,
+    "input_width": 1280,
+    "input_height": 720,
     "nms_threshold": 0.4,
     "confidence_threshold": 0.6,
     "num_classes": 10,
-    "description": "TensorRT engine for ball detection"
+    "description": "TensorRT engine for ball detection - Using 1280x720 (16:9) to match model training aspect ratio"
   },
   "position_mapper": {
     "calibration_file": "config/calibration.json",

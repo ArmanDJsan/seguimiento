@@ -6,7 +6,9 @@
  * 
  * Eliminates intermediate 4K BGRA buffer:
  * - Input: UYVY 4:2:2 (3840×2160) from DeckLink
- * - Output: RGB float NCHW (640×640) for TensorRT
+ * - Output: RGB float NCHW (configurable resolution) for TensorRT
+ *   - Supports square formats (e.g., 640×640)
+ *   - Supports 16:9 formats (e.g., 1280×720) to match training aspect ratio
  * 
  * Performance optimization for RTX 5080 with Threadripper PRO
  * Expected latency: <0.5ms (vs. 1.5ms for two-pass approach)
@@ -130,21 +132,21 @@ __device__ __forceinline__ void sampleUYVYBilinear(
 }
 
 /**
- * Fused kernel: UYVY 4K → RGB 640×640 in one pass
+ * Fused kernel: UYVY 4K → RGB in one pass
  * 
  * This kernel eliminates the intermediate BGRA 4K buffer by directly:
  * 1. Reading UYVY 4:2:2 format
  * 2. Converting YUV→RGB with BT.709
- * 3. Bilinear resizing to 640×640
+ * 3. Bilinear resizing to target dimensions
  * 4. Normalizing to [0, 1]
  * 5. Writing to NCHW format for TensorRT
  * 
  * @param srcUYVY Source UYVY buffer (3840×2160)
- * @param dstRGB Destination RGB buffer (640×640, float, NCHW)
+ * @param dstRGB Destination RGB buffer (float, NCHW)
  * @param srcWidth Source width (3840)
  * @param srcHeight Source height (2160)
- * @param dstWidth Destination width (640)
- * @param dstHeight Destination height (640)
+ * @param dstWidth Destination width (e.g., 640 or 1280)
+ * @param dstHeight Destination height (e.g., 640 or 720)
  * @param batchIdx Batch index for output offset
  */
 __global__ void FusedUYVYToRGB640Kernel(
@@ -231,10 +233,11 @@ __global__ void FusedUYVYToRGB640KernelShared(
 extern "C" {
 
 /**
- * Launch fused UYVY→RGB640×640 preprocessing kernel
+ * Launch fused UYVY→RGB preprocessing kernel
  * 
  * This is the main entry point for the fused kernel.
  * Eliminates intermediate BGRA buffer for reduced latency.
+ * Supports both square and 16:9 aspect ratio outputs.
  */
 cudaError_t LaunchFusedUYVYPreprocess(
     const void* srcUYVY,
