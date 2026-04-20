@@ -407,8 +407,18 @@ Config LoadConfig(const std::string& path) {
             if (ie.contains("batch_size") && ie["batch_size"].is_number()) {
                 config.inferenceConfig.batchSize = ie["batch_size"].get<int>();
             }
-            if (ie.contains("input_size") && ie["input_size"].is_number()) {
+            // Support both new (input_width/input_height) and legacy (input_size) formats
+            if (ie.contains("input_width") && ie["input_width"].is_number()) {
+                config.inferenceConfig.inputWidth = ie["input_width"].get<int>();
+            } else if (ie.contains("input_size") && ie["input_size"].is_number()) {
+                // Backward compatibility: input_size sets both width and height (square)
                 config.inferenceConfig.inputWidth = ie["input_size"].get<int>();
+            }
+            
+            if (ie.contains("input_height") && ie["input_height"].is_number()) {
+                config.inferenceConfig.inputHeight = ie["input_height"].get<int>();
+            } else if (ie.contains("input_size") && ie["input_size"].is_number() && !ie.contains("input_width")) {
+                // Backward compatibility: input_size sets both width and height (square)
                 config.inferenceConfig.inputHeight = ie["input_size"].get<int>();
             }
             if (ie.contains("confidence_threshold") && ie["confidence_threshold"].is_number()) {

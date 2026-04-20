@@ -60,8 +60,8 @@ struct InferenceTelemetry {
 struct InferenceEngineConfig {
     std::string modelPath = "models/yolo26l_fp16_batch12.engine";
     int batchSize = 12;
-    int inputWidth = 640;
-    int inputHeight = 640;
+    int inputWidth = 1280;   // Model trained at 1280x720 (16:9 aspect ratio)
+    int inputHeight = 720;   // Matches 4K camera aspect ratio (3840x2160 = 16:9)
     float confidenceThreshold = 0.6f;
     float nmsThreshold = 0.4f;
     bool useFP16 = true;

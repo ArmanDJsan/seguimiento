@@ -43,7 +43,7 @@ extern "C" {
         int batchIdx,
         cudaStream_t stream);
     
-    // Fused UYVY→RGB640×640 kernel (NEW)
+    // Fused UYVY→RGB kernel (supports configurable dimensions)
     cudaError_t LaunchFusedUYVYPreprocess(
         const void* srcUYVY,
         float* dstRGB,
@@ -213,7 +213,7 @@ std::vector<BallDetection> InferenceEngine::ProcessFrameUYVY(
     // Real TensorRT inference with FUSED UYVY kernel
     // This path eliminates the intermediate BGRA buffer
     
-    // 1. Fused preprocessing: UYVY→RGB640×640 in one kernel
+    // 1. Fused preprocessing: UYVY→RGB at configured dimensions in one kernel
     auto preprocessStart = std::chrono::high_resolution_clock::now();
     
     float* inputFloat = static_cast<float*>(m_inputBuffer);
@@ -485,7 +485,7 @@ bool InferenceEngine::LoadEngine(const std::string& enginePath) {
             Logger::Info("InferenceEngine: Input tensor '" + m_inputTensorName + "' shape: " + dimsStr);
             
             // Verify input dimensions match config
-            // Expected: [batch, channels, height, width] = [12, 3, 640, 640]
+            // Expected: [batch, channels, height, width] e.g., [12, 3, 720, 1280] or [12, 3, 640, 640]
             if (dims.nbDims >= 4) {
                 int engineBatch = static_cast<int>(dims.d[0]);
                 int engineHeight = static_cast<int>(dims.d[2]);
