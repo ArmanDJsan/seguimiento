@@ -198,7 +198,7 @@ std::vector<BallDetection> InferenceEngine::ProcessFrameUYVY(
         // Stub mode: return simulated detection
         int64_t now = GetCurrentTimeMs();
         BallDetection det;
-        det.ballID = 1;
+        det.ballID = 0;  // Ball ID 0 (B0)
         det.cameraID = cameraID;
         det.x = 0.5f;
         det.y = 0.5f;
@@ -314,7 +314,7 @@ std::vector<BallDetection> InferenceEngine::ProcessBatch(
         for (int i = 0; i < numFrames; ++i) {
             // Simulate detecting a ball in each frame
             BallDetection det;
-            det.ballID = (i % 10) + 1;  // Ball IDs 1-10
+            det.ballID = i % 10;  // Ball IDs 0-9 (B0-B9)
             det.cameraID = cameraIDs[i];
             det.x = 0.3f + 0.1f * (i % 3);  // Spread across frame
             det.y = 0.4f + 0.1f * (i % 2);
@@ -717,23 +717,44 @@ std::vector<BallDetection> InferenceEngine::PostProcess(const float* rawOutput,
                 continue;
             }
             
-            // Find best class (class scores start at index kYoloBaseAttributes)
+            // Determine class ID based on output format
             int bestClass = 0;
-            float bestScore = 0;
-            for (int c = 0; c < numClasses; ++c) {
-                if (det[kYoloBaseAttributes + c] > bestScore) {
-                    bestScore = det[kYoloBaseAttributes + c];
-                    bestClass = c;
+            float confidence = objectness;
+            
+            if (numClasses == 1) {
+                // Direct class ID format: [x, y, w, h, objectness, class_id]
+                // The model outputs the class ID directly at index 5
+                bestClass = static_cast<int>(det[5]);
+                confidence = objectness;  // Use objectness as final confidence
+                
+                // Debug log for first few detections
+                static int debugDetCount = 0;
+                if (debugDetCount < 5) {
+                    Logger::Info("[CLASS_DEBUG] Detection " + std::to_string(debugDetCount) + 
+                                ": classID=" + std::to_string(bestClass) + 
+                                " (raw value=" + std::to_string(det[5]) + 
+                                "), ballID will be B" + std::to_string(bestClass));
+                    debugDetCount++;
+                }
+            } else {
+                // Multi-class probability format: [x, y, w, h, objectness, class_score_0, class_score_1, ...]
+                // Find best class from probability scores
+                float bestScore = 0;
+                for (int c = 0; c < numClasses; ++c) {
+                    if (det[kYoloBaseAttributes + c] > bestScore) {
+                        bestScore = det[kYoloBaseAttributes + c];
+                        bestClass = c;
+                    }
+                }
+                confidence = objectness * bestScore;
+                
+                if (confidence < m_config.confidenceThreshold) {
+                    continue;
                 }
             }
             
-            float confidence = objectness * bestScore;
-            if (confidence < m_config.confidenceThreshold) {
-                continue;
-            }
-            
             BallDetection bd;
-            bd.ballID = bestClass + 1;  // 1-indexed ball IDs
+            bd.ballID = bestClass;  // 0-based ball IDs (B0-B9, matching YOLO class IDs 0-9)
             bd.cameraID = cameraIDs[b];
             bd.x = det[0];
             bd.y = det[1];

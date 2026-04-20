@@ -29,7 +29,7 @@
  * Ball detection result from inference
  */
 struct BallDetection {
-    int ballID;             // Ball identifier (1-10, or 0 if unknown)
+    int ballID;             // Ball identifier (0-9, matching YOLO class ID)
     int cameraID;           // Camera that detected this ball
     float x, y;             // Normalized pixel coordinates [0.0, 1.0]
     float width, height;    // Normalized bounding box dimensions
