@@ -1484,7 +1484,7 @@ bool RunRadarTestMode() {
         // Procesar frame con inferencia UYVY optimizada
         std::vector<BallDetection> detections = inferenceEngine->ProcessFrameUYVY(
             channel.cudaYUVBuffer,
-            13,  // cameraID = 13 (RADAR_01)
+            1,  // cameraID = 1 (RADAR_01)
             channel.width,
             channel.height,
             inferenceStream,
