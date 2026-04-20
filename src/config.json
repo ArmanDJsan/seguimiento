@@ -90,8 +90,8 @@
     }
   },
   "inference_engine": {
-    "model_path": "models/yolo26l_fp16_batch12.engine",
-    "batch_size": 12,
+    "model_path": "models/best.engine",
+    "batch_size": 4,
     "precision": "FP16",
     "input_width": 1280,
     "input_height": 720,
