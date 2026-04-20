@@ -726,6 +726,16 @@ std::vector<BallDetection> InferenceEngine::PostProcess(const float* rawOutput,
                 // The model outputs the class ID directly at index 5
                 bestClass = static_cast<int>(det[5]);
                 confidence = objectness;  // Use objectness as final confidence
+                
+                // Debug log for first few detections
+                static int debugDetCount = 0;
+                if (debugDetCount < 5) {
+                    Logger::Info("[CLASS_DEBUG] Detection " + std::to_string(debugDetCount) + 
+                                ": classID=" + std::to_string(bestClass) + 
+                                " (raw value=" + std::to_string(det[5]) + 
+                                "), ballID will be " + std::to_string(bestClass + 1));
+                    debugDetCount++;
+                }
             } else {
                 // Multi-class probability format: [x, y, w, h, objectness, class_score_0, class_score_1, ...]
                 // Find best class from probability scores
