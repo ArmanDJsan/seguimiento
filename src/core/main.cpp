@@ -274,6 +274,31 @@ Config LoadConfig(const std::string& path) {
                 }
             }
             
+            // Parse trigger_mode (threshold/event)
+            // EVENT is the new default architecture - THRESHOLD is for legacy compatibility
+            if (sm.contains("trigger_mode") && sm["trigger_mode"].is_string()) {
+                std::string triggerModeStr = sm["trigger_mode"].get<std::string>();
+                if (triggerModeStr == "threshold") {
+                    config.sceneManagerTriggerMode = TriggerMode::THRESHOLD;
+                    Logger::Info("SceneManager config: Using THRESHOLD mode (legacy)");
+                } else if (triggerModeStr == "event") {
+                    config.sceneManagerTriggerMode = TriggerMode::EVENT;
+                    Logger::Info("SceneManager config: Using EVENT mode (new architecture)");
+                } else {
+                    Logger::Warning("SceneManager config: Invalid trigger_mode '" + triggerModeStr + 
+                                   "', using default EVENT (new architecture)");
+                    config.sceneManagerTriggerMode = TriggerMode::EVENT;
+                }
+            }
+            
+            // Parse event-driven mode parameters
+            if (sm.contains("event_cooldown_ms") && sm["event_cooldown_ms"].is_number()) {
+                config.sceneManagerEventCooldownMs = sm["event_cooldown_ms"].get<int>();
+            }
+            if (sm.contains("hysteresis_frames") && sm["hysteresis_frames"].is_number()) {
+                config.sceneManagerHysteresisFrames = sm["hysteresis_frames"].get<int>();
+            }
+            
             // Parse manual_keys configuration
             if (sm.contains("manual_keys") && sm["manual_keys"].is_object()) {
                 auto& mk = sm["manual_keys"];
@@ -396,6 +421,15 @@ Config LoadConfig(const std::string& path) {
             }
         } else if (config.sceneManagerEnabled) {
             Logger::Warning("SceneManager config: No 'scene_manager' section found, using defaults");
+        }
+        
+        // Parse NDI section
+        if (j.contains("ndi") && j["ndi"].is_object()) {
+            auto& ndi = j["ndi"];
+            if (ndi.contains("enabled") && ndi["enabled"].is_boolean()) {
+                config.ndiEnabled = ndi["enabled"].get<bool>();
+                Logger::Info("NDI config: enabled = " + std::string(config.ndiEnabled ? "true" : "false"));
+            }
         }
         
         // Parse inference_engine section
@@ -641,29 +675,35 @@ bool RunRunningMode() {
     }
 
     // ============================================================================
-    // NDI Initialization (replaced Spout for vMix compatibility)
+    // NDI Initialization (conditionally - can be disabled in config)
     // ============================================================================
-    Logger::Info("Initializing NDI output for vMix...");
+    std::shared_ptr<NDIManager> ndiManager;
     
-    auto ndiManager = std::make_shared<NDIManager>();
-    if (!ndiManager->Initialize()) {
-        Logger::Error("Failed to initialize NDI library");
-        return false;
-    }
-    
-    // Pre-create all 12 NDI senders
-    Logger::Info("Creating NDI senders for " + std::to_string(kMaxNDIChannels) + " channels...");
-    for (int channel = 0; channel < kMaxNDIChannels; ++channel) {
-        std::ostringstream oss;
-        oss << "VIB_CAM_" << std::setw(2) << std::setfill('0') << (channel + 1);
-        const std::string senderName = oss.str();
+    if (config.ndiEnabled) {
+        Logger::Info("Initializing NDI output for vMix...");
         
-        if (!ndiManager->CreateSender(channel, senderName, kDefaultWidth, kDefaultHeight, true)) {
-            Logger::Error("Failed to create NDI sender: " + senderName);
+        ndiManager = std::make_shared<NDIManager>();
+        if (!ndiManager->Initialize()) {
+            Logger::Error("Failed to initialize NDI library");
             return false;
         }
+        
+        // Pre-create all 12 NDI senders
+        Logger::Info("Creating NDI senders for " + std::to_string(kMaxNDIChannels) + " channels...");
+        for (int channel = 0; channel < kMaxNDIChannels; ++channel) {
+            std::ostringstream oss;
+            oss << "VIB_CAM_" << std::setw(2) << std::setfill('0') << (channel + 1);
+            const std::string senderName = oss.str();
+            
+            if (!ndiManager->CreateSender(channel, senderName, kDefaultWidth, kDefaultHeight, true)) {
+                Logger::Error("Failed to create NDI sender: " + senderName);
+                return false;
+            }
+        }
+        Logger::Info("NDI senders initialized successfully");
+    } else {
+        Logger::Info("NDI output disabled - vMix captures directly from VideoHub");
     }
-    Logger::Info("NDI senders initialized successfully");
     
     // ============================================================================
     // Initialize AI Pipeline Components
@@ -737,6 +777,9 @@ bool RunRunningMode() {
     sceneConfig.enabled = config.sceneManagerEnabled;
     sceneConfig.muteTimeoutMs = config.sceneManagerMuteTimeoutMs;
     sceneConfig.mode = config.sceneManagerMode;
+    sceneConfig.triggerMode = config.sceneManagerTriggerMode;
+    sceneConfig.eventCooldownMs = config.sceneManagerEventCooldownMs;
+    sceneConfig.hysteresisFrames = config.sceneManagerHysteresisFrames;
     sceneConfig.manualKeys = config.sceneManagerManualKeys;
     sceneConfig.groups = config.sceneManagerGroups;
     
@@ -864,15 +907,17 @@ bool RunRunningMode() {
                 auto frameStart = std::chrono::high_resolution_clock::now();
                 Telemetry telemetry = {0, 0, 0, 0, 0};
                 
-                // PRIORITY 1: Video Output to vMix
+                // PRIORITY 1: Video Output to vMix (only if NDI is enabled)
                 auto ndiStart = std::chrono::high_resolution_clock::now();
-                ndiManager->SendUYVYFrame(
-                    channel.channelID,
-                    channel.cudaYUVBuffer,
-                    channel.width,
-                    channel.height,
-                    stream
-                );
+                if (ndiManager && config.ndiEnabled) {
+                    ndiManager->SendUYVYFrame(
+                        channel.channelID,
+                        channel.cudaYUVBuffer,
+                        channel.width,
+                        channel.height,
+                        stream
+                    );
+                }
                 auto ndiEnd = std::chrono::high_resolution_clock::now();
                 telemetry.ndi_ms = std::chrono::duration<double, std::milli>(ndiEnd - ndiStart).count();
                 
@@ -1314,7 +1359,9 @@ bool RunRunningMode() {
     }
     captureChannels.clear();
     
-    ndiManager->ReleaseAll();
+    if (ndiManager) {
+        ndiManager->ReleaseAll();
+    }
     
     Logger::Info("Running mode finalizado");
     return true;

@@ -62,11 +62,31 @@
     "enabled": true,
     "mute_timeout_ms": 200,
     "mode": "auto",
+    "trigger_mode": "event",
+    "event_cooldown_ms": 500,
+    "hysteresis_frames": 3,
     "manual_keys": {
       "toggle_mode": "M",
       "config_select": ["F1", "F6", "F7"],
       "group_select": "G",
       "camera_select": ["1", "2", "3", "4"]
+    },
+    "zones": {
+      "ZONE_START": {
+        "range_m": [0, 25],
+        "triggers_config": "config_a",
+        "covered_by_ptz": [1]
+      },
+      "ZONE_MID": {
+        "range_m": [25, 60],
+        "triggers_config": "config_b",
+        "covered_by_ptz": [2, 3]
+      },
+      "ZONE_FINISH": {
+        "range_m": [60, 100],
+        "triggers_config": "config_c",
+        "covered_by_ptz": [4]
+      }
     },
     "groups": {
       "config_a": {
@@ -88,6 +108,10 @@
         "description": "Late-track config - rotates G5-G8 to finish line cameras"
       }
     }
+  },
+  "ndi": {
+    "enabled": false,
+    "description": "NDI output is disabled - vMix captures directly from VideoHub"
   },
   "inference_engine": {
     "model_path": "models/best.engine",

@@ -9,6 +9,10 @@
  * - f1-f4: 4 fixed zenith cameras (always connected, no routing)
  * - Leapfrogging: Inactive group rotates ahead based on leader position
  * 
+ * Trigger modes:
+ * - "threshold": Legacy mode - triggers based on leader X position thresholds
+ * - "event": Event-driven mode - triggers based on zone crossing events
+ * 
  * Performance target: <10ms for group switch including VideoHub command
  */
 
@@ -22,6 +26,7 @@
 #include <functional>
 #include <string>
 #include <cstdint>
+#include <map>
 
 // Forward declaration
 class VideoHubClient;
@@ -32,6 +37,14 @@ class VideoHubClient;
 enum class SceneMode {
     AUTO,    // Automatic leapfrogging based on leader position
     MANUAL   // Manual control via keyboard
+};
+
+/**
+ * Trigger mode - How scene changes are triggered
+ */
+enum class TriggerMode {
+    THRESHOLD,  // Legacy: Based on leader X position thresholds
+    EVENT       // Event-driven: Based on zone crossing events
 };
 
 /**
@@ -104,9 +117,13 @@ struct SlotAssignment {
 struct SceneManagerConfig {
     bool enabled = true;
     SceneMode mode = SceneMode::AUTO;         // Operating mode (AUTO or MANUAL)
+    TriggerMode triggerMode = TriggerMode::THRESHOLD; // How scene changes are triggered
     int muteTimeoutMs = 200;                   // Mute duration after switch (signal stabilization)
+    int eventCooldownMs = 500;                 // Minimum time between event-triggered changes
+    int hysteresisFrames = 3;                  // Frames required to confirm zone change
     std::vector<GroupConfig> groups;           // Ordered list of group configurations
     ManualKeysConfig manualKeys;               // Manual mode key mappings
+    std::map<std::string, std::string> configNameToConfig; // Zone name -> config name mapping
     
     // Default configuration with 2 groups
     SceneManagerConfig() {
@@ -124,6 +141,11 @@ struct SceneManagerConfig {
         
         groups.push_back(configA);
         groups.push_back(configB);
+        
+        // Default zone->config mapping
+        configNameToConfig["ZONE_START"] = "config_a";
+        configNameToConfig["ZONE_MID"] = "config_b";
+        configNameToConfig["ZONE_FINISH"] = "config_c";
     }
 };
 
@@ -161,11 +183,23 @@ public:
     
     /**
      * Update with new leader position
-     * Evaluates if group switch is needed based on thresholds
+     * Evaluates if group switch is needed based on thresholds (THRESHOLD mode only)
      * @param Xg Leader X position in global coordinates (meters)
      * @param Yg Leader Y position (for logging)
      */
     void UpdateLeaderPosition(float Xg, float Yg);
+    
+    /**
+     * Process scene event (EVENT mode)
+     * Handles ZONE_ENTRY, EXTERNAL_TRIGGER events from EventGenerator
+     * @param eventType Type of event (0=ZONE_ENTRY, 1=LEADER_DETECTED, 2=EXTERNAL_TRIGGER)
+     * @param configName Configuration name to apply (e.g., "config_a")
+     * @param confidence Event confidence for hysteresis
+     * @param timestamp Event timestamp
+     * @return true if configuration was changed
+     */
+    bool OnEvent(int eventType, const std::string& configName, 
+                 float confidence = 1.0f, int64_t timestamp = 0);
     
     /**
      * Force switch to specific group configuration
@@ -173,6 +207,13 @@ public:
      * @return true if switch initiated
      */
     bool TriggerGroupSwitch(int configIndex);
+    
+    /**
+     * Force switch to specific configuration by name
+     * @param configName Name of configuration (e.g., "config_a")
+     * @return true if switch initiated
+     */
+    bool TriggerConfigByName(const std::string& configName);
     
     /**
      * Process mute timeouts
@@ -244,6 +285,18 @@ public:
     SceneMode GetMode() const { return m_mode; }
     
     /**
+     * Get current trigger mode
+     * @return Current trigger mode (THRESHOLD or EVENT)
+     */
+    TriggerMode GetTriggerMode() const { return m_triggerMode; }
+    
+    /**
+     * Set trigger mode
+     * @param mode New trigger mode
+     */
+    void SetTriggerMode(TriggerMode mode);
+    
+    /**
      * Select configuration manually (MANUAL mode only)
      * @param configIndex Configuration index (0-2 for config_a/b/c)
      * @return true if selection successful
@@ -295,8 +348,13 @@ private:
     
     // Manual mode state
     SceneMode m_mode;
+    TriggerMode m_triggerMode;
     ManualState m_manualState;
     ManualKeysConfig m_manualKeysConfig;
+    
+    // Event mode state
+    int64_t m_lastEventTime;          // Last event processing time
+    std::string m_lastEventConfig;    // Last config triggered by event
     
     // Helper methods
     void ApplyGroupConfig(int configIndex);
@@ -305,6 +363,8 @@ private:
     void UnmuteSlot(int slotIndex);
     int64_t GetCurrentTimeMs() const;
     int EvaluateDesiredConfig() const;
+    int FindConfigIndexByName(const std::string& configName) const;
+    bool IsEventOnCooldown(int64_t timestamp) const;
     
     /**
      * Internal version of ProcessMuteTimeouts that assumes mutex is already held.
