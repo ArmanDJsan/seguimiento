@@ -21,7 +21,10 @@ SceneManager::SceneManager(VideoHubClient* videoHub, const SceneManagerConfig& c
     , m_lastLeaderY(0.0f)
     , m_initialized(false)
     , m_mode(config.mode)
+    , m_triggerMode(config.triggerMode)
     , m_manualKeysConfig(config.manualKeys)
+    , m_lastEventTime(0)
+    , m_lastEventConfig("")
 {
     // Initialize slot assignments
     for (int i = 0; i < kStreamingSlots; ++i) {
@@ -100,6 +103,8 @@ bool SceneManager::Initialize() {
     
     // Log configuration summary
     Logger::Info("SceneManager: Configuration summary:");
+    std::string triggerModeStr = (m_config.triggerMode == TriggerMode::THRESHOLD) ? "THRESHOLD" : "EVENT";
+    Logger::Info("SceneManager: Trigger mode: " + triggerModeStr);
     for (size_t i = 0; i < m_config.groups.size(); ++i) {
         const auto& group = m_config.groups[i];
         std::ostringstream oss;
@@ -141,7 +146,14 @@ void SceneManager::UpdateLeaderPosition(float Xg, float Yg) {
         return;
     }
     
-    // Evaluate if we need to switch configurations (AUTO mode only)
+    // In EVENT trigger mode, leader position is handled by ZoneChecker/EventGenerator
+    if (m_triggerMode == TriggerMode::EVENT) {
+        // Just update position, events will trigger changes
+        ProcessMuteTimeoutsInternal();
+        return;
+    }
+    
+    // THRESHOLD mode: Evaluate if we need to switch configurations
     int desiredConfig = EvaluateDesiredConfig();
     
     if (desiredConfig != m_currentConfigIndex.load()) {
@@ -557,4 +569,121 @@ int SceneManager::GetActiveCameraID() const {
     } else {
         return config.slotsG5_G8[m_manualState.selectedCameraInGroup];
     }
+}
+
+bool SceneManager::OnEvent(int eventType, const std::string& configName, 
+                            float confidence, int64_t timestamp) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    
+    if (!m_config.enabled || !m_initialized) {
+        return false;
+    }
+    
+    // In MANUAL mode, ignore events
+    if (m_mode == SceneMode::MANUAL) {
+        Logger::Debug("SceneManager: OnEvent ignored - MANUAL mode");
+        return false;
+    }
+    
+    // Check cooldown
+    if (timestamp == 0) {
+        timestamp = GetCurrentTimeMs();
+    }
+    
+    if (IsEventOnCooldown(timestamp)) {
+        Logger::Debug("SceneManager: OnEvent skipped - on cooldown");
+        return false;
+    }
+    
+    // Find config index by name
+    int configIndex = FindConfigIndexByName(configName);
+    if (configIndex < 0) {
+        Logger::Warning("SceneManager: OnEvent - unknown config '" + configName + "'");
+        return false;
+    }
+    
+    // Check if already in this config
+    if (configIndex == m_currentConfigIndex.load()) {
+        Logger::Debug("SceneManager: OnEvent - already in config '" + configName + "'");
+        return false;
+    }
+    
+    // Log event type
+    std::string eventTypeStr;
+    switch (eventType) {
+        case 0: eventTypeStr = "ZONE_ENTRY"; break;
+        case 1: eventTypeStr = "LEADER_DETECTED"; break;
+        case 2: eventTypeStr = "EXTERNAL_TRIGGER"; break;
+        default: eventTypeStr = "UNKNOWN"; break;
+    }
+    
+    Logger::Info("SceneManager: Processing " + eventTypeStr + " event -> " + configName +
+                " (confidence: " + std::to_string(confidence) + ")");
+    
+    // Apply the configuration
+    ApplyGroupConfig(configIndex);
+    
+    // Update cooldown state
+    m_lastEventTime = timestamp;
+    m_lastEventConfig = configName;
+    
+    return true;
+}
+
+bool SceneManager::TriggerConfigByName(const std::string& configName) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    
+    int configIndex = FindConfigIndexByName(configName);
+    if (configIndex < 0) {
+        Logger::Error("SceneManager: TriggerConfigByName - unknown config '" + configName + "'");
+        return false;
+    }
+    
+    if (configIndex == m_currentConfigIndex.load()) {
+        Logger::Debug("SceneManager: Already in config " + configName);
+        return true;
+    }
+    
+    Logger::Info("SceneManager: Force switching to config '" + configName + "'");
+    ApplyGroupConfig(configIndex);
+    return true;
+}
+
+void SceneManager::SetTriggerMode(TriggerMode mode) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    
+    if (m_triggerMode == mode) {
+        return;
+    }
+    
+    std::string oldModeStr = (m_triggerMode == TriggerMode::THRESHOLD) ? "THRESHOLD" : "EVENT";
+    std::string newModeStr = (mode == TriggerMode::THRESHOLD) ? "THRESHOLD" : "EVENT";
+    
+    m_triggerMode = mode;
+    
+    Logger::Info("SceneManager: Trigger mode changed from " + oldModeStr + " to " + newModeStr);
+    
+    // Reset event state when switching modes
+    m_lastEventTime = 0;
+    m_lastEventConfig = "";
+}
+
+int SceneManager::FindConfigIndexByName(const std::string& configName) const {
+    // Note: Caller must hold m_mutex
+    for (size_t i = 0; i < m_config.groups.size(); ++i) {
+        if (m_config.groups[i].configName == configName) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;  // Not found
+}
+
+bool SceneManager::IsEventOnCooldown(int64_t timestamp) const {
+    // Note: Caller must hold m_mutex
+    if (m_lastEventTime == 0) {
+        return false;  // No previous event
+    }
+    
+    int64_t elapsed = timestamp - m_lastEventTime;
+    return elapsed < m_config.eventCooldownMs;
 }

@@ -74,8 +74,14 @@ struct Config {
     bool sceneManagerEnabled;
     int sceneManagerMuteTimeoutMs;
     SceneMode sceneManagerMode;
+    TriggerMode sceneManagerTriggerMode;
+    int sceneManagerEventCooldownMs;
+    int sceneManagerHysteresisFrames;
     ManualKeysConfig sceneManagerManualKeys;
     std::vector<GroupConfig> sceneManagerGroups;
+    
+    // NDI configuration
+    bool ndiEnabled;
     
     // Inference engine configuration
     InferenceEngineConfig inferenceConfig;
@@ -113,6 +119,10 @@ struct Config {
         , sceneManagerEnabled(true)
         , sceneManagerMuteTimeoutMs(200)
         , sceneManagerMode(SceneMode::AUTO)
+        , sceneManagerTriggerMode(TriggerMode::EVENT)
+        , sceneManagerEventCooldownMs(500)
+        , sceneManagerHysteresisFrames(3)
+        , ndiEnabled(false)
         , calibrationFile("config/calibration.json")
     {}
 };
