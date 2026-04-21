@@ -32,8 +32,8 @@
 
 // Constantes
 constexpr int kMaxNDIChannels = 12;
-constexpr unsigned int kDefaultWidth = 1920;  // 1080p for radar PTZ cameras
-constexpr unsigned int kDefaultHeight = 1080;
+constexpr unsigned int kDefaultCaptureWidth = 1920;  // 1080p for radar PTZ cameras
+constexpr unsigned int kDefaultCaptureHeight = 1080;
 constexpr int kVideoHubPrimaryOutput = 0;
 
 StressTester::StressTester(std::chrono::seconds testDuration)
@@ -127,7 +127,7 @@ DiagnosticResults StressTester::RunFullDiagnostic(const Config& config) {
         for (int channel = 0; channel < kMaxNDIChannels; ++channel) {
             std::ostringstream oss;
             oss << "VIB_CAM_" << std::setw(2) << std::setfill('0') << (channel + 1);
-            ndiManager->CreateSender(channel, oss.str(), kDefaultWidth, kDefaultHeight, true);
+            ndiManager->CreateSender(channel, oss.str(), kDefaultCaptureWidth, kDefaultCaptureHeight, true);
         }
     } else {
         results.allPassed = false;
