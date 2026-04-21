@@ -747,10 +747,13 @@ std::vector<BallDetection> InferenceEngine::PostProcess(const float* rawOutput,
                     }
                 }
                 confidence = objectness * bestScore;
-                
-                if (confidence < m_config.confidenceThreshold) {
-                    continue;
-                }
+            }
+            
+            // Apply confidence threshold check uniformly for both formats
+            // Note: For numClasses==1, this is redundant with the objectness check above,
+            // but kept for code clarity and consistency
+            if (confidence < m_config.confidenceThreshold) {
+                continue;
             }
             
             BallDetection bd;
