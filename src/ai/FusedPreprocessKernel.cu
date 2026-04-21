@@ -2,16 +2,20 @@
  * FusedPreprocessKernel.cu
  * 
  * Fused CUDA kernel for ultra-low-latency preprocessing
- * Combines UYVY→RGB conversion + bilinear resize + normalization in ONE kernel
+ * Combines UYVY→RGB conversion + bilinear resize (optional) + normalization in ONE kernel
  * 
- * Eliminates intermediate 4K BGRA buffer:
- * - Input: UYVY 4:2:2 (3840×2160) from DeckLink
+ * For 1080p native inference (skip_resize=true):
+ * - Input: UYVY 4:2:2 (1920×1080) from PTZ cameras via DeckLink
+ * - Output: RGB float NCHW (1920×1080) for TensorRT - NO resize
+ * 
+ * For resized inference (skip_resize=false, legacy):
+ * - Input: UYVY 4:2:2 (any resolution) from DeckLink
  * - Output: RGB float NCHW (configurable resolution) for TensorRT
  *   - Supports square formats (e.g., 640×640)
  *   - Supports 16:9 formats (e.g., 1280×720) to match training aspect ratio
  * 
  * Performance optimization for RTX 5080 with Threadripper PRO
- * Expected latency: <0.5ms (vs. 1.5ms for two-pass approach)
+ * Expected latency: <0.5ms for 1080p (vs. 1.5ms for two-pass 4K approach)
  */
 
 #ifndef _HAS_STD_BYTE

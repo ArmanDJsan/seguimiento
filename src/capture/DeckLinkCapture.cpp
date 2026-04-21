@@ -49,8 +49,8 @@ DeckLinkCapture::DeckLinkCapture()
     m_channel.inferenceEvent = nullptr;
     m_channel.bufferSize = 0;
     m_channel.channelID = -1;
-    m_channel.width = 3840;  // Default 4K
-    m_channel.height = 2160;
+    m_channel.width = 1920;  // Default 1080p (PTZ radar cameras)
+    m_channel.height = 1080;
     m_channel.isActive = false;
 }
 
@@ -266,11 +266,11 @@ bool DeckLinkCapture::Initialize(int deviceIndex, const std::string& channelName
         return false;
     }
     
-    // 5. Set video input format to 4K@30fps (bmdMode4K2160p30)
+    // 5. Set video input format to 1080p@30fps (bmdModeHD1080p30)
     // Using YUV 4:2:2 8-bit format for compatibility
     // SDK 15.3+ uses EnableVideoInputWithAllocatorProvider for zero-copy DMA
     hr = m_channel.deckLinkInput->EnableVideoInputWithAllocatorProvider(
-        bmdMode4K2160p30,           // 4K 30fps mode
+        bmdModeHD1080p30,           // 1080p 30fps mode (for PTZ radar cameras)
         bmdFormat8BitYUV,           // YUV 4:2:2 8-bit
         bmdVideoInputFlagDefault,   // Default flags
         m_allocatorProvider         // Zero-copy allocator provider
@@ -280,7 +280,7 @@ bool DeckLinkCapture::Initialize(int deviceIndex, const std::string& channelName
         Logger::Warning("EnableVideoInputWithAllocatorProvider failed (HRESULT: 0x" + 
                        std::to_string(hr) + "), falling back to standard path");
         hr = m_channel.deckLinkInput->EnableVideoInput(
-            bmdMode4K2160p30,           // 4K 30fps mode
+            bmdModeHD1080p30,           // 1080p 30fps mode
             bmdFormat8BitYUV,           // YUV 4:2:2 8-bit
             bmdVideoInputFlagDefault    // Default flags
         );

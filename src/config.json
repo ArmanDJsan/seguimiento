@@ -117,12 +117,13 @@
     "model_path": "models/best.engine",
     "batch_size": 4,
     "precision": "FP16",
-    "input_width": 1280,
-    "input_height": 720,
+    "input_width": 1920,
+    "input_height": 1080,
     "nms_threshold": 0.4,
     "confidence_threshold": 0.6,
     "num_classes": 10,
-    "description": "TensorRT engine for ball detection - Using 1280x720 (16:9) to match model training aspect ratio"
+    "skip_resize": true,
+    "description": "TensorRT engine for ball detection - Using 1920x1080 (full HD) for better small object detection"
   },
   "position_mapper": {
     "calibration_file": "config/calibration.json",
