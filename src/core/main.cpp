@@ -1345,6 +1345,245 @@ bool RunStressTestMode() {
 }
 
 /**
+ * Ejecutar el modo de test usando SphereVerifier
+ * Reemplazo simplificado de la opción 5 (RunRadarTestMode)
+ * @return true si finalizó correctamente
+ */
+bool RunSphereVerifierTest() {
+    Logger::Info("=== INICIANDO SPHERE VERIFIER TEST ===");
+    Logger::Info("Usando SphereVerifier para verificar esferas");
+    
+    // Mostrar sub-menú de opciones
+    std::cout << "\n  +--------------------------------------------------------------------+\n";
+    std::cout << "  |                   SPHERE VERIFIER TEST                             |\n";
+    std::cout << "  +--------------------------------------------------------------------+\n";
+    std::cout << "  |                                                                    |\n";
+    std::cout << "  |   Camaras disponibles:                                             |\n";
+    std::cout << "  |     1-12: CAM_01 a CAM_12                                          |\n";
+    std::cout << "  |     13-16: RADAR_01 a RADAR_04                                     |\n";
+    std::cout << "  |                                                                    |\n";
+    std::cout << "  +--------------------------------------------------------------------+\n";
+    std::cout << "\n";
+    
+    // Obtener cámara del usuario
+    int cameraID = 13; // Default: RADAR_01
+    std::cout << "  Ingrese numero de camara (1-16) [default=13]: ";
+    std::string input;
+    std::getline(std::cin, input);
+    if (!input.empty()) {
+        try {
+            cameraID = std::stoi(input);
+            if (cameraID < 1 || cameraID > 16) {
+                std::cout << "  Camara invalida, usando default (13)...\n";
+                cameraID = 13;
+            }
+        } catch (...) {
+            std::cout << "  Entrada invalida, usando default (13)...\n";
+            cameraID = 13;
+        }
+    }
+    
+    // Obtener número esperado de esferas
+    int expectedSpheres = 10;
+    std::cout << "  Ingrese numero de esferas esperadas [default=10]: ";
+    std::getline(std::cin, input);
+    if (!input.empty()) {
+        try {
+            expectedSpheres = std::stoi(input);
+            if (expectedSpheres < 1 || expectedSpheres > 20) {
+                std::cout << "  Valor invalido, usando default (10)...\n";
+                expectedSpheres = 10;
+            }
+        } catch (...) {
+            std::cout << "  Entrada invalida, usando default (10)...\n";
+            expectedSpheres = 10;
+        }
+    }
+    
+    Logger::Info("Configuracion: Camara=" + std::to_string(cameraID) + 
+                 ", Esferas esperadas=" + std::to_string(expectedSpheres));
+    
+    // ============================================================================
+    // Cargar configuración
+    // ============================================================================
+    Config config = LoadConfig("config.json");
+    
+    // ============================================================================
+    // Conectar VideoHub
+    // ============================================================================
+    auto inputLookup = BuildInputLookup();
+    VideoHubClient videoHub(config.videohubIp, config.videohubPort, inputLookup);
+    
+    if (!videoHub.Connect()) {
+        Logger::Error("[HW/SW ERROR] No se pudo conectar con VideoHub");
+        std::cout << "\n  ERROR: No se pudo conectar con VideoHub\n";
+        std::cout << "  Presione ENTER para continuar...";
+        std::cin.get();
+        return false;
+    }
+    Logger::Info("VideoHub conectado");
+    
+    // ============================================================================
+    // Inicializar InferenceEngine
+    // ============================================================================
+    Logger::Info("Inicializando InferenceEngine...");
+    auto inferenceEngine = std::make_shared<InferenceEngine>();
+    if (!inferenceEngine->Initialize(config.inferenceConfig)) {
+        Logger::Warning("InferenceEngine no pudo inicializarse completamente");
+    }
+    
+    if (inferenceEngine->IsStubMode()) {
+        Logger::Warning("InferenceEngine en modo STUB - Detecciones simuladas");
+        std::cout << "\n  ADVERTENCIA: InferenceEngine en modo STUB (detecciones simuladas)\n";
+    } else {
+        Logger::Info("InferenceEngine inicializado con TensorRT");
+    }
+    
+    // ============================================================================
+    // Crear SphereVerifier
+    // ============================================================================
+    Logger::Info("Creando SphereVerifier...");
+    Verification::SphereVerifier verifier(&videoHub, inferenceEngine.get());
+    
+    if (!verifier.IsReady()) {
+        Logger::Error("SphereVerifier no está listo: " + verifier.GetLastError());
+        std::cout << "\n  ERROR: SphereVerifier no esta listo\n";
+        std::cout << "  Presione ENTER para continuar...";
+        std::cin.get();
+        return false;
+    }
+    
+    // ============================================================================
+    // Menú de operaciones
+    // ============================================================================
+    bool running = true;
+    while (running) {
+        std::cout << "\n  +--------------------------------------------------------------------+\n";
+        std::cout << "  |                   OPERACIONES SPHERE VERIFIER                      |\n";
+        std::cout << "  +--------------------------------------------------------------------+\n";
+        std::cout << "  |   [1] Verificar presencia de esferas                               |\n";
+        std::cout << "  |   [2] Capturar posiciones actuales                                 |\n";
+        std::cout << "  |   [3] Cambiar camara                                               |\n";
+        std::cout << "  |   [4] Cambiar esferas esperadas                                    |\n";
+        std::cout << "  |   [0] Volver al menu principal                                     |\n";
+        std::cout << "  +--------------------------------------------------------------------+\n";
+        std::cout << "  Camara actual: " << cameraID << " | Esferas esperadas: " << expectedSpheres << "\n";
+        std::cout << "\n  Seleccione operacion: ";
+        
+        int op = -1;
+        std::cin >> op;
+        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+        
+        switch (op) {
+            case 1: {
+                // Verificar presencia
+                std::cout << "\n  Verificando presencia de " << expectedSpheres << " esferas en camara " << cameraID << "...\n";
+                Logger::Info("Ejecutando CheckPresence...");
+                
+                auto result = verifier.CheckPresence(cameraID, expectedSpheres, 10000);
+                
+                if (result.success) {
+                    std::cout << "\n  *** VERIFICACION EXITOSA ***\n";
+                    std::cout << "  Esferas detectadas: " << result.spheresDetected << "\n";
+                    std::cout << "  IDs: [";
+                    for (size_t i = 0; i < result.sphereIDs.size(); ++i) {
+                        if (i > 0) std::cout << ", ";
+                        std::cout << result.sphereIDs[i];
+                    }
+                    std::cout << "]\n";
+                    Logger::Info("CheckPresence EXITOSO: " + std::to_string(result.spheresDetected) + " esferas");
+                } else {
+                    std::cout << "\n  *** VERIFICACION FALLIDA ***\n";
+                    std::cout << "  Error: " << result.errorMessage << "\n";
+                    std::cout << "  Esferas detectadas: " << result.spheresDetected << "\n";
+                    if (!result.sphereIDs.empty()) {
+                        std::cout << "  IDs detectados: [";
+                        for (size_t i = 0; i < result.sphereIDs.size(); ++i) {
+                            if (i > 0) std::cout << ", ";
+                            std::cout << result.sphereIDs[i];
+                        }
+                        std::cout << "]\n";
+                    }
+                    Logger::Warning("CheckPresence FALLIDO: " + result.errorMessage);
+                }
+                break;
+            }
+            
+            case 2: {
+                // Capturar posiciones
+                std::cout << "\n  Capturando posiciones de esferas en camara " << cameraID << "...\n";
+                Logger::Info("Ejecutando CapturePositions...");
+                
+                auto result = verifier.CapturePositions(cameraID, 5000);
+                
+                if (result.success) {
+                    std::cout << "\n  *** CAPTURA EXITOSA ***\n";
+                    std::cout << "  Esferas detectadas: " << result.spheresDetected << "\n";
+                    std::cout << "\n  Posiciones:\n";
+                    std::cout << "  +---------+----------+----------+------------+\n";
+                    std::cout << "  | Ball ID |    X     |    Y     | Confidence |\n";
+                    std::cout << "  +---------+----------+----------+------------+\n";
+                    for (const auto& pos : result.positions) {
+                        std::cout << "  |    " << std::setw(2) << pos.sphereID << "   | " 
+                                  << std::fixed << std::setprecision(4) << std::setw(8) << pos.x << " | "
+                                  << std::setw(8) << pos.y << " | "
+                                  << std::setw(10) << pos.confidence << " |\n";
+                    }
+                    std::cout << "  +---------+----------+----------+------------+\n";
+                    Logger::Info("CapturePositions EXITOSO: " + std::to_string(result.spheresDetected) + " esferas");
+                } else {
+                    std::cout << "\n  *** CAPTURA FALLIDA ***\n";
+                    std::cout << "  Error: " << result.errorMessage << "\n";
+                    Logger::Warning("CapturePositions FALLIDO: " + result.errorMessage);
+                }
+                break;
+            }
+            
+            case 3: {
+                // Cambiar cámara
+                std::cout << "  Ingrese nueva camara (1-16): ";
+                int newCam;
+                std::cin >> newCam;
+                std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+                if (newCam >= 1 && newCam <= 16) {
+                    cameraID = newCam;
+                    Logger::Info("Camara cambiada a: " + std::to_string(cameraID));
+                } else {
+                    std::cout << "  Camara invalida\n";
+                }
+                break;
+            }
+            
+            case 4: {
+                // Cambiar esferas esperadas
+                std::cout << "  Ingrese numero de esferas esperadas: ";
+                int newCount;
+                std::cin >> newCount;
+                std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+                if (newCount >= 1 && newCount <= 20) {
+                    expectedSpheres = newCount;
+                    Logger::Info("Esferas esperadas cambiado a: " + std::to_string(expectedSpheres));
+                } else {
+                    std::cout << "  Valor invalido\n";
+                }
+                break;
+            }
+            
+            case 0:
+                running = false;
+                break;
+                
+            default:
+                std::cout << "  Opcion invalida\n";
+                break;
+        }
+    }
+    
+    Logger::Info("SphereVerifier Test finalizado");
+    return true;
+}
+
+/**
  * Ejecutar el modo de test de RADAR 1 (Cámara 13)
  * Solo captura de una cámara para verificar inferencia de esferas
  * @return true si finalizó correctamente
@@ -1694,9 +1933,16 @@ int main(int argc, char* argv[]) {
                     // Vuelve al menú
                     break;
                     
+                case MenuOption::SPHERE_VERIFIER_TEST:
+                    if (!RunSphereVerifierTest()) {
+                        Logger::Warning("SphereVerifier Test finalizó con advertencias");
+                    }
+                    // Vuelve al menú
+                    break;
+                    
                 case MenuOption::INVALID:
                 default:
-                    std::cout << "\n  Opcion invalida. Por favor seleccione 1-5.\n";
+                    std::cout << "\n  Opcion invalida. Por favor seleccione 1-6.\n";
                     std::this_thread::sleep_for(std::chrono::seconds(1));
                     break;
             }

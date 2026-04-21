@@ -57,16 +57,22 @@ void UserMenu::PrintMenuOptions() {
     std::cout << "  |   [4] TOOLS & CONFIGURATION                                       |\n";
     std::cout << "  |       (Proximamente)                                              |\n";
     std::cout << "  |                                                                    |\n";
-    std::cout << "  |   [5] TEST RADAR 1 (CAMARA 13) - VERIFICAR ESFERAS                |\n";
+    std::cout << "  |   [5] TEST RADAR 1 (CAMARA 13) - VERIFICAR ESFERAS [LEGACY]       |\n";
     std::cout << "  |       Captura solo del Radar 1, detecta esferas con inferencia    |\n";
     std::cout << "  |       Muestra conteo de esferas detectadas en tiempo real         |\n";
+    std::cout << "  |                                                                    |\n";
+    std::cout << "  |   [6] SPHERE VERIFIER TEST (RECOMENDADO)                          |\n";
+    std::cout << "  |       Test simplificado usando SphereVerifier                     |\n";
+    std::cout << "  |       - Seleccion de camara (1-16)                                |\n";
+    std::cout << "  |       - Verificacion de presencia de esferas                      |\n";
+    std::cout << "  |       - Captura de posiciones                                     |\n";
     std::cout << "  |                                                                    |\n";
     std::cout << "  +--------------------------------------------------------------------+\n";
     std::cout << "\n";
 }
 
 int UserMenu::GetUserChoice() {
-    std::cout << "  Seleccione una opcion (1-5): ";
+    std::cout << "  Seleccione una opcion (1-6): ";
     
     int choice = -1;
     std::cin >> choice;
@@ -89,6 +95,7 @@ MenuOption UserMenu::IntToMenuOption(int choice) {
         case 3: return MenuOption::CLOSE_SYSTEM;
         case 4: return MenuOption::TOOLS_CONFIG;
         case 5: return MenuOption::RADAR_TEST_MODE;
+        case 6: return MenuOption::SPHERE_VERIFIER_TEST;
         default: return MenuOption::INVALID;
     }
 }
