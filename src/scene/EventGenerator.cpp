@@ -268,12 +268,13 @@ void EventGenerator::UpdateStats(EventType type, bool dropped) {
     // Note: Must acquire m_statsMutex separately
     std::lock_guard<std::mutex> lock(m_statsMutex);
     
-    m_stats.totalEventsGenerated++;
-    
     if (dropped) {
         m_stats.droppedEvents++;
         return;
     }
+    
+    // Only count successfully enqueued events
+    m_stats.totalEventsGenerated++;
     
     switch (type) {
         case EventType::ZONE_ENTRY:

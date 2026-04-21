@@ -74,13 +74,17 @@ struct Config {
     bool sceneManagerEnabled;
     int sceneManagerMuteTimeoutMs;
     SceneMode sceneManagerMode;
+    // Trigger mode determines how scene changes are initiated:
+    // - THRESHOLD (legacy): Based on leader X position thresholds
+    // - EVENT (default): Based on zone crossing events from ZoneChecker/EventGenerator
+    //   EVENT mode is the new architecture providing more precise control
     TriggerMode sceneManagerTriggerMode;
-    int sceneManagerEventCooldownMs;
-    int sceneManagerHysteresisFrames;
+    int sceneManagerEventCooldownMs;      // Minimum ms between event-triggered changes
+    int sceneManagerHysteresisFrames;     // Frames required to confirm zone change
     ManualKeysConfig sceneManagerManualKeys;
     std::vector<GroupConfig> sceneManagerGroups;
     
-    // NDI configuration
+    // NDI configuration - when disabled, vMix captures directly from VideoHub
     bool ndiEnabled;
     
     // Inference engine configuration

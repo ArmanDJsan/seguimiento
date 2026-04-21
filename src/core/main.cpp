@@ -275,15 +275,18 @@ Config LoadConfig(const std::string& path) {
             }
             
             // Parse trigger_mode (threshold/event)
+            // EVENT is the new default architecture - THRESHOLD is for legacy compatibility
             if (sm.contains("trigger_mode") && sm["trigger_mode"].is_string()) {
                 std::string triggerModeStr = sm["trigger_mode"].get<std::string>();
                 if (triggerModeStr == "threshold") {
                     config.sceneManagerTriggerMode = TriggerMode::THRESHOLD;
+                    Logger::Info("SceneManager config: Using THRESHOLD mode (legacy)");
                 } else if (triggerModeStr == "event") {
                     config.sceneManagerTriggerMode = TriggerMode::EVENT;
+                    Logger::Info("SceneManager config: Using EVENT mode (new architecture)");
                 } else {
                     Logger::Warning("SceneManager config: Invalid trigger_mode '" + triggerModeStr + 
-                                   "', using default EVENT");
+                                   "', using default EVENT (new architecture)");
                     config.sceneManagerTriggerMode = TriggerMode::EVENT;
                 }
             }
