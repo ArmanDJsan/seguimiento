@@ -30,12 +30,15 @@ ActiveCameraSelector::ActiveCameraSelector(int numCameras, int topK,
     , m_topK(topK)
     , m_motionThreshold(motionThreshold)
     , m_edgeMargin(edgeMargin)
+    , m_motionDetectionSkipFrames(2)  // FIX: Skip 1 frame (process every 2nd frame) to reduce GPU usage
+    , m_globalFrameCount(0)
     , m_initialized(false)
     , m_warmupFrameCount(0)
     , m_isStable(false)
 {
     Logger::Info("ActiveCameraSelector created: " + std::to_string(numCameras) + 
-                 " cameras, Top-" + std::to_string(topK) + " selection");
+                 " cameras, Top-" + std::to_string(topK) + " selection, " +
+                 "motion detection skip: " + std::to_string(m_motionDetectionSkipFrames - 1) + " frames");
 }
 
 ActiveCameraSelector::~ActiveCameraSelector() {
@@ -169,8 +172,54 @@ bool ActiveCameraSelector::AllocateCameraResources(int cameraID,
     state.frameSize = frameSize;
     state.hasHistory = false;
     
+    // FIX: Pre-allocate memory pool buffers para evitar fragmentación
+    // Calcular tamaño máximo necesario para partial sums
+    unsigned int numPixels = width * height;
+    unsigned int threadsPerBlock = 256;
+    unsigned int numBlocks = (numPixels + threadsPerBlock * 2 - 1) / (threadsPerBlock * 2);
+    state.partialSumsSize = numBlocks * sizeof(float);
+    
+    // Allocate persistent buffer for CalculateMotionScore
+    err = cudaMalloc(&state.devicePartialSums, state.partialSumsSize);
+    if (err != cudaSuccess) {
+        Logger::Error("Failed to allocate memory pool (partial sums) for camera " + std::to_string(cameraID));
+        cudaFree(state.previousFrame);
+        cudaFree(state.currentFrame);
+        cudaFree(state.motionBuffer);
+        cudaFreeHost(state.hostMotionScore);
+        cudaEventDestroy(state.processingComplete);
+        state.previousFrame = nullptr;
+        state.currentFrame = nullptr;
+        state.motionBuffer = nullptr;
+        state.hostMotionScore = nullptr;
+        state.processingComplete = nullptr;
+        return false;
+    }
+    
+    // Allocate persistent buffer for CalculateEdgeActivity
+    err = cudaMalloc(&state.deviceEdgeScore, sizeof(float));
+    if (err != cudaSuccess) {
+        Logger::Error("Failed to allocate memory pool (edge score) for camera " + std::to_string(cameraID));
+        cudaFree(state.previousFrame);
+        cudaFree(state.currentFrame);
+        cudaFree(state.motionBuffer);
+        cudaFreeHost(state.hostMotionScore);
+        cudaEventDestroy(state.processingComplete);
+        cudaFree(state.devicePartialSums);
+        state.previousFrame = nullptr;
+        state.currentFrame = nullptr;
+        state.motionBuffer = nullptr;
+        state.hostMotionScore = nullptr;
+        state.processingComplete = nullptr;
+        state.devicePartialSums = nullptr;
+        return false;
+    }
+    
+    state.poolAllocated = true;
+    
     Logger::Debug("Allocated resources for camera " + std::to_string(cameraID) + 
-                  " (" + std::to_string(width) + "x" + std::to_string(height) + ")");
+                  " (" + std::to_string(width) + "x" + std::to_string(height) + ")" +
+                  " + memory pool (" + std::to_string(state.partialSumsSize + sizeof(float)) + " bytes)");
     
     return true;
 }
@@ -203,6 +252,17 @@ void ActiveCameraSelector::FreeCameraResources(int cameraID) {
         cudaEventDestroy(state.processingComplete);
         state.processingComplete = nullptr;
     }
+    
+    // FIX: Free memory pool buffers
+    if (state.devicePartialSums) {
+        cudaFree(state.devicePartialSums);
+        state.devicePartialSums = nullptr;
+    }
+    if (state.deviceEdgeScore) {
+        cudaFree(state.deviceEdgeScore);
+        state.deviceEdgeScore = nullptr;
+    }
+    state.poolAllocated = false;
     
     state.width = 0;
     state.height = 0;
@@ -239,8 +299,13 @@ bool ActiveCameraSelector::ProcessFrame(int cameraID, void* cudaYUVBuffer,
         return false;
     }
     
-    // If we have history, calculate motion
-    if (state.hasHistory) {
+    // FIX: Skip frames para reducir GPU usage
+    // Calcular motion detection solo cada N frames (reduce allocaciones temporales y GPU compute)
+    unsigned long long currentFrame = m_globalFrameCount.fetch_add(1);
+    bool shouldCalculateMotion = (currentFrame % m_motionDetectionSkipFrames) == 0;
+    
+    // If we have history AND it's time to calculate motion
+    if (state.hasHistory && shouldCalculateMotion) {
         float motionScore = CalculateMotionScore(cameraID, stream);
         float edgeActivity = CalculateEdgeActivity(cameraID, stream);
         
@@ -251,12 +316,17 @@ bool ActiveCameraSelector::ProcessFrame(int cameraID, void* cudaYUVBuffer,
         
         // Record event for synchronization
         cudaEventRecord(state.processingComplete, stream);
+    } else if (state.hasHistory) {
+        // Skip motion calculation but keep previous scores (save GPU resources)
+        state.metrics.frameCount++;
     }
     
-    // Swap buffers: current becomes previous
-    void* temp = state.previousFrame;
-    state.previousFrame = state.currentFrame;
-    state.currentFrame = temp;
+    // Swap buffers: current becomes previous (solo si calculamos motion)
+    if (shouldCalculateMotion) {
+        void* temp = state.previousFrame;
+        state.previousFrame = state.currentFrame;
+        state.currentFrame = temp;
+    }
     state.hasHistory = true;
     
     return true;
@@ -265,20 +335,19 @@ bool ActiveCameraSelector::ProcessFrame(int cameraID, void* cudaYUVBuffer,
 float ActiveCameraSelector::CalculateMotionScore(int cameraID, cudaStream_t stream) {
     auto& state = m_cameraStates[cameraID];
     
-    // Allocate temporary buffer for partial sums
-    unsigned int numPixels = state.width * state.height;
-    unsigned int threadsPerBlock = 256;
-    unsigned int numBlocks = (numPixels + threadsPerBlock * 2 - 1) / (threadsPerBlock * 2);
+    // FIX: Usar buffer pre-allocado del memory pool en lugar de cudaMalloc/cudaFree
+    // Esto elimina ~21 MB/min de fragmentación de memoria GPU
+    if (!state.poolAllocated || !state.devicePartialSums) {
+        Logger::Error("Memory pool not allocated for camera " + std::to_string(cameraID));
+        return 0.0f;
+    }
     
-    float* devicePartialSums;
-    cudaMalloc(&devicePartialSums, numBlocks * sizeof(float));
-    
-    // Launch motion detection kernels
+    // Launch motion detection kernels usando el buffer reutilizable
     cudaError_t err = LaunchMotionDetection(
         state.previousFrame,
         state.currentFrame,
         static_cast<float*>(state.motionBuffer),
-        devicePartialSums,
+        static_cast<float*>(state.devicePartialSums),  // Reusable buffer
         state.width,
         state.height,
         stream
@@ -286,13 +355,16 @@ float ActiveCameraSelector::CalculateMotionScore(int cameraID, cudaStream_t stre
     
     if (err != cudaSuccess) {
         Logger::Error("Motion detection kernel failed for camera " + std::to_string(cameraID));
-        cudaFree(devicePartialSums);
         return 0.0f;
     }
     
     // Copy partial sums to host and finalize reduction
+    unsigned int numPixels = state.width * state.height;
+    unsigned int threadsPerBlock = 256;
+    unsigned int numBlocks = (numPixels + threadsPerBlock * 2 - 1) / (threadsPerBlock * 2);
+    
     std::vector<float> hostPartialSums(numBlocks);
-    cudaMemcpyAsync(hostPartialSums.data(), devicePartialSums, numBlocks * sizeof(float),
+    cudaMemcpyAsync(hostPartialSums.data(), state.devicePartialSums, numBlocks * sizeof(float),
                    cudaMemcpyDeviceToHost, stream);
     
     // Record event instead of blocking synchronization
@@ -313,7 +385,7 @@ float ActiveCameraSelector::CalculateMotionScore(int cameraID, cudaStream_t stre
     float normalizedScore = totalMotion / static_cast<float>(numPixels);
     
     cudaEventDestroy(copyComplete);
-    cudaFree(devicePartialSums);
+    // NO cudaFree() - buffer is reused from memory pool!
     
     return normalizedScore;
 }
@@ -321,12 +393,15 @@ float ActiveCameraSelector::CalculateMotionScore(int cameraID, cudaStream_t stre
 float ActiveCameraSelector::CalculateEdgeActivity(int cameraID, cudaStream_t stream) {
     auto& state = m_cameraStates[cameraID];
     
-    float* deviceEdgeScore;
-    cudaMalloc(&deviceEdgeScore, sizeof(float));
+    // FIX: Usar buffer pre-allocado del memory pool en lugar de cudaMalloc/cudaFree
+    if (!state.poolAllocated || !state.deviceEdgeScore) {
+        Logger::Error("Memory pool not allocated for camera " + std::to_string(cameraID));
+        return 0.0f;
+    }
     
     cudaError_t err = LaunchEdgeActivityCalculation(
         static_cast<float*>(state.motionBuffer),
-        deviceEdgeScore,
+        static_cast<float*>(state.deviceEdgeScore),  // Reusable buffer
         state.width,
         state.height,
         m_edgeMargin,
@@ -335,12 +410,11 @@ float ActiveCameraSelector::CalculateEdgeActivity(int cameraID, cudaStream_t str
     
     if (err != cudaSuccess) {
         Logger::Error("Edge activity calculation failed for camera " + std::to_string(cameraID));
-        cudaFree(deviceEdgeScore);
         return 0.0f;
     }
     
     float edgeScore;
-    cudaMemcpyAsync(&edgeScore, deviceEdgeScore, sizeof(float),
+    cudaMemcpyAsync(&edgeScore, state.deviceEdgeScore, sizeof(float),
                    cudaMemcpyDeviceToHost, stream);
     cudaStreamSynchronize(stream);
     
@@ -352,7 +426,7 @@ float ActiveCameraSelector::CalculateEdgeActivity(int cameraID, cudaStream_t str
     
     float normalizedEdge = (edgePixels > 0) ? (edgeScore / edgePixels) : 0.0f;
     
-    cudaFree(deviceEdgeScore);
+    // NO cudaFree() - buffer is reused from memory pool!
     
     return normalizedEdge;
 }

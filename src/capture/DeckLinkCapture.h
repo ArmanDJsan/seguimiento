@@ -228,6 +228,9 @@ private:
     // Custom allocator provider for zero-copy DMA (DeckLink SDK 15.3+ interface)
     DeckLinkCudaAllocatorProvider* m_allocatorProvider;
     
+    // FIX: Track if cudaYUVBuffer was allocated via fallback path (needs explicit cudaFree)
+    bool m_fallbackBufferAllocated;
+    
     // C++20 thread management for safe shutdown
     std::jthread m_captureThread;
     

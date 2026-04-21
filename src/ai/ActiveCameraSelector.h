@@ -140,6 +140,10 @@ private:
     float m_edgeMargin;
     HysteresisConfig m_hysteresisConfig;
     
+    // FIX: Skip frames para reducir GPU usage (calcular motion cada N frames)
+    int m_motionDetectionSkipFrames;  // Calcular motion cada N frames (default 2)
+    std::atomic<unsigned long long> m_globalFrameCount;
+    
     // State
     std::atomic<bool> m_initialized;
     std::atomic<int> m_warmupFrameCount;  // Track warmup progress (0-10 frames)
@@ -159,6 +163,13 @@ private:
         size_t frameSize;
         bool hasHistory;
         
+        // FIX: Memory pool para reducir fragmentación GPU
+        // Estos buffers se reutilizan en lugar de malloc/free cada frame
+        void* devicePartialSums;    // Buffer para CalculateMotionScore (reusable)
+        size_t partialSumsSize;     // Tamaño del buffer de partial sums
+        void* deviceEdgeScore;      // Buffer para CalculateEdgeActivity (reusable)
+        bool poolAllocated;         // Flag para saber si el pool está asignado
+        
         // Default constructor
         CameraState() 
             : previousFrame(nullptr)
@@ -170,6 +181,10 @@ private:
             , height(0)
             , frameSize(0)
             , hasHistory(false)
+            , devicePartialSums(nullptr)
+            , partialSumsSize(0)
+            , deviceEdgeScore(nullptr)
+            , poolAllocated(false)
         {}
         
         // Delete copy constructor and copy assignment
@@ -189,6 +204,10 @@ private:
             , height(other.height)
             , frameSize(other.frameSize)
             , hasHistory(other.hasHistory)
+            , devicePartialSums(other.devicePartialSums)
+            , partialSumsSize(other.partialSumsSize)
+            , deviceEdgeScore(other.deviceEdgeScore)
+            , poolAllocated(other.poolAllocated)
         {
             // Nullify source pointers to prevent double-free
             other.previousFrame = nullptr;
@@ -196,6 +215,9 @@ private:
             other.motionBuffer = nullptr;
             other.hostMotionScore = nullptr;
             other.processingComplete = nullptr;
+            other.devicePartialSums = nullptr;
+            other.deviceEdgeScore = nullptr;
+            other.poolAllocated = false;
         }
         
         // Move assignment operator
@@ -212,6 +234,10 @@ private:
                 height = other.height;
                 frameSize = other.frameSize;
                 hasHistory = other.hasHistory;
+                devicePartialSums = other.devicePartialSums;
+                partialSumsSize = other.partialSumsSize;
+                deviceEdgeScore = other.deviceEdgeScore;
+                poolAllocated = other.poolAllocated;
                 
                 // Nullify source pointers
                 other.previousFrame = nullptr;
@@ -219,6 +245,9 @@ private:
                 other.motionBuffer = nullptr;
                 other.hostMotionScore = nullptr;
                 other.processingComplete = nullptr;
+                other.devicePartialSums = nullptr;
+                other.deviceEdgeScore = nullptr;
+                other.poolAllocated = false;
             }
             return *this;
         }

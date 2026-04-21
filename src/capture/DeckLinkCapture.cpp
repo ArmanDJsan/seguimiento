@@ -38,6 +38,7 @@ DeckLinkCapture::DeckLinkCapture()
     : m_allocatorProvider(nullptr)
     , m_deckLink(nullptr)
     , m_refCount(1)
+    , m_fallbackBufferAllocated(false)  // FIX: Initialize fallback flag
 {
     // Initialize channel structure
     m_channel.deckLinkInput = nullptr;
@@ -87,9 +88,14 @@ DeckLinkCapture::~DeckLinkCapture() {
     }
     
     // Release CUDA resources
-    // Note: cudaYUVBuffer is managed by DeckLinkCudaAllocatorProvider
-    // It's automatically freed when allocator releases its buffers
-    if (m_channel.cudaYUVBuffer) {
+    // Note: cudaYUVBuffer could be from allocator OR from fallback cudaMalloc
+    // We need to check if it needs to be freed
+    // FIX: Free cudaYUVBuffer if it was allocated in fallback path
+    if (m_channel.cudaYUVBuffer && m_fallbackBufferAllocated) {
+        cudaFree(m_channel.cudaYUVBuffer);
+        m_channel.cudaYUVBuffer = nullptr;
+        m_fallbackBufferAllocated = false;
+    } else if (m_channel.cudaYUVBuffer) {
         m_channel.cudaYUVBuffer = nullptr;  // Just clear pointer, allocator owns the memory
     }
     if (m_channel.cudaBGRABuffer) {
@@ -538,6 +544,8 @@ void DeckLinkCapture::ProcessFrame(IDeckLinkVideoInputFrame* videoFrame) {
                             videoBuffer->Release();
                             return;
                         }
+                        m_fallbackBufferAllocated = true;  // FIX: Mark that we allocated this buffer
+                        Logger::Info("Allocated fallback YUV buffer (" + std::to_string(m_channel.bufferSize) + " bytes)");
                     }
                     
                     cudaError_t err = cudaMemcpyAsync(
