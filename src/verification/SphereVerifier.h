@@ -124,15 +124,6 @@ struct VerificationResult {
  * SphereVerifier - Main verification component
  * 
  * Thread safety: All public methods are thread-safe
- * 
- * Capture Management:
- * - Implements intelligent device capture reuse to avoid conflicts
- * - Tracks active camera captures in m_activeCaptures unordered_set
- * - When a verification starts, checks if camera is already being captured
- * - If already captured, reuses the existing capture stream
- * - If not captured, starts capture and releases it when done
- * - Prevents "device already in use" conflicts when multiple verifications
- *   run simultaneously on the same camera
  */
 class SphereVerifier {
 public:
@@ -198,11 +189,6 @@ public:
      * Get last error message
      */
     const std::string& GetLastError() const { return m_lastError; }
-    
-    /**
-     * Get list of cameras currently being captured (for debugging/diagnostics)
-     */
-    std::vector<int> GetActiveCaptures() const;
 
 private:
     // Dependencies
@@ -216,9 +202,6 @@ private:
     
     // Frame capture state
     std::function<void(int, void*, unsigned int, unsigned int)> m_frameCallback;
-    
-    // Active capture tracking for smart reuse
-    std::unordered_set<int> m_activeCaptures;  // Set of camera IDs currently being captured
     
     // Internal implementation methods
     VerificationResult ExecutePresenceCheck(const VerificationConfig& config);
@@ -236,11 +219,6 @@ private:
                                  std::vector<SpherePosition>& outPositions);
     void SetError(const std::string& error);
     int64_t GetCurrentTimeMs() const;
-    
-    // Capture management methods for smart reuse
-    bool IsCameraBeingCaptured(int cameraID) const;
-    bool StartCameraCapture(int cameraID);
-    void StopCameraCapture(int cameraID);
     
     // Stub mode flag for when InferenceEngine is in stub mode
     bool m_stubMode;
