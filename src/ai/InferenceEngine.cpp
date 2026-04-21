@@ -242,46 +242,55 @@ std::vector<BallDetection> InferenceEngine::ProcessFrameUYVY(
     
     auto preprocessEnd = std::chrono::high_resolution_clock::now();
     
-    // 2. Run TensorRT inference (WITHOUT mutex - using event-based sync instead)
+    // 2. Run TensorRT inference (serialized via mutex for thread safety)
     auto inferenceStart = std::chrono::high_resolution_clock::now();
     
-    // For dynamic shape engines, set the input shape before inference
-    if (m_hasDynamicShapes) {
-        nvinfer1::Dims inputDims;
-        inputDims.nbDims = 4;
-        inputDims.d[0] = 1;  // Batch size = 1 for single frame
-        inputDims.d[1] = kInputChannels;  // RGB channels
-        inputDims.d[2] = m_config.inputHeight;
-        inputDims.d[3] = m_config.inputWidth;
+    {
+        // Acquire lock before accessing execution context
+        // This serializes inference calls from multiple capture threads
+        std::lock_guard<std::mutex> lock(m_mutex);
         
-        if (!m_context->setInputShape(m_inputTensorName.c_str(), inputDims)) {
-            Logger::Error("InferenceEngine: Failed to set input shape for dynamic engine");
+        // For dynamic shape engines, set the input shape before inference
+        if (m_hasDynamicShapes) {
+            nvinfer1::Dims inputDims;
+            inputDims.nbDims = 4;
+            inputDims.d[0] = 1;  // Batch size = 1 for single frame
+            inputDims.d[1] = kInputChannels;  // RGB channels
+            inputDims.d[2] = m_config.inputHeight;
+            inputDims.d[3] = m_config.inputWidth;
+            
+            if (!m_context->setInputShape(m_inputTensorName.c_str(), inputDims)) {
+                Logger::Error("InferenceEngine: Failed to set input shape for dynamic engine");
+                return {};
+            }
+        }
+        
+        // Set up I/O tensor addresses for TensorRT 10.x API
+        if (!m_context->setTensorAddress(m_inputTensorName.c_str(), m_inputBuffer)) {
+            Logger::Error("InferenceEngine: Failed to set input tensor address");
             return {};
         }
+        if (!m_context->setTensorAddress(m_outputTensorName.c_str(), m_outputBuffer)) {
+            Logger::Error("InferenceEngine: Failed to set output tensor address");
+            return {};
+        }
+        
+        // Execute inference asynchronously on the stream
+        // This implicitly waits for preprocessing kernels to complete (same stream)
+        if (!m_context->enqueueV3(stream)) {
+            Logger::Error("InferenceEngine: TensorRT inference execution failed");
+            return {};
+        }
+        
+        // Copy results to host asynchronously while still holding the lock
+        // This ensures the output buffer isn't overwritten by another thread
+        cudaMemcpyAsync(m_hostOutput, m_outputBuffer, m_outputSize, cudaMemcpyDeviceToHost, stream);
+        
+        // Wait for copy to complete before releasing lock
+        // This is required because the output buffer is shared
+        cudaStreamSynchronize(stream);
     }
-    
-    // Set up I/O tensor addresses for TensorRT 10.x API
-    if (!m_context->setTensorAddress(m_inputTensorName.c_str(), m_inputBuffer)) {
-        Logger::Error("InferenceEngine: Failed to set input tensor address");
-        return {};
-    }
-    if (!m_context->setTensorAddress(m_outputTensorName.c_str(), m_outputBuffer)) {
-        Logger::Error("InferenceEngine: Failed to set output tensor address");
-        return {};
-    }
-    
-    // Execute inference asynchronously on the stream
-    // IMPORTANT: No mutex here - each camera has its own stream and this is async
-    if (!m_context->enqueueV3(stream)) {
-        Logger::Error("InferenceEngine: TensorRT inference execution failed");
-        return {};
-    }
-    
-    // Copy results to host asynchronously
-    cudaMemcpyAsync(m_hostOutput, m_outputBuffer, m_outputSize, cudaMemcpyDeviceToHost, stream);
-    
-    // Wait for stream to complete (only this camera's work)
-    cudaStreamSynchronize(stream);
+    // Lock is released here
     
     auto inferenceEnd = std::chrono::high_resolution_clock::now();
     
