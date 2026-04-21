@@ -1,3 +1,218 @@
+📋 PLAN ACTUALIZADO: Sistema de Seguimiento con Triggers por Radar/Eventos
+Con grupos originales preservados y disparo por detección
+🎯 RESUMEN DEL SISTEMA
+Arquitectura Final:
+
+VIB captura solo 4 canales PTZ/RADAR (1080p@30fps) para seguimiento con YOLO
+vMix captura directamente los 8 slots SDI del VideoHub (4K@30fps)
+SceneManager cambia configuraciones basándose en eventos de radar/YOLO, no en thresholds fijos
+Los grupos de cámaras se mantienen exactamente como están definidos
+📊 ESPECIFICACIONES TÉCNICAS
+Componente	Resolución	FPS	Formato
+Cámaras Streaming (12)	3840×2160 (4K)	30p	SDI
+Cámaras PTZ/Radar (4)	1920×1080 (HD)	30p	SDI
+VideoHub Slots (G1-G8)	4K pass-through	30p	SDI
+vMix Inputs	4K	30p	SDI directo
+YOLO Inference	640×640	30fps	RGB
+🎬 CONFIGURACIONES DE GRUPOS (SIN CAMBIOS)
+Code
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                     CONFIGURACIONES DE GRUPOS PRESERVADAS                            │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+
+╔═══════════════════════════════════════════════════════════════════════════════════════╗
+║ CONFIG_A: Configuración Inicial (Salida/Primera Curva)                                ║
+╠═══════════════════════════════════════════════════════════════════════════════════════╣
+║                                                                                       ║
+║   G1-G4 (Grupo Principal):     G5-G8 (Grupo Secundario):                              ║
+║   ┌─────┬─────┬─────┬─────┐   ┌─────┬─────┬─────┬─────┐                              ║
+║   │ G1  │ G2  │ G3  │ G4  │   │ G5  │ G6  │ G7  │ G8  │                              ║
+║   │CAM1 │CAM2 │CAM3 │CAM12│   │CAM4 │CAM5 │CAM6 │CAM7 │                              ║
+║   └─────┴─────┴─────┴─────┘   └─────┴─────┴─────┴─────┘                              ║
+║                                                                                       ║
+║   Trigger: RADAR detecta líder saliendo de zona de salida                            ║
+║                                                                                       ║
+╚═══════════════════════════════════════════════════════════════════════════════════════╝
+
+╔═══════════════════════════════════════════════════════════════════════════════════════╗
+║ CONFIG_B: Configuración Media (Mitad de Pista)                                        ║
+╠═══════════════════════════════════════════════════════════════════════════════════════╣
+║                                                                                       ║
+║   G1-G4 (Grupo Principal):     G5-G8 (Grupo Secundario):                              ║
+║   ┌─────┬─────┬─────┬─────┐   ┌─────┬─────┬─────┬─────┐                              ║
+║   │ G1  │ G2  │ G3  │ G4  │   │ G5  │ G6  │ G7  │ G8  │                              ║
+║   │CAM8 │CAM9 │CAM10│CAM12│   │CAM4 │CAM5 │CAM6 │CAM7 │                              ║
+║   └─────┴─────┴─────┴─────┘   └─────┴─────┴─────┴─────┘                              ║
+║                                                                                       ║
+║   Trigger: RADAR detecta líder entrando en sector medio                              ║
+║                                                                                       ║
+╚═══════════════════════════════════════════════════════════════════════════════════════╝
+
+╔═══════════════════════════════════════════════════════════════════════════════════════╗
+║ CONFIG_C: Configuración Final (Llegada/Meta)                                          ║
+╠═══════════════════════════════════════════════════════════════════════════════════════╣
+║                                                                                       ║
+║   G1-G4 (Grupo Principal):     G5-G8 (Grupo Secundario):                              ║
+║   ┌─────┬─────┬─────┬─────┐   ┌─────┬─────┬─────┬─────┐                              ║
+║   │ G1  │ G2  │ G3  │ G4  │   │ G5  │ G6  │ G7  │ G8  │                              ║
+║   │CAM8 │CAM9 │CAM10│CAM12│   │CAM11│CAM1 │CAM2 │CAM3 │                              ║
+║   └─────┴─────┴─────┴─────┘   └─────┴─────┴─────┴─────┘                              ║
+║                                                                                       ║
+║   Trigger: RADAR detecta líder aproximándose a meta                                  ║
+║                                                                                       ║
+╚═══════════════════════════════════════════════════════════════════════════════════════╝
+📊 DIAGRAMA: ARQUITECTURA COMPLETA
+Code
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                    ARQUITECTURA VIB - CAPTURA PTZ + TRIGGERS RADAR                   │
+│                    (Todo a 30fps, PTZ a 1080p, Streaming a 4K)                       │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────────────────────────────┐
+│                        CÁMARAS EN ESTADIO/PISTA                                     │
+├────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                    │
+│  ┌─────────────────────────────────────────────────────────────────────────────┐  │
+│  │            12 CÁMARAS DE STREAMING (4K@30fps) - NO CAPTURADAS POR VIB       │  │
+│  │  ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐                           │  │
+│  │  │CAM1 │ │CAM2 │ │CAM3 │ │CAM4 │ │CAM5 │ │CAM6 │                           │  │
+│  │  │ 4K  │ │ 4K  │ │ 4K  │ │ 4K  │ │ 4K  │ │ 4K  │                           │  │
+│  │  │30fps│ │30fps│ │30fps│ │30fps│ │30fps│ │30fps│                           │  │
+│  │  └──┬──┘ └──┬──┘ └──┬──┘ └──┬──┘ └──┬──┘ └──┬──┘                           │  │
+│  │  ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐                           │  │
+│  │  │CAM7 │ │CAM8 │ │CAM9 │ │CAM10│ │CAM11│ │CAM12│                           │  │
+│  │  │ 4K  │ │ 4K  │ │ 4K  │ │ 4K  │ │ 4K  │ │ 4K  │  (Cámara fija especial)  │  │
+│  │  │30fps│ │30fps│ │30fps│ │30fps│ │30fps│ │30fps│                           │  │
+│  │  └──┬──┘ └──┬──┘ └──┬──┘ └──┬──┘ └──┬──┘ └──┬──┘                           │  │
+│  └─────┼──────┼──────┼──────┼──────┼──────┼──────────────────────────────────┘  │
+│        │      │      │      │      │      │                                      │
+│        │      │    SDI 4K directo al VideoHub                                    │
+│        │      │      │      │      │      │                                      │
+│  ┌─────┼──────┼──────┼──────┼──────┼──────┼──────────────────────────────────┐  │
+│  │     │   4 CÁMARAS PTZ / RADAR (1080p@30fps) - CAPTURADAS POR VIB          │  │
+│  │  ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐                                           │  │
+│  │  │PTZ1 │ │PTZ2 │ │PTZ3 │ │PTZ4 │     ← Cámaras para tracking/detección    │  │
+│  │  │RADAR│ │RADAR│ │RADAR│ │RADAR│     ← Cubren diferentes sectores          │  │
+│  │  │1080p│ │1080p│ │1080p│ │1080p│        de la pista                        │  │
+│  │  │30fps│ │30fps│ │30fps│ │30fps│                                           │  │
+│  │  └──┬──┘ └──┬──┘ └──┬──┘ └──┬──┘                                           │  │
+│  └─────┼──────┼──────┼──────┼────────────────────────────────────────────────┘  │
+│        │      │      │      │                                                    │
+└────────┼──────┼──────┼──────┼────────────────────────────────────────────────────┘
+         │      │      │      │
+         ▼      ▼      ▼      ▼
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                           VIDEOHUB 16×16 SDI MATRIX                                  │
+├─────────────────────────────────────────────────────────────────────────────────────┤
+│  ┌─────────────────────────────────────────────────────────────────────────────┐   │
+│  │                              INPUTS (16 SDI)                                 │   │
+│  │  ┌────┬────┬────┬────┬────┬────┬────┬────┬────┬────┬────┬────┬────┬────┬────┬────┐│
+│  │  │ 1  │ 2  │ 3  │ 4  │ 5  │ 6  │ 7  │ 8  │ 9  │ 10 │ 11 │ 12 │ 13 │ 14 │ 15 │ 16 ││
+│  │  │CAM1│CAM2│CAM3│CAM4│CAM5│CAM6│CAM7│CAM8│CAM9│CA10│CA11│CA12│PTZ1│PTZ2│PTZ3│PTZ4││
+│  │  │ 4K │ 4K │ 4K │ 4K │ 4K │ 4K │ 4K │ 4K │ 4K │ 4K │ 4K │ 4K │1080│1080│1080│1080││
+│  │  └────┴────┴────┴────┴────┴────┴────┴────┴────┴────┴────┴────┴────┴────┴────┴────┘│
+│  └─────────────────────────────────────────────────────────────────────────────┘   │
+│                                                                                     │
+│                         SceneManager controla OUTPUTS 1-8                           │
+│                         Basándose en EVENTOS DE RADAR                               │
+│                                                                                     │
+│  ┌─────────────────────────────────────────────────────────────────────────────┐   │
+│  │                             OUTPUTS (16 SDI)                                 │   │
+│  │  ┌────┬────┬────┬────┬────┬────┬────┬────┬────┬────┬────┬────┬────┬────┬────┬────┐│
+│  │  │ 1  │ 2  │ 3  │ 4  │ 5  │ 6  │ 7  │ 8  │ 9  │ 10 │ 11 │ 12 │ 13 │ 14 │ 15 │ 16 ││
+│  │  │ G1 │ G2 │ G3 │ G4 │ G5 │ G6 │ G7 │ G8 │RAD1│RAD2│RAD3│RAD4│    │    │    │    ││
+│  │  │vMix│vMix│vMix│vMix│vMix│vMix│vMix│vMix│ VIB│ VIB│ VIB│ VIB│    │    │    │    ││
+│  │  └──┬─┴──┬─┴──┬─┴──┬─┴──┬─┴──┬─┴──┬─┴──┬─┴──┬─┴──┬─┴──┬─┴──┬─┴────┴────┴────┴────┘│
+│  └─────┼────┼────┼────┼────┼────┼────┼────┼────┼────┼────┼────────────────────────┘   │
+└────────┼────┼────┼────┼────┼────┼────┼────┼────┼────┼────┼────────────────────────────┘
+         │    │    │    │    │    │    │    │    │    │    │
+         ▼    ▼    ▼    ▼    ▼    ▼    ▼    ▼    ▼    ▼    ▼    ▼
+┌──────────────────────────────────────┐    ┌───────────────────────────────────────┐
+│         vMix (PC Producción)         │    │        VIB (PC con GPU RTX)           │
+│                                      │    │                                       │
+│  ┌────────────────────────────────┐  │    │  ┌─────────────────────────────────┐  │
+│  │      DeckLink 8K Pro Mini      │  │    │  │    DeckLink Duo 2 (4 inputs)    │  │
+│  │                                │  │    │  │                                 │  │
+│  │  8 inputs SDI directo:         │  │    │  │  4 inputs SDI (solo PTZ):       │  │
+│  │  ┌────┬────┬────┬────┐        │  │    │  │  ┌─────┬─────┬─────┬─────┐      │  │
+│  │  │ G1 │ G2 │ G3 │ G4 │        │  │    │  │  │RAD1 │RAD2 │RAD3 │RAD4 │      │  │
+│  │  │ 4K │ 4K │ 4K │ 4K │        │  │    │  │  │1080p│1080p│1080p│1080p│      │  │
+│  │  │30p │30p │30p │30p │        │  │    │  │  │ 30p │ 30p │ 30p │ 30p │      │  │
+│  │  └────┴────┴────┴────┘        │  │    │  │  └─────┴─────┴─────┴─────┘      │  │
+│  │  ┌────┬────┬────┬────┐        │  │    │  └─────────────────────────────────┘  │
+│  │  │ G5 │ G6 │ G7 │ G8 │        │  │    │              │                        │
+│  │  │ 4K │ 4K │ 4K │ 4K │        │  │    │              ▼                        │
+│  │  │30p │30p │30p │30p │        │  │    │  ┌─────────────────────────────────┐  │
+│  │  └────┴────┴────┴────┘        │  │    │  │      YOLO + Tracking Pipeline   │  │
+│  └────────────────────────────────┘  │    │  │      Genera EVENTOS DE RADAR   │  │
+│                                      │    │  └───────────┬─────────────────────┘  │
+│  Producción en tiempo real:          │    │              │                        │
+│  • MultiView 8 cámaras               │    │              ▼                        │
+│  • Transiciones                      │    │  ┌─────────────────────────────────┐  │
+│  • Recording/Streaming               │    │  │       SceneManager (Nuevo)      │  │
+│                                      │    │  │  Dispara cambios por EVENTOS    │  │
+└──────────────────────────────────────┘    │  │  no por thresholds de posición  │  │
+                                            │  └───────────┬─────────────────────┘  │
+                                            │              │                        │
+                                            │              ▼                        │
+                                            │  ┌─────────────────────────────────┐  │
+                                            │  │       VideoHub Client           │  │
+                                            │  │  Cambia routing G1-G8           │  │
+                                            │  └─────────────────────────────────┘  │
+                                            └───────────────────────────────────────┘
+🔄 SISTEMA DE EVENTOS DE RADAR
+Code
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                     SISTEMA DE EVENTOS (Reemplaza Thresholds)                        │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+
+╔═══════════════════════════════════════════════════════════════════════════════════════╗
+║ TIPOS DE EVENTOS QUE DISPARAN CAMBIOS                                                 ║
+╠═══════════════════════════════════════════════════════════════════════════════════════╣
+║                                                                                       ║
+║  ┌────────────────────────────────────────────────────────────────────────────────┐  ║
+║  │ EVENTO: ZONE_ENTRY                                                              │  ║
+║  │                                                                                 │  ║
+║  │ Descripción: El líder entra en una zona específica de la pista                  │  ║
+║  │ Fuente: YOLO detecta objeto cruzando línea virtual definida por calibración     │  ║
+║  │                                                                                 │  ║
+║  │ Zonas definidas:                                                                │  ║
+║  │   • ZONE_START    (0-25m)   → Mantener config_a                                │  ║
+║  │   • ZONE_MID      (25-60m)  → Cambiar a config_b                               │  ║
+║  │   • ZONE_FINISH   (60-100m) → Cambiar a config_c                               │  ║
+║  │                                                                                 │  ║
+║  └────────────────────────────────────────────────────────────────────────────────┘  ║
+║                                                                                       ║
+║  ┌────────────────────────────────────────────────────────────────────────────────┐  ║
+║  │ EVENTO: LEADER_DETECTED                                                         │  ║
+║  │                                                                                 │  ║
+║  │ Descripción: Se identifica al objeto líder en una cámara PTZ específica         │  ║
+║  │ Fuente: YOLO + Tracker identifica objeto más adelantado                         │  ║
+║  │                                                                                 │  ║
+║  │ Payload:                                                                        │  ║
+║  │   • camera_id: PTZ que lo detecta                                              │  ║
+║  │   • position: {x, y} en coordenadas de pista                                   │  ║
+║  │   • confidence: nivel de certeza                                                │  ║
+║  │   • velocity: velocidad estimada                                                │  ║
+║  │                                                                                 │  ║
+║  └────────────────────────────────────────────────────────────────────────────────┘  ║
+║                                                                                       ║
+║  ┌────────────────────────────────────────────────────────────────────────────────┐  ║
+║  │ EVENTO: EXTERNAL_TRIGGER                                                        │  ║
+║  │                                                                                 │  ║
+║  │ Descripción: Trigger manual o desde sistema externo (timing, scoring)           │  ║
+║  │ Fuente: API REST, WebSocket, o tecla manual                                     │  ║
+║  │                                                                                 │  ║
+║  │ Casos de uso:                                                                   │  ║
+║  │   • Sistema de cronometraje envía "LAP_START"                                  │  ║
+║  │   • Operador presiona F1/F6/F7 para forzar config                              │  ║
+║  │   • Sistema de scoring envía posiciones oficiales                              │  ║
+║  │                                                                                 │  ║
+║  └────────────────────────────────────────────────────────────────────────────────┘  ║
+║                                                                                       ║
+╚═══════════════════════════════════════════════════════════════════════════════════════╝
+🔄 FLUJO COMPLETO DE CAPTURA A EVENTO
+Code
 ┌─────────────────────────────────────────────────────────────────────────────────────┐
 │               FLUJO DE FRAME COMPLETO CON GENERACIÓN DE EVENTOS (33.3ms @ 30fps)     │
 └─────────────────────────────────────────────────────────────────────────────────────┘
@@ -68,7 +283,7 @@
 ║  └──────────────────────────────────────────────────────────────────────────────────┘║
 ║                                                                                       ║
 ║  ┌──────────────────────────────────────────────────────────────────────────────────┐║
-║  │ PASO 3: CONVERSIÓN YUV→RGB640 (Kernel CUDA)             /no escalar solo convertir                          │║
+║  │ PASO 3: CONVERSIÓN YUV→RGB640 (Kernel CUDA)                                      │║
 ║  │                                                                                  │║
 ║  │   ┌─────────────────────────────────────────────────────────────────────────┐   │║
 ║  │   │              CUDA Kernel: UYVY_1080p_to_RGB_640                         │   │║
@@ -76,7 +291,7 @@
 ║  │   │  Operaciones fusionadas:                                                │   │║
 ║  │   │  1. Leer UYVY de memoria host-mapped                                    │   │║
 ║  │   │  2. Convertir YUV→RGB                                                   │   │║
-║  │   │  3. Resize bilinear 1920×1080 →1920×1080                               │   │║
+║  │   │  3. Resize bilinear 1920×1080 → no rezise                                 │   │║
 ║  │   │  4. Normalizar 0-255 → 0.0-1.0                                          │   │║
 ║  │   │  5. Reordenar HWC → CHW (para TensorRT)                                 │   │║
 ║  │   │                                                                         │   │║
@@ -91,7 +306,7 @@
 ║  │   ┌─────────────────────────────────────────────────────────────────────────┐   │║
 ║  │   │                      YOLO v8 TensorRT Engine                            │   │║
 ║  │   │                                                                         │   │║
-║  │   │  Input: Batch de 4 × [3,  1080, 1920]                                    │   │║
+║  │   │  Input: Batch de 4 × [3,1080, 1920]                                │   │║
 ║  │   │  Model: yolov8n.engine (optimizado FP16)                                │   │║
 ║  │   │  Detección: personas, vehículos, objetos específicos                    │   │║
 ║  │   │                                                                         │   │║
@@ -254,8 +469,7 @@
 ║  └──────────────────────────────────────────────────────────────────────────────────┘║
 ║                                                                                       ║
 ╚═══════════════════════════════════════════════════════════════════════════════════════╝
-
-CONFIGURACIÓN JSON ACTUALIZADA
+📝 CONFIGURACIÓN JSON ACTUALIZADA
 JSON
 {
   "scene_manager": {
@@ -317,3 +531,27 @@ JSON
     "streaming_slots_vmix_direct": true
   }
 }
+📋 CHECKLIST DE IMPLEMENTACIÓN
+Fase 1: Eliminar NDI y reducir captura (1-2 horas)
+ Eliminar NDI Manager del código
+ Cambiar captura a solo 4 canales PTZ (1080p@30fps)
+ Actualizar constantes de resolución
+Fase 2: Implementar ZoneChecker (2-3 horas)
+ Crear clase ZoneChecker con definición de zonas
+ Implementar calibración pixel→metros por PTZ
+ Implementar detección de cruce de zona
+Fase 3: Implementar EventGenerator (1-2 horas)
+ Crear clase EventGenerator
+ Definir estructura de eventos (ZONE_ENTRY, EXTERNAL_TRIGGER)
+ Conectar con ZoneChecker y Tracker
+Fase 4: Modificar SceneManager (2-3 horas)
+ Cambiar lógica de threshold → event-driven
+ Implementar histéresis y cooldown
+ Mantener grupos exactamente como están definidos
+ Agregar soporte para EXTERNAL_TRIGGER
+Fase 5: Testing (2-3 horas)
+ Test de captura 4 canales PTZ 1080p@30fps
+ Test de detección YOLO
+ Test de cruce de zonas
+ Test de cambio de configuración por evento
+ Test de latencia end-to-end
