@@ -215,6 +215,9 @@ private:
     std::string m_inputTensorName;
     std::string m_outputTensorName;
     
+    // Dynamic shape support
+    bool m_hasDynamicShapes;    // True if engine has dynamic batch dimension
+    
     // GPU buffers
     void* m_inputBuffer;        // Preprocessed input [B, C, H, W]
     void* m_outputBuffer;       // Raw output from network
