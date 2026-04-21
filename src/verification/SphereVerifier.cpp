@@ -12,6 +12,7 @@
 #include <chrono>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <set>
 #include <functional> // REQUERIDO para std::function
 #include <mutex>      // REQUERIDO para std::lock_guard y m_mutex
@@ -51,7 +52,7 @@ bool SphereVerifier::IsReady() const {
 
 std::vector<int> SphereVerifier::GetActiveCaptures() const {
     std::lock_guard<std::mutex> lock(m_mutex);
-    return m_activeCaptures;
+    return std::vector<int>(m_activeCaptures.begin(), m_activeCaptures.end());
 }
 
 VerificationResult SphereVerifier::Execute(VerificationMode mode, const VerificationConfig& config) {
@@ -123,13 +124,8 @@ VerificationResult SphereVerifier::ExecutePresenceCheck(const VerificationConfig
     result.cameraUsed = config.cameraID;
     result.timestamp = GetCurrentTimeMs();
     
-    // Check if camera is already being captured
-    bool wasAlreadyCapturing = IsCameraBeingCaptured(config.cameraID);
-    if (wasAlreadyCapturing) {
-        Logger::Info("SphereVerifier: Reusing active capture for camera " + std::to_string(config.cameraID));
-    }
-    
     // Start capture (will reuse if already active)
+    bool wasAlreadyCapturing = IsCameraBeingCaptured(config.cameraID);
     if (!StartCameraCapture(config.cameraID)) {
         result.success = false;
         result.errorMessage = "Failed to start capture for camera " + std::to_string(config.cameraID);
@@ -214,13 +210,8 @@ VerificationResult SphereVerifier::ExecutePositionSnapshot(const VerificationCon
     result.cameraUsed = config.cameraID;
     result.timestamp = GetCurrentTimeMs();
     
-    // Check if camera is already being captured
-    bool wasAlreadyCapturing = IsCameraBeingCaptured(config.cameraID);
-    if (wasAlreadyCapturing) {
-        Logger::Info("SphereVerifier: Reusing active capture for camera " + std::to_string(config.cameraID));
-    }
-    
     // Start capture (will reuse if already active)
+    bool wasAlreadyCapturing = IsCameraBeingCaptured(config.cameraID);
     if (!StartCameraCapture(config.cameraID)) {
         result.success = false;
         result.errorMessage = "Failed to start capture for camera " + std::to_string(config.cameraID);
@@ -279,13 +270,8 @@ VerificationResult SphereVerifier::ExecuteArrivalOrder(const VerificationConfig&
     result.cameraUsed = config.cameraID;
     result.timestamp = GetCurrentTimeMs();
     
-    // Check if camera is already being captured
-    bool wasAlreadyCapturing = IsCameraBeingCaptured(config.cameraID);
-    if (wasAlreadyCapturing) {
-        Logger::Info("SphereVerifier: Reusing active capture for camera " + std::to_string(config.cameraID));
-    }
-    
     // Start capture (will reuse if already active)
+    bool wasAlreadyCapturing = IsCameraBeingCaptured(config.cameraID);
     if (!StartCameraCapture(config.cameraID)) {
         result.success = false;
         result.errorMessage = "Failed to start capture for camera " + std::to_string(config.cameraID);
@@ -314,13 +300,8 @@ VerificationResult SphereVerifier::ExecuteCheckpointPass(const VerificationConfi
     result.cameraUsed = config.cameraID;
     result.timestamp = GetCurrentTimeMs();
     
-    // Check if camera is already being captured
-    bool wasAlreadyCapturing = IsCameraBeingCaptured(config.cameraID);
-    if (wasAlreadyCapturing) {
-        Logger::Info("SphereVerifier: Reusing active capture for camera " + std::to_string(config.cameraID));
-    }
-    
     // Start capture (will reuse if already active)
+    bool wasAlreadyCapturing = IsCameraBeingCaptured(config.cameraID);
     if (!StartCameraCapture(config.cameraID)) {
         result.success = false;
         result.errorMessage = "Failed to start capture for camera " + std::to_string(config.cameraID);
@@ -533,21 +514,24 @@ int64_t SphereVerifier::GetCurrentTimeMs() const {
 
 bool SphereVerifier::IsCameraBeingCaptured(int cameraID) const {
     std::lock_guard<std::mutex> lock(m_mutex);
-    return std::find(m_activeCaptures.begin(), m_activeCaptures.end(), cameraID) != m_activeCaptures.end();
+    return m_activeCaptures.find(cameraID) != m_activeCaptures.end();
 }
 
 bool SphereVerifier::StartCameraCapture(int cameraID) {
     std::lock_guard<std::mutex> lock(m_mutex);
     
     // Check if already capturing from this camera
-    if (std::find(m_activeCaptures.begin(), m_activeCaptures.end(), cameraID) != m_activeCaptures.end()) {
+    auto [it, inserted] = m_activeCaptures.insert(cameraID);
+    if (!inserted) {
         Logger::Debug("SphereVerifier: Reusing existing capture for camera " + std::to_string(cameraID));
         return true;  // Already capturing, reuse it
     }
     
-    // Add to active captures
-    m_activeCaptures.push_back(cameraID);
-    Logger::Debug("SphereVerifier: Started capture for camera " + std::to_string(cameraID));
+    // TODO: Add actual hardware capture initialization here when integrated with DeckLinkCapture
+    // For now, we only track the intent to capture at the SphereVerifier level
+    // Actual device management happens in CaptureAndDetect() and RouteCamera()
+    
+    Logger::Debug("SphereVerifier: Started capture tracking for camera " + std::to_string(cameraID));
     return true;
 }
 
@@ -555,10 +539,13 @@ void SphereVerifier::StopCameraCapture(int cameraID) {
     std::lock_guard<std::mutex> lock(m_mutex);
     
     // Remove from active captures
-    auto it = std::find(m_activeCaptures.begin(), m_activeCaptures.end(), cameraID);
-    if (it != m_activeCaptures.end()) {
-        m_activeCaptures.erase(it);
-        Logger::Debug("SphereVerifier: Stopped capture for camera " + std::to_string(cameraID));
+    auto erased = m_activeCaptures.erase(cameraID);
+    if (erased > 0) {
+        // TODO: Add actual hardware capture cleanup here when integrated with DeckLinkCapture
+        // For now, we only track the intent to capture at the SphereVerifier level
+        // Actual device cleanup happens in the capture system
+        
+        Logger::Debug("SphereVerifier: Stopped capture tracking for camera " + std::to_string(cameraID));
     }
 }
 

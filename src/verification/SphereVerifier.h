@@ -218,7 +218,7 @@ private:
     std::function<void(int, void*, unsigned int, unsigned int)> m_frameCallback;
     
     // Active capture tracking for smart reuse
-    std::vector<int> m_activeCaptures;  // List of camera IDs currently being captured
+    std::unordered_set<int> m_activeCaptures;  // Set of camera IDs currently being captured
     
     // Internal implementation methods
     VerificationResult ExecutePresenceCheck(const VerificationConfig& config);

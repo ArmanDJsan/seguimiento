@@ -15,9 +15,9 @@ Without capture reuse, the following issues could occur:
 
 ### Architecture
 
-The SphereVerifier tracks active camera captures using an internal vector:
+The SphereVerifier tracks active camera captures using an internal unordered set for O(1) lookup performance:
 ```cpp
-std::vector<int> m_activeCaptures;  // List of camera IDs currently being captured
+std::unordered_set<int> m_activeCaptures;  // Set of camera IDs currently being captured
 ```
 
 ### Key Methods
