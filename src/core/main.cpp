@@ -70,9 +70,9 @@
 
 using json = nlohmann::json;
 
-constexpr int kMaxNDIChannels = 12;
-constexpr unsigned int kDefaultWidth = 3840;
-constexpr unsigned int kDefaultHeight = 2160;
+constexpr int kMaxNDIChannels = 4;  // Reduced to 4 PTZ cameras for radar detection
+constexpr unsigned int kDefaultCaptureWidth = 1920;  // 1080p capture (signal from PTZ)
+constexpr unsigned int kDefaultCaptureHeight = 1080;
 constexpr int kVideoHubPrimaryOutput = 0;
 
 namespace {
@@ -464,6 +464,15 @@ Config LoadConfig(const std::string& path) {
             if (ie.contains("num_classes") && ie["num_classes"].is_number()) {
                 config.inferenceConfig.numClasses = ie["num_classes"].get<int>();
             }
+            // Parse skip_resize option for native resolution inference
+            if (ie.contains("skip_resize") && ie["skip_resize"].is_boolean()) {
+                config.inferenceConfig.skipResize = ie["skip_resize"].get<bool>();
+                if (config.inferenceConfig.skipResize) {
+                    Logger::Info("InferenceEngine config: skip_resize enabled - using native " +
+                                std::to_string(config.inferenceConfig.inputWidth) + "x" +
+                                std::to_string(config.inferenceConfig.inputHeight) + " resolution");
+                }
+            }
         }
         
         // Parse position_mapper section
@@ -688,14 +697,14 @@ bool RunRunningMode() {
             return false;
         }
         
-        // Pre-create all 12 NDI senders
+        // Pre-create all 4 NDI senders (for PTZ radar cameras)
         Logger::Info("Creating NDI senders for " + std::to_string(kMaxNDIChannels) + " channels...");
         for (int channel = 0; channel < kMaxNDIChannels; ++channel) {
             std::ostringstream oss;
             oss << "VIB_CAM_" << std::setw(2) << std::setfill('0') << (channel + 1);
             const std::string senderName = oss.str();
             
-            if (!ndiManager->CreateSender(channel, senderName, kDefaultWidth, kDefaultHeight, true)) {
+            if (!ndiManager->CreateSender(channel, senderName, kDefaultCaptureWidth, kDefaultCaptureHeight, true)) {
                 Logger::Error("Failed to create NDI sender: " + senderName);
                 return false;
             }

@@ -32,8 +32,8 @@
 
 // Constantes
 constexpr int kMaxNDIChannels = 12;
-constexpr unsigned int kDefaultWidth = 3840;
-constexpr unsigned int kDefaultHeight = 2160;
+constexpr unsigned int kDefaultWidth = 1920;  // 1080p for radar PTZ cameras
+constexpr unsigned int kDefaultHeight = 1080;
 constexpr int kVideoHubPrimaryOutput = 0;
 
 StressTester::StressTester(std::chrono::seconds testDuration)

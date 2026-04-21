@@ -8,6 +8,8 @@
  * Architecture: Uses CUDA cudaHostAllocMapped for zero-copy DMA on CUDA-capable GPUs
  * No DirectX dependencies - D3D11 only used for Spout output in separate pipeline
  * 
+ * Capture mode: 4x 1080p@30fps for PTZ radar cameras (reduced from 12x 4K@60fps)
+ * 
  * SDK Compatibility: Designed for Blackmagic DeckLink SDK 15.3+
  * Required interfaces:
  * - IDeckLinkInputCallback::VideoInputFrameArrived(IDeckLinkVideoInputFrame*, IDeckLinkAudioInputPacket*)

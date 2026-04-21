@@ -2,15 +2,16 @@
  * InferenceEngine.h
  * 
  * TensorRT 10 inference engine for YOLO ball detection
- * Optimized for batch processing of 12 camera streams
+ * Optimized for batch processing of 4 PTZ camera streams at 1080p
  * 
  * Architecture:
  * - TensorRT engine with FP16 precision
- * - Batch size 12 for simultaneous multi-camera inference
+ * - Batch size 4 for simultaneous multi-camera inference
  * - CUDA stream-based async execution
- * - Integrated preprocessing (resize + normalize)
+ * - Integrated preprocessing (optional resize + normalize)
+ * - Supports 1080p native input for better small object detection
  * 
- * Performance target: <15ms total for batch of 12 frames
+ * Performance target: <15ms total for batch of 4 frames @1080p
  */
 
 #pragma once
@@ -59,13 +60,14 @@ struct InferenceTelemetry {
  */
 struct InferenceEngineConfig {
     std::string modelPath = "models/yolo26l_fp16_batch12.engine";
-    int batchSize = 12;
-    int inputWidth = 1280;   // Model trained at 1280x720 (16:9 aspect ratio)
-    int inputHeight = 720;   // Matches 4K camera aspect ratio (3840x2160 = 16:9)
+    int batchSize = 4;
+    int inputWidth = 1920;   // Full HD for better small object detection
+    int inputHeight = 1080;  // 1080p native - no resize needed
     float confidenceThreshold = 0.6f;
     float nmsThreshold = 0.4f;
     bool useFP16 = true;
     int numClasses = 10;    // 10 ball types
+    bool skipResize = true; // When true, input is directly at native resolution
 };
 
 /**
@@ -79,7 +81,7 @@ struct InferenceEngineConfig {
  */
 class InferenceEngine {
 public:
-    static constexpr int kMaxBatchSize = 12;
+    static constexpr int kMaxBatchSize = 4;    // 4 PTZ cameras for radar detection
     static constexpr int kInputChannels = 3;  // RGB
     
     /**
