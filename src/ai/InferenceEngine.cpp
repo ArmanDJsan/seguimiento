@@ -79,6 +79,7 @@ InferenceEngine::InferenceEngine()
     , m_runtime(nullptr)
     , m_engine(nullptr)
     , m_context(nullptr)
+    , m_hasDynamicShapes(false)
     , m_inputBuffer(nullptr)
     , m_outputBuffer(nullptr)
     , m_inputSize(0)
@@ -244,6 +245,21 @@ std::vector<BallDetection> InferenceEngine::ProcessFrameUYVY(
     // 2. Run TensorRT inference (WITHOUT mutex - using event-based sync instead)
     auto inferenceStart = std::chrono::high_resolution_clock::now();
     
+    // For dynamic shape engines, set the input shape before inference
+    if (m_hasDynamicShapes) {
+        nvinfer1::Dims inputDims;
+        inputDims.nbDims = 4;
+        inputDims.d[0] = 1;  // Batch size = 1 for single frame
+        inputDims.d[1] = kInputChannels;  // RGB channels
+        inputDims.d[2] = m_config.inputHeight;
+        inputDims.d[3] = m_config.inputWidth;
+        
+        if (!m_context->setInputShape(m_inputTensorName.c_str(), inputDims)) {
+            Logger::Error("InferenceEngine: Failed to set input shape for dynamic engine");
+            return {};
+        }
+    }
+    
     // Set up I/O tensor addresses for TensorRT 10.x API
     if (!m_context->setTensorAddress(m_inputTensorName.c_str(), m_inputBuffer)) {
         Logger::Error("InferenceEngine: Failed to set input tensor address");
@@ -357,6 +373,21 @@ std::vector<BallDetection> InferenceEngine::ProcessBatch(
         // Acquire lock before accessing execution context
         // This serializes inference calls from multiple capture threads
         std::lock_guard<std::mutex> lock(m_mutex);
+        
+        // For dynamic shape engines, set the input shape before inference
+        if (m_hasDynamicShapes) {
+            nvinfer1::Dims inputDims;
+            inputDims.nbDims = 4;
+            inputDims.d[0] = numFrames;  // Actual batch size
+            inputDims.d[1] = kInputChannels;  // RGB channels
+            inputDims.d[2] = m_config.inputHeight;
+            inputDims.d[3] = m_config.inputWidth;
+            
+            if (!m_context->setInputShape(m_inputTensorName.c_str(), inputDims)) {
+                Logger::Error("InferenceEngine: Failed to set input shape for dynamic engine");
+                return {};
+            }
+        }
         
         // Set up I/O tensor addresses for TensorRT 10.x API
         if (!m_context->setTensorAddress(m_inputTensorName.c_str(), m_inputBuffer)) {
@@ -484,6 +515,16 @@ bool InferenceEngine::LoadEngine(const std::string& enginePath) {
             m_inputTensorName = tensorName;
             Logger::Info("InferenceEngine: Input tensor '" + m_inputTensorName + "' shape: " + dimsStr);
             
+            // Check for dynamic shapes (indicated by -1 in dimensions)
+            m_hasDynamicShapes = false;
+            for (int d = 0; d < dims.nbDims; ++d) {
+                if (dims.d[d] == -1) {
+                    m_hasDynamicShapes = true;
+                    Logger::Info("InferenceEngine: Detected dynamic shape in dimension " + std::to_string(d));
+                    break;
+                }
+            }
+            
             // Verify input dimensions match config
             // Expected: [batch, channels, height, width] e.g., [12, 3, 720, 1280] or [12, 3, 640, 640]
             if (dims.nbDims >= 4) {
@@ -491,7 +532,8 @@ bool InferenceEngine::LoadEngine(const std::string& enginePath) {
                 int engineHeight = static_cast<int>(dims.d[2]);
                 int engineWidth = static_cast<int>(dims.d[3]);
                 
-                if (engineBatch < m_config.batchSize) {
+                // For dynamic batch size, engineBatch will be -1
+                if (engineBatch > 0 && engineBatch < m_config.batchSize) {
                     Logger::Warning("InferenceEngine: Engine batch size (" + std::to_string(engineBatch) + 
                                    ") < configured batch size (" + std::to_string(m_config.batchSize) + 
                                    "). Will process at most " + std::to_string(engineBatch) + " frames per batch.");
