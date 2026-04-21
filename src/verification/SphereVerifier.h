@@ -127,7 +127,7 @@ struct VerificationResult {
  * 
  * Capture Management:
  * - Implements intelligent device capture reuse to avoid conflicts
- * - Tracks active camera captures in m_activeCaptures vector
+ * - Tracks active camera captures in m_activeCaptures unordered_set
  * - When a verification starts, checks if camera is already being captured
  * - If already captured, reuses the existing capture stream
  * - If not captured, starts capture and releases it when done

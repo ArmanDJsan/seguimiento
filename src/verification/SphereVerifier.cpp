@@ -521,7 +521,7 @@ bool SphereVerifier::StartCameraCapture(int cameraID) {
     std::lock_guard<std::mutex> lock(m_mutex);
     
     // Check if already capturing from this camera
-    auto [it, inserted] = m_activeCaptures.insert(cameraID);
+    auto [_, inserted] = m_activeCaptures.insert(cameraID);
     if (!inserted) {
         Logger::Debug("SphereVerifier: Reusing existing capture for camera " + std::to_string(cameraID));
         return true;  // Already capturing, reuse it
