@@ -845,13 +845,33 @@ std::vector<BallDetection> InferenceEngine::PostProcess(const float* rawOutput,
                 continue;
             }
             
+            // Convert bounding box coordinates
+            // Model outputs in (x1, y1, x2, y2) absolute pixel format
+            // Need to convert to normalized (center_x, center_y, width, height)
+            float x1 = det[0];
+            float y1 = det[1];
+            float x2 = det[2];
+            float y2 = det[3];
+            
+            // Calculate center point and dimensions
+            float center_x = (x1 + x2) / 2.0f;
+            float center_y = (y1 + y2) / 2.0f;
+            float width = x2 - x1;
+            float height = y2 - y1;
+            
+            // Normalize to [0, 1] range based on input dimensions
+            float norm_x = center_x / static_cast<float>(m_config.inputWidth);
+            float norm_y = center_y / static_cast<float>(m_config.inputHeight);
+            float norm_width = width / static_cast<float>(m_config.inputWidth);
+            float norm_height = height / static_cast<float>(m_config.inputHeight);
+            
             BallDetection bd;
             bd.ballID = bestClass;  // 0-based ball IDs (B0-B9, matching YOLO class IDs 0-9)
             bd.cameraID = cameraIDs[b];
-            bd.x = det[0];
-            bd.y = det[1];
-            bd.width = det[2];
-            bd.height = det[3];
+            bd.x = norm_x;
+            bd.y = norm_y;
+            bd.width = norm_width;
+            bd.height = norm_height;
             bd.confidence = confidence;
             bd.timestamp = now;
             
