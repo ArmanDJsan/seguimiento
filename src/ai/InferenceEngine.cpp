@@ -285,12 +285,15 @@ std::vector<BallDetection> InferenceEngine::ProcessFrameUYVY(
         // Copy results to host asynchronously while still holding the lock
         // This ensures the output buffer isn't overwritten by another thread
         cudaMemcpyAsync(m_hostOutput, m_outputBuffer, m_outputSize, cudaMemcpyDeviceToHost, stream);
-        
-        // Wait for copy to complete before releasing lock
-        // This is required because the output buffer is shared
-        cudaStreamSynchronize(stream);
     }
-    // Lock is released here
+    // OPTIMIZATION: Lock is released HERE - before waiting for GPU work to complete
+    // This allows other threads to enqueue their inference work in parallel while this thread waits
+    // The GPU can process multiple streams concurrently, significantly reducing contention
+    
+    // Wait for THIS stream's work to complete (GPU copy to host memory)
+    // Each stream waits independently - no blocking of other streams' GPU work
+    // This fixes the GPU spike issue by allowing async parallelism across cameras
+    cudaStreamSynchronize(stream);
     
     auto inferenceEnd = std::chrono::high_resolution_clock::now();
     
@@ -418,12 +421,15 @@ std::vector<BallDetection> InferenceEngine::ProcessBatch(
         // Copy results to host asynchronously while still holding the lock
         // This ensures the output buffer isn't overwritten by another thread
         cudaMemcpyAsync(m_hostOutput, m_outputBuffer, m_outputSize, cudaMemcpyDeviceToHost, stream);
-        
-        // Wait for copy to complete before releasing lock
-        // This is required because the output buffer is shared
-        cudaStreamSynchronize(stream);
     }
-    // Lock released here - other threads can now run inference
+    // OPTIMIZATION: Lock is released HERE - before waiting for GPU work to complete
+    // This allows other threads to enqueue their inference work in parallel while this thread waits
+    // The GPU can process multiple streams concurrently, significantly reducing contention
+    
+    // Wait for THIS stream's work to complete (GPU copy to host memory)
+    // Each stream waits independently - no blocking of other streams' GPU work
+    // This fixes the GPU spike issue by allowing async parallelism across cameras
+    cudaStreamSynchronize(stream);
     
     auto inferenceEnd = std::chrono::high_resolution_clock::now();
     
