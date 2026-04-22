@@ -34,8 +34,8 @@
 class VMixController;
 class SceneManager;
 class VideoHubClient;
-class PTZController;
 class TrackPhysicalController;
+namespace PTZ { class PTZController; }
 
 namespace Verification {
     class SphereVerifier;
@@ -246,7 +246,7 @@ public:
     /**
      * Set PTZ controller for PTZPreset events
      */
-    void SetPTZController(PTZController* ptz) { m_ptzController = ptz; }
+    void SetPTZController(PTZ::PTZController* ptz) { m_ptzController = ptz; }
     
     /**
      * Set TrackPhysicalController for ESP32Command events
@@ -263,7 +263,7 @@ private:
     VMixController* m_vmixController;
     SceneManager* m_sceneManager;
     VideoHubClient* m_videoHub;
-    PTZController* m_ptzController;
+    PTZ::PTZController* m_ptzController;
     TrackPhysicalController* m_trackController;
     Verification::SphereVerifier* m_sphereVerifier;
     
