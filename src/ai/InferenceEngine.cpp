@@ -16,6 +16,7 @@
 #include <sstream>
 #include <iomanip>
 #include <map>
+#include <atomic>
 
 // YOLO output format constants
 // Base attributes: [x, y, w, h, objectness]
@@ -927,9 +928,9 @@ void InferenceEngine::ApplyNMS(std::vector<BallDetection>& detections) {
             if (iou > m_config.nmsThreshold) {
                 suppressed[j] = true;
                 
-                // Debug: Log NMS suppressions for same-class detections
-                static int nmsDebugCount = 0;
-                if (nmsDebugCount < 10) {
+                // Debug: Log NMS suppressions for same-class detections (thread-safe)
+                static std::atomic<int> nmsDebugCount{0};
+                if (nmsDebugCount.load() < 10) {
                     Logger::Info("[NMS_DEBUG] Suppressing detection: ballID=" + std::to_string(detections[j].ballID) + 
                                 ", conf=" + std::to_string(detections[j].confidence) + 
                                 ", IoU=" + std::to_string(iou) + 
@@ -949,9 +950,9 @@ void InferenceEngine::ApplyNMS(std::vector<BallDetection>& detections) {
                              });
     detections.erase(it, detections.end());
     
-    // Debug: Log final detection summary by class
-    static int nmsSummaryCount = 0;
-    if (nmsSummaryCount < 5) {
+    // Debug: Log final detection summary by class (thread-safe)
+    static std::atomic<int> nmsSummaryCount{0};
+    if (nmsSummaryCount.load() < 5) {
         std::map<int, int> classCounts;
         for (const auto& det : detections) {
             classCounts[det.ballID]++;
