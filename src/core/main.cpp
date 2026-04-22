@@ -60,6 +60,8 @@ constexpr int kMaxSpoutChannels = 12;
 constexpr unsigned int kDefaultWidth = 3840;
 constexpr unsigned int kDefaultHeight = 2160;
 constexpr int kVideoHubPrimaryOutput = 0;
+constexpr int kRadarPortMin = 13;
+constexpr int kRadarPortMax = 16;
 
 namespace {
 std::unordered_map<std::string, int> BuildInputLookup() {
@@ -147,7 +149,7 @@ Config LoadConfig(const std::string& path) {
                     }
                     config.radarGroups[groupName] = radarList;
                     Logger::Info("Grupo de radar cargado: " + groupName + " con " + 
-                                 std::to_string(radarList.size()) + " cámaras");
+                                 std::to_string(radarList.size()) + " puertos");
                 }
             }
         }
@@ -229,37 +231,41 @@ bool AssignRadarsToGroups(VideoHubClient& videoHub,
     // The problem: When VideoHub routing changes are made, the radars (inputs 13-16)
     // are not being explicitly routed/set for their groups.
     // After sphere detection, we need to ensure radars are properly routed.
+    // 
+    // VideoHub routing: RouteInputToOutput(outputIndex, sourceIndex)
+    // - outputIndex: The output port where we want to send the signal
+    // - sourceIndex: The input/source port we want to route
     
     // Route radars based on configuration
-    // g1_g4 group: cameras 1,2,3,12 - assign RADAR_01 (input 13)
-    // g5_g8 group: cameras 4,5,6,7 - assign RADAR_02 (input 14) 
-    // g9_g12 group: cameras 13,14,15,16 (these ARE the radars)
+    // g1_g4 group: cameras 1,2,3,12 - route first camera (output) to RADAR_01 (input 13)
+    // g5_g8 group: cameras 4,5,6,7 - route first camera (output) to RADAR_02 (input 14)
+    // g9_g12 group: radars 13,14,15,16 - route these radar inputs to outputs 9-12
     
     if (radarGroups.count("g1_g4") > 0) {
         const auto& g1_g4_cameras = radarGroups.at("g1_g4");
         if (!g1_g4_cameras.empty()) {
-            // Route RADAR_01 (port 13) to monitor first camera group
+            // Route first camera output to RADAR_01 input (port 13)
             int firstCam = g1_g4_cameras[0];
-            if (!videoHub.RouteInputToOutput(firstCam, 13)) {
+            if (!videoHub.RouteInputToOutput(firstCam, kRadarPortMin)) {
                 Logger::Error("[HW/SW ERROR]: No se pudo asignar RADAR_01 al grupo g1_g4");
                 return false;
             }
-            Logger::Info("RADAR_01 (puerto 13) asignado al grupo g1_g4 (monitoreando CAM_" + 
-                        std::to_string(firstCam) + ")");
+            Logger::Info("Grupo g1_g4: Salida CAM_" + std::to_string(firstCam) + 
+                        " configurada con entrada RADAR_01 (puerto " + std::to_string(kRadarPortMin) + ")");
         }
     }
     
     if (radarGroups.count("g5_g8") > 0) {
         const auto& g5_g8_cameras = radarGroups.at("g5_g8");
         if (!g5_g8_cameras.empty()) {
-            // Route RADAR_02 (port 14) to monitor second camera group
+            // Route first camera output to RADAR_02 input (port 14)
             int firstCam = g5_g8_cameras[0];
-            if (!videoHub.RouteInputToOutput(firstCam, 14)) {
+            if (!videoHub.RouteInputToOutput(firstCam, kRadarPortMin + 1)) {
                 Logger::Error("[HW/SW ERROR]: No se pudo asignar RADAR_02 al grupo g5_g8");
                 return false;
             }
-            Logger::Info("RADAR_02 (puerto 14) asignado al grupo g5_g8 (monitoreando CAM_" + 
-                        std::to_string(firstCam) + ")");
+            Logger::Info("Grupo g5_g8: Salida CAM_" + std::to_string(firstCam) + 
+                        " configurada con entrada RADAR_02 (puerto " + std::to_string(kRadarPortMin + 1) + ")");
         }
     }
     
@@ -268,19 +274,18 @@ bool AssignRadarsToGroups(VideoHubClient& videoHub,
         // Route each radar in g9_g12 group
         for (size_t i = 0; i < g9_g12_radars.size(); i++) {
             int radarPort = g9_g12_radars[i];
-            if (radarPort >= 13 && radarPort <= 16) {
-                // Route radar to an output - using sequential outputs starting from 9
-                int outputPort = 9 + i;
+            if (radarPort >= kRadarPortMin && radarPort <= kRadarPortMax) {
+                // Route radar input to an output - using sequential outputs starting from 9
+                int outputPort = 9 + static_cast<int>(i);
                 if (!videoHub.RouteInputToOutput(outputPort, radarPort)) {
                     Logger::Error("[HW/SW ERROR]: No se pudo asignar RADAR_" + 
-                                 std::to_string(radarPort - 12) + " (puerto " + 
+                                 std::to_string(radarPort - kRadarPortMin + 1) + " (puerto " + 
                                  std::to_string(radarPort) + ") al grupo g9_g12");
                     return false;
                 }
-                Logger::Info("RADAR_" + std::to_string(radarPort - 12) + 
-                            " (puerto " + std::to_string(radarPort) + 
-                            ") asignado al grupo g9_g12, salida puerto " + 
-                            std::to_string(outputPort));
+                Logger::Info("Grupo g9_g12: Salida puerto " + std::to_string(outputPort) + 
+                            " configurada con entrada RADAR_" + std::to_string(radarPort - kRadarPortMin + 1) + 
+                            " (puerto " + std::to_string(radarPort) + ")");
             }
         }
     }
