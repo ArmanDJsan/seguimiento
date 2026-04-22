@@ -6,6 +6,12 @@
  * No DirectX dependencies - pure CUDA pipeline
  */
 
+// Prevent Windows.h from defining min/max macros that conflict with std::min/std::max
+// Must be defined before winsock2.h which may include windows.h
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
 // 1. Windows base headers (FUNDAMENTAL - must come first)
 #include <winsock2.h>  // Network types (if needed, must come before windows.h)
 #include <windows.h>   // Base Windows definitions

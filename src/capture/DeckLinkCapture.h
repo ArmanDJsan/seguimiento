@@ -20,6 +20,12 @@
 
 #pragma once
 
+// Prevent Windows.h from defining min/max macros that conflict with std::min/std::max
+// Must be defined before winsock2.h which may include windows.h
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
 // 1. Windows base headers (must come first for DeckLink SDK)
 #include <winsock2.h>
 #include <windows.h>

@@ -17,6 +17,12 @@
 
 #pragma once
 
+// Prevent Windows.h min/max macros from conflicting with std::min/std::max
+// This is defensive - should be defined before Windows.h is included anywhere
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
 #include <vector>
 #include <cmath>
 #include <cstdint>
