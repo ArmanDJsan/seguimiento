@@ -122,7 +122,7 @@ private:
      */
     class DeckLinkCudaVideoBuffer : public IDeckLinkVideoBuffer {
     public:
-        DeckLinkCudaVideoBuffer(void* buffer, unsigned int size);
+        DeckLinkCudaVideoBuffer(void* buffer, unsigned int size, DeckLinkCudaBufferAllocator* allocator);
         virtual ~DeckLinkCudaVideoBuffer();
         
         // IUnknown interface
@@ -144,11 +144,13 @@ private:
         void* m_buffer;
         unsigned int m_size;
         void* m_devicePtr;  // Cached device pointer
+        DeckLinkCudaBufferAllocator* m_allocator;  // Reference to parent allocator
     };
     
     /**
      * Custom buffer allocator for zero-copy DMA
      * Implements IDeckLinkVideoBufferAllocator using CUDA pinned mapped memory
+     * Uses a buffer pool to prevent unbounded memory growth
      */
     class DeckLinkCudaBufferAllocator : public IDeckLinkVideoBufferAllocator {
     public:
@@ -169,15 +171,22 @@ private:
         bool IsOurBuffer(void* ptr);
         void* GetDevicePointer(void* hostPtr);
         
+        // Called by DeckLinkCudaVideoBuffer when released - returns buffer to pool
+        void ReturnBufferToPool(void* buffer);
+        
     private:
         std::atomic<ULONG> m_refCount;
         std::mutex m_mutex;
-        std::vector<void*> m_allocatedBuffers;
+        std::vector<void*> m_allocatedBuffers;      // All buffers we've allocated
+        std::vector<void*> m_freeBuffers;           // Pool of available buffers
         unsigned int m_bufferSize;
         unsigned int m_width;
         unsigned int m_height;
         unsigned int m_rowBytes;
         BMDPixelFormat m_pixelFormat;
+        static constexpr unsigned int MAX_POOL_SIZE = 5;  // Max buffers in pool
+        unsigned int m_totalAllocations = 0;        // Track total allocations
+        unsigned int m_poolHits = 0;                // Track pool reuse
     };
     
     /**

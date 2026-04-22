@@ -710,11 +710,12 @@ int DeckLinkCapture::EnumerateDevices() {
 // Implements IDeckLinkVideoBuffer using CUDA pinned mapped memory
 // =============================================================================
 
-DeckLinkCapture::DeckLinkCudaVideoBuffer::DeckLinkCudaVideoBuffer(void* buffer, unsigned int size)
+DeckLinkCapture::DeckLinkCudaVideoBuffer::DeckLinkCudaVideoBuffer(void* buffer, unsigned int size, DeckLinkCudaBufferAllocator* allocator)
     : m_refCount(1)
     , m_buffer(buffer)
     , m_size(size)
     , m_devicePtr(nullptr)
+    , m_allocator(allocator)
 {
     // Pre-cache device pointer for zero-copy access
     if (m_buffer) {
@@ -758,6 +759,10 @@ ULONG STDMETHODCALLTYPE DeckLinkCapture::DeckLinkCudaVideoBuffer::AddRef() {
 ULONG STDMETHODCALLTYPE DeckLinkCapture::DeckLinkCudaVideoBuffer::Release() {
     ULONG newRefCount = --m_refCount;
     if (newRefCount == 0) {
+        // Return buffer to pool before deleting this wrapper object
+        if (m_allocator && m_buffer) {
+            m_allocator->ReturnBufferToPool(m_buffer);
+        }
         delete this;
     }
     return newRefCount;
@@ -853,37 +858,62 @@ HRESULT STDMETHODCALLTYPE DeckLinkCapture::DeckLinkCudaBufferAllocator::Allocate
     
     std::lock_guard<std::mutex> lock(m_mutex);
     
-    // Allocate CUDA host memory with cudaHostAllocMapped flag
-    // This creates memory that is:
-    // 1. Pinned (page-locked) for fast DMA
-    // 2. Mapped into GPU address space for zero-copy access
     void* hostPtr = nullptr;
-    cudaError_t err = cudaHostAlloc(&hostPtr, m_bufferSize, cudaHostAllocMapped);
     
-    if (err != cudaSuccess || !hostPtr) {
-        Logger::Error("DeckLinkCudaBufferAllocator: Failed to allocate mapped memory: " + 
-                     std::string(cudaGetErrorString(err)));
-        return E_OUTOFMEMORY;
+    // First, try to reuse a buffer from the pool
+    if (!m_freeBuffers.empty()) {
+        hostPtr = m_freeBuffers.back();
+        m_freeBuffers.pop_back();
+        m_poolHits++;
+        
+        // Log pool reuse periodically (every 100 hits)
+        if (m_poolHits % 100 == 0) {
+            Logger::Info("DeckLinkCudaBufferAllocator: Buffer pool reused " + std::to_string(m_poolHits) + 
+                        " times (Pool size: " + std::to_string(m_freeBuffers.size()) + 
+                        "/" + std::to_string(m_allocatedBuffers.size()) + ")");
+        }
+    } else {
+        // Pool is empty - check if we can allocate a new buffer
+        if (m_allocatedBuffers.size() >= MAX_POOL_SIZE) {
+            Logger::Warning("DeckLinkCudaBufferAllocator: Buffer pool exhausted (" + 
+                          std::to_string(MAX_POOL_SIZE) + " buffers). Waiting for buffer to be released...");
+            // Return error - DeckLink SDK should retry or wait
+            return E_OUTOFMEMORY;
+        }
+        
+        // Allocate new CUDA host memory with cudaHostAllocMapped flag
+        // This creates memory that is:
+        // 1. Pinned (page-locked) for fast DMA
+        // 2. Mapped into GPU address space for zero-copy access
+        cudaError_t err = cudaHostAlloc(&hostPtr, m_bufferSize, cudaHostAllocMapped);
+        
+        if (err != cudaSuccess || !hostPtr) {
+            Logger::Error("DeckLinkCudaBufferAllocator: Failed to allocate mapped memory: " + 
+                         std::string(cudaGetErrorString(err)));
+            return E_OUTOFMEMORY;
+        }
+        
+        // Track allocation
+        m_allocatedBuffers.push_back(hostPtr);
+        m_totalAllocations++;
+        
+        Logger::Info("DeckLinkCudaBufferAllocator: Allocated " + std::to_string(m_bufferSize) + 
+                    " bytes of CUDA mapped memory (Total: " + std::to_string(m_allocatedBuffers.size()) + 
+                    "/" + std::to_string(MAX_POOL_SIZE) + ")");
     }
     
-    // Create video buffer wrapper first, then track the allocation
-    // This ensures proper cleanup if the constructor fails
+    // Create video buffer wrapper
     DeckLinkCudaVideoBuffer* videoBuffer = nullptr;
     try {
-        videoBuffer = new DeckLinkCudaVideoBuffer(hostPtr, m_bufferSize);
+        videoBuffer = new DeckLinkCudaVideoBuffer(hostPtr, m_bufferSize, this);
     } catch (...) {
-        cudaFreeHost(hostPtr);
+        // Return buffer to pool on failure
+        m_freeBuffers.push_back(hostPtr);
         Logger::Error("DeckLinkCudaBufferAllocator: Failed to create video buffer wrapper");
         return E_OUTOFMEMORY;
     }
     
-    // Track allocation after successful buffer creation
-    m_allocatedBuffers.push_back(hostPtr);
     *allocatedBuffer = videoBuffer;
-    
-    Logger::Info("DeckLinkCudaBufferAllocator: Allocated " + std::to_string(m_bufferSize) + 
-                " bytes of CUDA mapped memory");
-    
     return S_OK;
 }
 
@@ -914,6 +944,39 @@ void* DeckLinkCapture::DeckLinkCudaBufferAllocator::GetDevicePointer(void* hostP
     }
     
     return devicePtr;
+}
+
+void DeckLinkCapture::DeckLinkCudaBufferAllocator::ReturnBufferToPool(void* buffer) {
+    if (!buffer) return;
+    
+    std::lock_guard<std::mutex> lock(m_mutex);
+    
+    // Verify this is one of our buffers
+    auto it = std::find(m_allocatedBuffers.begin(), m_allocatedBuffers.end(), buffer);
+    if (it == m_allocatedBuffers.end()) {
+        Logger::Warning("DeckLinkCudaBufferAllocator: Attempted to return unknown buffer to pool");
+        return;
+    }
+    
+    // Check if buffer is already in the free pool (shouldn't happen, but safety check)
+    auto freeIt = std::find(m_freeBuffers.begin(), m_freeBuffers.end(), buffer);
+    if (freeIt != m_freeBuffers.end()) {
+        Logger::Warning("DeckLinkCudaBufferAllocator: Buffer was already in free pool");
+        return;
+    }
+    
+    // Return buffer to pool for reuse
+    m_freeBuffers.push_back(buffer);
+    
+    // Log pool stats periodically (every 100 returns)
+    static int returnCount = 0;
+    returnCount++;
+    if (returnCount % 100 == 0) {
+        Logger::Info("DeckLinkCudaBufferAllocator: Buffer returned to pool. " +
+                    std::to_string(m_freeBuffers.size()) + "/" + std::to_string(m_allocatedBuffers.size()) + 
+                    " buffers free. Pool hits: " + std::to_string(m_poolHits) + 
+                    ", Total allocations: " + std::to_string(m_totalAllocations));
+    }
 }
 
 // =============================================================================
