@@ -90,6 +90,7 @@ struct Config {
     std::string esp32Ip;
     uint16_t esp32Port;
     int targetSpheres;
+    std::unordered_map<int, int> radarMapping;  // input_port -> output_port
 };
 
 Config LoadConfig(const std::string& path) {
@@ -136,6 +137,19 @@ Config LoadConfig(const std::string& path) {
             config.targetSpheres = j["target_spheres"].get<int>();
         }
 
+        // Parse radar_mapping from root
+        if (j.contains("radar_mapping") && j["radar_mapping"].is_object()) {
+            for (auto& [inputPortStr, outputPort] : j["radar_mapping"].items()) {
+                if (outputPort.is_number()) {
+                    int inputPort = std::stoi(inputPortStr);
+                    int output = outputPort.get<int>();
+                    config.radarMapping[inputPort] = output;
+                    Logger::Info("Mapeo de radar cargado: entrada " + std::to_string(inputPort) + 
+                                 " -> salida " + std::to_string(output));
+                }
+            }
+        }
+
         Logger::Info("Configuración cargada: VideoHub=" + config.videohubIp + ":" + 
                      std::to_string(config.videohubPort) + ", ESP32=" + config.esp32Ip + ":" + 
                      std::to_string(config.esp32Port) + ", target_spheres=" + 
@@ -179,7 +193,8 @@ bool ValidateSignalGroup(VideoHubClient& videoHub,
 bool RunPhase1(VMixController& vmix,
                VideoHubClient& videoHub,
                DeckLinkSource& deckLinkSource,
-               TrackPhysicalController& trackController) {
+               TrackPhysicalController& trackController,
+               const std::unordered_map<int, int>& radarMapping) {
     if (!vmix.CheckInputsHealthy()) {
         return false;
     }
@@ -192,9 +207,9 @@ bool RunPhase1(VMixController& vmix,
         return false;
     }
 
-    // Después de validar el grupo de radares (13-16), confirmarlos en VideoHub
-    // Esto asegura que queden configurados incluso si hay cambios posteriores
-    if (!ConfirmRadars(videoHub)) {
+    // Después de validar el grupo de radares (13-16), confirmarlos usando la configuración
+    // Esto asegura que queden configurados según el mapeo definido en config.json
+    if (!ConfirmRadars(videoHub, radarMapping)) {
         Logger::Error("[HW/SW ERROR]: No se pudieron confirmar radares después del barrido");
         return false;
     }
@@ -208,29 +223,30 @@ bool RunPhase1(VMixController& vmix,
     return true;
 }
 
-// Confirma/ruta los radares en el VideoHub después de cambios de grupo
-// Esto asegura que los radares queden configurados incluso si el VideoHub cambia de posición
-bool ConfirmRadars(VideoHubClient& videoHub) {
+// Confirma/ruta los radares en el VideoHub usando la configuración
+// Esto asegura que los radares queden configurados según el mapeo definido en config.json
+bool ConfirmRadars(VideoHubClient& videoHub, const std::unordered_map<int, int>& radarMapping) {
     Logger::Info("Confirmando configuración de radares en VideoHub...");
     
-    // Rutear cada radar (puertos 13-16) a salidas secuenciales (9-12)
-    // Esto los mantiene activos y disponibles para seguimiento
-    for (int i = 0; i < 4; i++) {
-        int radarPort = kRadarPortMin + i;      // 13, 14, 15, 16
-        int outputPort = 9 + i;                  // 9, 10, 11, 12
-        
-        if (!videoHub.RouteInputToOutput(outputPort, radarPort)) {
-            Logger::Error("[HW/SW ERROR]: No se pudo confirmar RADAR_" + 
-                         std::to_string(i + 1) + " (puerto " + std::to_string(radarPort) + 
-                         " -> salida " + std::to_string(outputPort) + ")");
+    if (radarMapping.empty()) {
+        Logger::Warning("No hay mapeo de radares configurado; omitiendo confirmación");
+        return true;
+    }
+    
+    // Rutear cada radar según la configuración
+    for (const auto& [inputPort, outputPort] : radarMapping) {
+        if (!videoHub.RouteInputToOutput(outputPort, inputPort)) {
+            Logger::Error("[HW/SW ERROR]: No se pudo confirmar RADAR (entrada " + 
+                         std::to_string(inputPort) + " -> salida " + std::to_string(outputPort) + ")");
             return false;
         }
         
-        Logger::Info("RADAR_" + std::to_string(i + 1) + " confirmado: puerto " + 
-                    std::to_string(radarPort) + " -> salida " + std::to_string(outputPort));
+        Logger::Info("RADAR confirmado: entrada " + std::to_string(inputPort) + 
+                    " -> salida " + std::to_string(outputPort));
     }
     
-    Logger::Info("Todos los radares confirmados correctamente");
+    Logger::Info("Todos los radares confirmados correctamente (" + 
+                 std::to_string(radarMapping.size()) + " mapeos)");
     return true;
 }
 
@@ -295,7 +311,7 @@ VIB::RunResult RunSystem(int timeoutSeconds) {
         vmix.ConnectTcp();  // prepare TCP channel; errors are logged but non-fatal
 
         // Fase 1: Sweep hardware/software links
-        if (!RunPhase1(vmix, videoHub, deckLinkSource, trackController)) {
+        if (!RunPhase1(vmix, videoHub, deckLinkSource, trackController, config.radarMapping)) {
             result.errorMessage = "Ignicion abortada durante Fase 1 - Error de hardware/software";
             Logger::Error(result.errorMessage);
             return result;

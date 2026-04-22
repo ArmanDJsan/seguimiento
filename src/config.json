@@ -31,5 +31,11 @@
     { "index": 15, "name": "RADAR_03", "role": "radar" },
     { "index": 16, "name": "RADAR_04", "role": "radar" }
   ],
-  "target_spheres": 10
+  "target_spheres": 10,
+  "radar_mapping": {
+    "13": 9,
+    "14": 10,
+    "15": 11,
+    "16": 12
+  }
 }
