@@ -144,8 +144,15 @@ bool InferenceEngine::Initialize(const InferenceEngineConfig& config) {
     
     if (m_stubMode) {
         Logger::Warning("InferenceEngine: Running in STUB mode - no real inference");
+        Logger::Warning("  -> Check if model file exists: " + config.modelPath);
+        Logger::Warning("  -> Verify TensorRT engine was built correctly");
+        Logger::Warning("  -> STUB mode returns fake detections with confidence=0.85");
     } else {
         Logger::Info("InferenceEngine: TensorRT engine loaded successfully");
+        Logger::Info("  -> Model: " + config.modelPath);
+        Logger::Info("  -> Input dimensions: " + std::to_string(m_config.inputWidth) + "x" + std::to_string(m_config.inputHeight));
+        Logger::Info("  -> Max detections: " + std::to_string(m_maxDetections));
+        Logger::Info("  -> Confidence threshold: " + std::to_string(m_config.confidenceThreshold));
     }
     
     return true;
@@ -759,6 +766,19 @@ std::vector<BallDetection> InferenceEngine::PostProcess(const float* rawOutput,
             }
         }
         Logger::Info("Max confidence found: " + std::to_string(maxConf) + " at detection index " + std::to_string(maxConfIdx));
+        
+        // DIAGNOSTIC: Warn if confidence is suspiciously low
+        if (maxConf < 0.01f) {
+            Logger::Warning("⚠️  YOLO MODEL ISSUE: Max confidence is extremely low (" + std::to_string(maxConf) + ")");
+            Logger::Warning("  Possible causes:");
+            Logger::Warning("  1. Model file not loaded correctly (check if .engine file exists)");
+            Logger::Warning("  2. Input preprocessing incorrect (normalization, mean/std values)");
+            Logger::Warning("  3. Model trained on different input format or dimensions");
+            Logger::Warning("  4. TensorRT engine corrupted or incompatible version");
+            Logger::Warning("  5. Input data is all zeros or corrupted");
+            Logger::Warning("  -> Check logs above for 'STUB mode' warning");
+        }
+        
         Logger::Info("=== END DEBUG YOLO RAW OUTPUT ===");
     }
     

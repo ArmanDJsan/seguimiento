@@ -126,8 +126,8 @@ private:
     int m_consecutiveFastFrames;     // Frames under target
     static constexpr int SLOW_THRESHOLD = 10;   // Reduce after 10 slow frames
     static constexpr int FAST_THRESHOLD = 30;   // Restore after 30 fast frames
-    static constexpr double SLOW_LIMIT = 33.0;  // 33ms = budget exceeded
-    static constexpr double FAST_LIMIT = 20.0;  // 20ms = comfortable margin
+    static constexpr double SLOW_LIMIT = 50.0;  // 50ms = budget exceeded (increased from 33ms to accommodate heavier YOLO processing)
+    static constexpr double FAST_LIMIT = 30.0;  // 30ms = comfortable margin (increased from 20ms proportionally)
     
     // Helper methods
     void LogAndAdjust(const Telemetry& current);

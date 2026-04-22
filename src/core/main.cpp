@@ -1105,6 +1105,8 @@ bool RunRunningMode() {
                     );
                     
                     // Save frame when there are detections (only once per channel)
+                    // NOTE: This I/O operation adds latency (~10-20ms) but only executes once per channel
+                    // TODO: Move to async thread pool for zero impact on critical path
                     if (!ballDetections.empty() && channel.channelID < kMaxNDIChannels && 
                         !framesSaved[channel.channelID].load()) {
                         
