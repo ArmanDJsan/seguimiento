@@ -15,6 +15,7 @@
 #include <cstring>
 #include <sstream>
 #include <iomanip>
+#include <map>
 
 // YOLO output format constants
 // Base attributes: [x, y, w, h, objectness]
@@ -925,6 +926,17 @@ void InferenceEngine::ApplyNMS(std::vector<BallDetection>& detections) {
             float iou = computeIoU(detections[i], detections[j]);
             if (iou > m_config.nmsThreshold) {
                 suppressed[j] = true;
+                
+                // Debug: Log NMS suppressions for same-class detections
+                static int nmsDebugCount = 0;
+                if (nmsDebugCount < 10) {
+                    Logger::Info("[NMS_DEBUG] Suppressing detection: ballID=" + std::to_string(detections[j].ballID) + 
+                                ", conf=" + std::to_string(detections[j].confidence) + 
+                                ", IoU=" + std::to_string(iou) + 
+                                " (kept ballID=" + std::to_string(detections[i].ballID) + 
+                                ", conf=" + std::to_string(detections[i].confidence) + ")");
+                    nmsDebugCount++;
+                }
             }
         }
     }
@@ -936,6 +948,22 @@ void InferenceEngine::ApplyNMS(std::vector<BallDetection>& detections) {
                                  return suppressed[idx];
                              });
     detections.erase(it, detections.end());
+    
+    // Debug: Log final detection summary by class
+    static int nmsSummaryCount = 0;
+    if (nmsSummaryCount < 5) {
+        std::map<int, int> classCounts;
+        for (const auto& det : detections) {
+            classCounts[det.ballID]++;
+        }
+        std::ostringstream oss;
+        oss << "[NMS_SUMMARY] Final detections by class: ";
+        for (const auto& kv : classCounts) {
+            oss << "B" << kv.first << "(" << kv.second << ") ";
+        }
+        Logger::Info(oss.str());
+        nmsSummaryCount++;
+    }
 }
 
 int64_t InferenceEngine::GetCurrentTimeMs() const {
