@@ -1151,11 +1151,11 @@ bool RunRunningMode() {
                     
                     // === PTZ Tracking Integration ===
                     if (ptzController && ptzController->IsInitialized() && centroidFilter) {
-                        // Calculate centroid from ball detections
-                        CentroidResult rawCentroid = InferenceEngine::CalculateGroupCentroid(
+                        // Calculate centroid from ball detections (uses ::CentroidResult from InferenceEngine.h)
+                        ::CentroidResult rawCentroid = InferenceEngine::CalculateGroupCentroid(
                             ballDetections, 0.5f);
                         
-                        // Apply smoothing filter
+                        // Apply smoothing filter (convert to Tracking::CentroidResult)
                         auto smoothCentroid = centroidFilter->Update(
                             Tracking::CentroidResult(
                                 rawCentroid.centroid_x, 

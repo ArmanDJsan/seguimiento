@@ -95,8 +95,8 @@ struct PTZTrackingConfig {
     float deadZone = 0.05f;              // Dead zone around center (normalized)
     int maxPanSpeed = 24;                // Max pan speed (VISCA units)
     int maxTiltSpeed = 20;               // Max tilt speed (VISCA units)
-    float zoomOutThreshold = 150.0f;     // Std deviation to trigger zoom out
-    float zoomInThreshold = 50.0f;       // Std deviation to trigger zoom in
+    float zoomOutThreshold = 0.15f;      // Std deviation (normalized) to trigger zoom out
+    float zoomInThreshold = 0.05f;       // Std deviation (normalized) to trigger zoom in
     int fallbackTimeoutFrames = 60;      // Frames without detection before fallback (2s @ 30fps)
     int engageMinFrames = 3;             // Consecutive frames needed to engage tracking
     int minSphereCount = 3;              // Minimum spheres to engage tracking

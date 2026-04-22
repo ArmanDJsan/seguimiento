@@ -129,7 +129,8 @@ public:
         result.centroid_x = m_sumX / static_cast<float>(m_count);
         result.centroid_y = m_sumY / static_cast<float>(m_count);
         result.std_deviation = m_sumStd / static_cast<float>(m_count);
-        result.sphere_count = m_sumCount / m_count;  // Average sphere count
+        // Use rounding for integer averaging
+        result.sphere_count = (m_sumCount + m_count / 2) / m_count;
         
         return result;
     }

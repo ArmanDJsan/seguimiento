@@ -95,8 +95,11 @@ public:
         // Create log directory if needed
         try {
             std::filesystem::create_directories(m_basePath);
-        } catch (...) {
-            // Ignore directory creation errors
+        } catch (const std::exception& e) {
+            // Log directory creation failure but continue - logging may still work
+            // if directory already exists or is created by another process
+            std::cerr << "TrackingLogger: Warning - could not create directory '" 
+                      << m_basePath << "': " << e.what() << std::endl;
         }
         
         m_running = true;

@@ -414,11 +414,14 @@ VISCAResult PTZController::SendPanTilt(int cameraID, int panSpeed, int tiltSpeed
         return VISCAResult::Error("Not initialized or invalid camera");
     }
     
-    // Apply dead zone
-    if (std::abs(panSpeed) < static_cast<int>(m_trackingConfig.deadZone * m_trackingConfig.maxPanSpeed)) {
+    // Apply dead zone using floating point comparison for precision
+    float deadZonePan = m_trackingConfig.deadZone * static_cast<float>(m_trackingConfig.maxPanSpeed);
+    float deadZoneTilt = m_trackingConfig.deadZone * static_cast<float>(m_trackingConfig.maxTiltSpeed);
+    
+    if (static_cast<float>(std::abs(panSpeed)) < deadZonePan) {
         panSpeed = 0;
     }
-    if (std::abs(tiltSpeed) < static_cast<int>(m_trackingConfig.deadZone * m_trackingConfig.maxTiltSpeed)) {
+    if (static_cast<float>(std::abs(tiltSpeed)) < deadZoneTilt) {
         tiltSpeed = 0;
     }
     
@@ -518,17 +521,8 @@ void PTZController::SetTrackingMode(TrackingMode mode) {
         Logger::Info("PTZController: Mode changed to " + 
                     std::string(modeNames[static_cast<int>(mode)]));
         
-        // On mode change, take appropriate action
-        if (mode == TrackingMode::PRESET_MODE || mode == TrackingMode::FALLBACK_MODE) {
-            // Return to base positions
-            // Note: This is called without lock to avoid deadlock
-            m_currentMode = mode;
-            // Unlock before calling ReturnToBaseAll which tries to acquire lock
-        } else {
-            m_currentMode = mode;
-        }
+        m_currentMode = mode;
     }
-    m_currentMode = mode;
 }
 
 // === Helpers ===

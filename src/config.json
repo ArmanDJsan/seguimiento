@@ -242,12 +242,12 @@
     "dead_zone": 0.05,
     "max_pan_speed": 24,
     "max_tilt_speed": 20,
-    "zoom_out_threshold": 150.0,
-    "zoom_in_threshold": 50.0,
+    "zoom_out_threshold": 0.15,
+    "zoom_in_threshold": 0.05,
     "fallback_timeout_frames": 60,
     "engage_min_frames": 3,
     "min_sphere_count": 3,
     "smoothing_window": 5,
-    "description": "PTZ tracking control parameters - Kp=proportional gain, fallback after 2s without detection"
+    "description": "PTZ tracking control parameters - thresholds in normalized coordinates (0.0-1.0)"
   }
 }
