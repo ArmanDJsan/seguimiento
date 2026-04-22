@@ -118,6 +118,7 @@
     <ClCompile Include="ai\ActiveCameraSelector.cpp" />
     <ClCompile Include="ai\InferenceEngine.cpp" />
     <ClCompile Include="tracking\PositionMapper.cpp" />
+    <ClCompile Include="tracking\RouteMapper.cpp" />
     <ClCompile Include="tracking\BallTracker.cpp" />
     <ClCompile Include="scene\SceneManager.cpp" />
     <ClCompile Include="output\RankingPublisher.cpp" />
@@ -125,6 +126,7 @@
     <ClCompile Include="telemetry\PerformanceMonitor.cpp" />
     <ClCompile Include="utils\Logger.cpp" />
     <ClCompile Include="utils\GPUMemoryMonitor.cpp" />
+    <ClCompile Include="control\PTZController.cpp" />
     <ClCompile Include="control\TrackPhysicalController.cpp" />
     <ClCompile Include="control\VideoHubClient.cpp" />
     <ClCompile Include="control\VMixController.cpp" />
@@ -158,6 +160,7 @@
     <ClInclude Include="ai\ActiveCameraSelector.h" />
     <ClInclude Include="ai\InferenceEngine.h" />
     <ClInclude Include="tracking\PositionMapper.h" />
+    <ClInclude Include="tracking\RouteMapper.h" />
     <ClInclude Include="tracking\BallTracker.h" />
     <ClInclude Include="tracking\KalmanFilter.h" />
     <ClInclude Include="scene\SceneManager.h" />
@@ -168,6 +171,7 @@
     <ClInclude Include="utils\ThreadOptimizer.h" />
     <ClInclude Include="utils\GPUDiagnostics.h" />
     <ClInclude Include="utils\GPUMemoryMonitor.h" />
+    <ClInclude Include="control\PTZController.h" />
     <ClInclude Include="control\TrackPhysicalController.h" />
     <ClInclude Include="control\VideoHubClient.h" />
     <ClInclude Include="control\VMixController.h" />

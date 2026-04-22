@@ -23,6 +23,8 @@
 #endif
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
+#include <cuda_runtime_api.h>
+#include <cmath>
 
 // UYVY format constants
 #define UYVY_BYTES_PER_MACROPIXEL 4    // 4 bytes contain 2 pixels: U Y0 V Y1
@@ -202,6 +204,8 @@ __global__ void FusedUYVYToRGB640KernelShared(
 #pragma nv_diag_suppress 550
     __shared__ unsigned char tile[32 * 32 * 2];  // 2 bytes per pixel (UYVY)
 #pragma nv_diag_default 550
+    // Prevent unused variable warning
+    (void)tile;
     
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
