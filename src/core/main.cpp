@@ -233,59 +233,59 @@ bool AssignRadarsToGroups(VideoHubClient& videoHub,
     // After sphere detection, we need to ensure radars are properly routed.
     // 
     // VideoHub routing: RouteInputToOutput(outputIndex, sourceIndex)
-    // - outputIndex: The output port where we want to send the signal
-    // - sourceIndex: The input/source port we want to route
+    // - outputIndex: The output port to configure
+    // - sourceIndex: The input/source to route to that output
+    // Example: RouteInputToOutput(1, 13) = "Set output 1 to show input 13 (RADAR_01)"
     
     // Route radars based on configuration
-    // g1_g4 group: cameras 1,2,3,12 - route first camera (output) to RADAR_01 (input 13)
-    // g5_g8 group: cameras 4,5,6,7 - route first camera (output) to RADAR_02 (input 14)
-    // g9_g12 group: radars 13,14,15,16 - route these radar inputs to outputs 9-12
+    // For each group, we route the radar INPUT to the first camera OUTPUT in that group
+    // so the radar feed is available for that camera group
     
     if (radarGroups.count("g1_g4") > 0) {
         const auto& g1_g4_cameras = radarGroups.at("g1_g4");
         if (!g1_g4_cameras.empty()) {
-            // Route first camera output to RADAR_01 input (port 13)
+            // Route RADAR_01 input (port 13) to first camera's output
             int firstCam = g1_g4_cameras[0];
             if (!videoHub.RouteInputToOutput(firstCam, kRadarPortMin)) {
-                Logger::Error("[HW/SW ERROR]: No se pudo asignar RADAR_01 al grupo g1_g4");
+                Logger::Error("[HW/SW ERROR]: No se pudo enrutar RADAR_01 a salida del grupo g1_g4");
                 return false;
             }
-            Logger::Info("Grupo g1_g4: Salida CAM_" + std::to_string(firstCam) + 
-                        " configurada con entrada RADAR_01 (puerto " + std::to_string(kRadarPortMin) + ")");
+            Logger::Info("Grupo g1_g4: RADAR_01 (entrada puerto " + std::to_string(kRadarPortMin) + 
+                        ") enrutado a salida CAM_" + std::to_string(firstCam));
         }
     }
     
     if (radarGroups.count("g5_g8") > 0) {
         const auto& g5_g8_cameras = radarGroups.at("g5_g8");
         if (!g5_g8_cameras.empty()) {
-            // Route first camera output to RADAR_02 input (port 14)
+            // Route RADAR_02 input (port 14) to first camera's output
             int firstCam = g5_g8_cameras[0];
             if (!videoHub.RouteInputToOutput(firstCam, kRadarPortMin + 1)) {
-                Logger::Error("[HW/SW ERROR]: No se pudo asignar RADAR_02 al grupo g5_g8");
+                Logger::Error("[HW/SW ERROR]: No se pudo enrutar RADAR_02 a salida del grupo g5_g8");
                 return false;
             }
-            Logger::Info("Grupo g5_g8: Salida CAM_" + std::to_string(firstCam) + 
-                        " configurada con entrada RADAR_02 (puerto " + std::to_string(kRadarPortMin + 1) + ")");
+            Logger::Info("Grupo g5_g8: RADAR_02 (entrada puerto " + std::to_string(kRadarPortMin + 1) + 
+                        ") enrutado a salida CAM_" + std::to_string(firstCam));
         }
     }
     
     if (radarGroups.count("g9_g12") > 0) {
         const auto& g9_g12_radars = radarGroups.at("g9_g12");
-        // Route each radar in g9_g12 group
+        // Route each radar input in g9_g12 group to sequential outputs
         for (size_t i = 0; i < g9_g12_radars.size(); i++) {
             int radarPort = g9_g12_radars[i];
             if (radarPort >= kRadarPortMin && radarPort <= kRadarPortMax) {
                 // Route radar input to an output - using sequential outputs starting from 9
                 int outputPort = 9 + static_cast<int>(i);
                 if (!videoHub.RouteInputToOutput(outputPort, radarPort)) {
-                    Logger::Error("[HW/SW ERROR]: No se pudo asignar RADAR_" + 
-                                 std::to_string(radarPort - kRadarPortMin + 1) + " (puerto " + 
-                                 std::to_string(radarPort) + ") al grupo g9_g12");
+                    Logger::Error("[HW/SW ERROR]: No se pudo enrutar RADAR_" + 
+                                 std::to_string(radarPort - kRadarPortMin + 1) + " (entrada puerto " + 
+                                 std::to_string(radarPort) + ") a salida del grupo g9_g12");
                     return false;
                 }
-                Logger::Info("Grupo g9_g12: Salida puerto " + std::to_string(outputPort) + 
-                            " configurada con entrada RADAR_" + std::to_string(radarPort - kRadarPortMin + 1) + 
-                            " (puerto " + std::to_string(radarPort) + ")");
+                Logger::Info("Grupo g9_g12: RADAR_" + std::to_string(radarPort - kRadarPortMin + 1) + 
+                            " (entrada puerto " + std::to_string(radarPort) + 
+                            ") enrutado a salida puerto " + std::to_string(outputPort));
             }
         }
     }
