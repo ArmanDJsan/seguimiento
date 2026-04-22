@@ -184,7 +184,7 @@ private:
         unsigned int m_height;
         unsigned int m_rowBytes;
         BMDPixelFormat m_pixelFormat;
-        static constexpr unsigned int MAX_POOL_SIZE = 5;  // Max buffers in pool
+        static constexpr unsigned int MAX_POOL_SIZE = 15;  // Max buffers in pool (increased from 5 to handle 4 cameras @ 30fps with ~99ms pipeline = 12 buffers needed + 3 safety margin)
         unsigned int m_totalAllocations = 0;        // Track total allocations
         unsigned int m_poolHits = 0;                // Track pool reuse
     };
