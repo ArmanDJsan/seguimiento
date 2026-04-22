@@ -90,7 +90,6 @@ struct Config {
     std::string esp32Ip;
     uint16_t esp32Port;
     int targetSpheres;
-    std::unordered_map<std::string, std::vector<int>> radarGroups;
 };
 
 Config LoadConfig(const std::string& path) {
@@ -135,23 +134,6 @@ Config LoadConfig(const std::string& path) {
         // Parse target_spheres from root
         if (j.contains("target_spheres") && j["target_spheres"].is_number()) {
             config.targetSpheres = j["target_spheres"].get<int>();
-        }
-
-        // Parse radar_groups from root
-        if (j.contains("radar_groups") && j["radar_groups"].is_object()) {
-            for (auto& [groupName, radars] : j["radar_groups"].items()) {
-                if (radars.is_array()) {
-                    std::vector<int> radarList;
-                    for (auto& radar : radars) {
-                        if (radar.is_number()) {
-                            radarList.push_back(radar.get<int>());
-                        }
-                    }
-                    config.radarGroups[groupName] = radarList;
-                    Logger::Info("Grupo de radar cargado: " + groupName + " con " + 
-                                 std::to_string(radarList.size()) + " puertos");
-                }
-            }
         }
 
         Logger::Info("Configuración cargada: VideoHub=" + config.videohubIp + ":" + 
@@ -210,6 +192,13 @@ bool RunPhase1(VMixController& vmix,
         return false;
     }
 
+    // Después de validar el grupo de radares (13-16), confirmarlos en VideoHub
+    // Esto asegura que queden configurados incluso si hay cambios posteriores
+    if (!ConfirmRadars(videoHub)) {
+        Logger::Error("[HW/SW ERROR]: No se pudieron confirmar radares después del barrido");
+        return false;
+    }
+
     if (!trackController.ejecutarTest()) {
         Logger::Error("[HW/SW ERROR] Prueba mecánica (ESP32 /test) fallida");
         return false;
@@ -219,83 +208,33 @@ bool RunPhase1(VMixController& vmix,
     return true;
 }
 
-bool AssignRadarsToGroups(VideoHubClient& videoHub, 
-                         const std::unordered_map<std::string, std::vector<int>>& radarGroups) {
-    Logger::Info("Configurando radares en VideoHub después de detección de esferas...");
+// Confirma/ruta los radares en el VideoHub después de cambios de grupo
+// Esto asegura que los radares queden configurados incluso si el VideoHub cambia de posición
+bool ConfirmRadars(VideoHubClient& videoHub) {
+    Logger::Info("Confirmando configuración de radares en VideoHub...");
     
-    if (radarGroups.empty()) {
-        Logger::Warning("No hay configuración de grupos de radar; omitiendo asignación");
-        return true;
-    }
-    
-    // The problem: When VideoHub routing changes are made, the radars (inputs 13-16)
-    // are not being explicitly routed/set for their groups.
-    // After sphere detection, we need to ensure radars are properly routed.
-    // 
-    // VideoHub routing: RouteInputToOutput(outputIndex, sourceIndex)
-    // - outputIndex: The output port to configure
-    // - sourceIndex: The input/source to route to that output
-    // Example: RouteInputToOutput(1, 13) = "Set output 1 to show input 13 (RADAR_01)"
-    
-    // Route radars based on configuration
-    // For each group, we route the radar INPUT to the first camera OUTPUT in that group
-    // so the radar feed is available for that camera group
-    
-    if (radarGroups.count("g1_g4") > 0) {
-        const auto& g1_g4_cameras = radarGroups.at("g1_g4");
-        if (!g1_g4_cameras.empty()) {
-            // Route RADAR_01 input (port 13) to first camera's output
-            int firstCam = g1_g4_cameras[0];
-            if (!videoHub.RouteInputToOutput(firstCam, kRadarPortMin)) {
-                Logger::Error("[HW/SW ERROR]: No se pudo enrutar RADAR_01 a salida del grupo g1_g4");
-                return false;
-            }
-            Logger::Info("Grupo g1_g4: RADAR_01 (entrada puerto " + std::to_string(kRadarPortMin) + 
-                        ") enrutado a salida CAM_" + std::to_string(firstCam));
+    // Rutear cada radar (puertos 13-16) a salidas secuenciales (9-12)
+    // Esto los mantiene activos y disponibles para seguimiento
+    for (int i = 0; i < 4; i++) {
+        int radarPort = kRadarPortMin + i;      // 13, 14, 15, 16
+        int outputPort = 9 + i;                  // 9, 10, 11, 12
+        
+        if (!videoHub.RouteInputToOutput(outputPort, radarPort)) {
+            Logger::Error("[HW/SW ERROR]: No se pudo confirmar RADAR_" + 
+                         std::to_string(i + 1) + " (puerto " + std::to_string(radarPort) + 
+                         " -> salida " + std::to_string(outputPort) + ")");
+            return false;
         }
+        
+        Logger::Info("RADAR_" + std::to_string(i + 1) + " confirmado: puerto " + 
+                    std::to_string(radarPort) + " -> salida " + std::to_string(outputPort));
     }
     
-    if (radarGroups.count("g5_g8") > 0) {
-        const auto& g5_g8_cameras = radarGroups.at("g5_g8");
-        if (!g5_g8_cameras.empty()) {
-            // Route RADAR_02 input (port 14) to first camera's output
-            int firstCam = g5_g8_cameras[0];
-            if (!videoHub.RouteInputToOutput(firstCam, kRadarPortMin + 1)) {
-                Logger::Error("[HW/SW ERROR]: No se pudo enrutar RADAR_02 a salida del grupo g5_g8");
-                return false;
-            }
-            Logger::Info("Grupo g5_g8: RADAR_02 (entrada puerto " + std::to_string(kRadarPortMin + 1) + 
-                        ") enrutado a salida CAM_" + std::to_string(firstCam));
-        }
-    }
-    
-    if (radarGroups.count("g9_g12") > 0) {
-        const auto& g9_g12_radars = radarGroups.at("g9_g12");
-        // Route each radar input in g9_g12 group to sequential outputs
-        for (size_t i = 0; i < g9_g12_radars.size(); i++) {
-            int radarPort = g9_g12_radars[i];
-            if (radarPort >= kRadarPortMin && radarPort <= kRadarPortMax) {
-                // Route radar input to an output - using sequential outputs starting from 9
-                int outputPort = 9 + static_cast<int>(i);
-                if (!videoHub.RouteInputToOutput(outputPort, radarPort)) {
-                    Logger::Error("[HW/SW ERROR]: No se pudo enrutar RADAR_" + 
-                                 std::to_string(radarPort - kRadarPortMin + 1) + " (entrada puerto " + 
-                                 std::to_string(radarPort) + ") a salida del grupo g9_g12");
-                    return false;
-                }
-                Logger::Info("Grupo g9_g12: RADAR_" + std::to_string(radarPort - kRadarPortMin + 1) + 
-                            " (entrada puerto " + std::to_string(radarPort) + 
-                            ") enrutado a salida puerto " + std::to_string(outputPort));
-            }
-        }
-    }
-    
-    Logger::Info("Todos los radares configurados correctamente en VideoHub");
+    Logger::Info("Todos los radares confirmados correctamente");
     return true;
 }
 
-bool RunPhase2(VideoHubClient& videoHub, int targetSpheres,
-               const std::unordered_map<std::string, std::vector<int>>& radarGroups) {
+bool RunPhase2(VideoHubClient& videoHub, int targetSpheres) {
     if (!videoHub.RouteInputToOutput(kVideoHubPrimaryOutput, "CAM_01")) {
         Logger::Error("[HW/SW ERROR]: No se pudo fijar CAM_01 en la salida");
         return false;
@@ -312,13 +251,6 @@ bool RunPhase2(VideoHubClient& videoHub, int targetSpheres,
     }
 
     Logger::Info("Fase 2 (Escena) completada: conteo de esferas OK");
-    
-    // After successful sphere detection, assign radars to camera groups
-    if (!AssignRadarsToGroups(videoHub, radarGroups)) {
-        Logger::Error("[HW/SW ERROR]: No se pudieron asignar radares a grupos de cámaras");
-        return false;
-    }
-    
     return true;
 }
 
@@ -370,7 +302,7 @@ VIB::RunResult RunSystem(int timeoutSeconds) {
         }
 
         // Fase 2: Escena (YOLO check)
-        if (!RunPhase2(videoHub, config.targetSpheres, config.radarGroups)) {
+        if (!RunPhase2(videoHub, config.targetSpheres)) {
             result.errorMessage = "Ignicion abortada durante Fase 2 - Error de escena";
             Logger::Error(result.errorMessage);
             return result;

@@ -31,10 +31,5 @@
     { "index": 15, "name": "RADAR_03", "role": "radar" },
     { "index": 16, "name": "RADAR_04", "role": "radar" }
   ],
-  "target_spheres": 10,
-  "radar_groups": {
-    "g1_g4": [1, 2, 3, 12],
-    "g5_g8": [4, 5, 6, 7],
-    "g9_g12": [13, 14, 15, 16]
-  }
+  "target_spheres": 10
 }
