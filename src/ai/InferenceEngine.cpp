@@ -21,7 +21,8 @@
 constexpr int kYoloBaseAttributes = 5;
 
 // Default max detections per frame for YOLOv8-style models
-constexpr int kDefaultMaxDetections = 8400;
+// Reduced from 8400 to 300 for memory optimization (sufficient for 10 balls + margin)
+constexpr int kDefaultMaxDetections = 300;
 
 // External preprocessing kernel functions from PreprocessKernel.cu and FusedPreprocessKernel.cu
 extern "C" {
@@ -602,6 +603,14 @@ bool InferenceEngine::LoadEngine(const std::string& enginePath) {
         }
     }
     
+    // Override with user-configured maxDetections if set (for memory optimization)
+    if (m_config.maxDetections > 0 && m_config.maxDetections < m_maxDetections) {
+        Logger::Info("InferenceEngine: Overriding max_detections from " + 
+                    std::to_string(m_maxDetections) + " to " + 
+                    std::to_string(m_config.maxDetections) + " (config optimization)");
+        m_maxDetections = m_config.maxDetections;
+    }
+    
     if (m_inputTensorName.empty() || m_outputTensorName.empty()) {
         Logger::Error("InferenceEngine: Failed to find input/output tensors");
         return false;
@@ -730,57 +739,60 @@ std::vector<BallDetection> InferenceEngine::PostProcess(const float* rawOutput,
     int numClasses = stride - kYoloBaseAttributes;
     
     // ============================================================================
-    // DEBUG: Print raw YOLO output for verification
+    // DEBUG: Print raw YOLO output for verification (configurable)
     // ============================================================================
-    static int debugFrameCount = 0;
-    debugFrameCount++;
-    
-    // Print raw output every 30 frames (approx 1 second at 30fps)
-    if (debugFrameCount % 30 == 1) {
-        Logger::Info("=== DEBUG YOLO RAW OUTPUT (Frame " + std::to_string(debugFrameCount) + ") ===");
-        Logger::Info("Output format: maxDetections=" + std::to_string(m_maxDetections) + 
-                     ", stride=" + std::to_string(stride) + ", numClasses=" + std::to_string(numClasses));
-        Logger::Info("Confidence threshold: " + std::to_string(m_config.confidenceThreshold));
+    if (m_config.debugYoloEnabled) {
+        static int debugFrameCount = 0;
+        debugFrameCount++;
         
-        // Print first 10 detections raw values
-        int printCount = std::min(10, m_maxDetections);
-        for (int d = 0; d < printCount; ++d) {
-            const float* det = rawOutput + d * stride;
-            std::ostringstream oss;
-            oss << "Det[" << d << "]: ";
-            for (int s = 0; s < stride; ++s) {
-                oss << std::fixed << std::setprecision(4) << det[s];
-                if (s < stride - 1) oss << ", ";
+        // Print raw output at configured interval
+        if (debugFrameCount % m_config.debugYoloInterval == 1) {
+            Logger::Info("=== DEBUG YOLO RAW OUTPUT (Frame " + std::to_string(debugFrameCount) + ") ===");
+            Logger::Info("Output format: maxDetections=" + std::to_string(m_maxDetections) + 
+                         ", stride=" + std::to_string(stride) + ", numClasses=" + std::to_string(numClasses));
+            Logger::Info("Confidence threshold: " + std::to_string(m_config.confidenceThreshold));
+            
+            // Print first 10 detections raw values
+            int printCount = std::min(10, m_maxDetections);
+            for (int d = 0; d < printCount; ++d) {
+                const float* det = rawOutput + d * stride;
+                std::ostringstream oss;
+                oss << "Det[" << d << "]: ";
+                for (int s = 0; s < stride; ++s) {
+                    oss << std::fixed << std::setprecision(4) << det[s];
+                    if (s < stride - 1) oss << ", ";
+                }
+                Logger::Info(oss.str());
             }
-            Logger::Info(oss.str());
-        }
-        
-        // Find and print max confidence value in entire output
-        float maxConf = 0.0f;
-        int maxConfIdx = -1;
-        for (int d = 0; d < m_maxDetections; ++d) {
-            const float* det = rawOutput + d * stride;
-            if (det[4] > maxConf) {
-                maxConf = det[4];
-                maxConfIdx = d;
+            
+            // Find and print max confidence value in entire output
+            float maxConf = 0.0f;
+            int maxConfIdx = -1;
+            for (int d = 0; d < m_maxDetections; ++d) {
+                const float* det = rawOutput + d * stride;
+                if (det[4] > maxConf) {
+                    maxConf = det[4];
+                    maxConfIdx = d;
+                }
             }
+            Logger::Info("Max confidence found: " + std::to_string(maxConf) + " at detection index " + std::to_string(maxConfIdx));
+            
+            // DIAGNOSTIC: Warn if confidence is suspiciously low
+            if (maxConf < 0.01f) {
+                Logger::Warning("⚠️  YOLO MODEL ISSUE: Max confidence is extremely low (" + std::to_string(maxConf) + ")");
+                Logger::Warning("  Possible causes:");
+                Logger::Warning("  1. Model file not loaded correctly (check if .engine file exists)");
+                Logger::Warning("  2. Input preprocessing incorrect (normalization, mean/std values)");
+                Logger::Warning("  3. Model trained on different input format or dimensions");
+                Logger::Warning("  4. TensorRT engine corrupted or incompatible version");
+                Logger::Warning("  5. Input data is all zeros or corrupted");
+                Logger::Warning("  -> Check logs above for 'STUB mode' warning");
+            }
+            
+            Logger::Info("=== END DEBUG YOLO RAW OUTPUT ===");
         }
-        Logger::Info("Max confidence found: " + std::to_string(maxConf) + " at detection index " + std::to_string(maxConfIdx));
-        
-        // DIAGNOSTIC: Warn if confidence is suspiciously low
-        if (maxConf < 0.01f) {
-            Logger::Warning("⚠️  YOLO MODEL ISSUE: Max confidence is extremely low (" + std::to_string(maxConf) + ")");
-            Logger::Warning("  Possible causes:");
-            Logger::Warning("  1. Model file not loaded correctly (check if .engine file exists)");
-            Logger::Warning("  2. Input preprocessing incorrect (normalization, mean/std values)");
-            Logger::Warning("  3. Model trained on different input format or dimensions");
-            Logger::Warning("  4. TensorRT engine corrupted or incompatible version");
-            Logger::Warning("  5. Input data is all zeros or corrupted");
-            Logger::Warning("  -> Check logs above for 'STUB mode' warning");
-        }
-        
-        Logger::Info("=== END DEBUG YOLO RAW OUTPUT ===");
     }
+    // ============================================================================
     
     for (int b = 0; b < numFrames; ++b) {
         const float* batchOutput = rawOutput + b * m_maxDetections * stride;

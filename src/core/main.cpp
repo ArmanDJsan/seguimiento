@@ -511,6 +511,22 @@ Config LoadConfig(const std::string& path) {
                                 std::to_string(config.inferenceConfig.inputHeight) + " resolution");
                 }
             }
+            // Parse max_detections for memory optimization
+            if (ie.contains("max_detections") && ie["max_detections"].is_number()) {
+                config.inferenceConfig.maxDetections = ie["max_detections"].get<int>();
+                Logger::Info("InferenceEngine config: max_detections=" + std::to_string(config.inferenceConfig.maxDetections));
+            }
+            // Parse debug YOLO settings
+            if (ie.contains("debug_yolo_enabled") && ie["debug_yolo_enabled"].is_boolean()) {
+                config.inferenceConfig.debugYoloEnabled = ie["debug_yolo_enabled"].get<bool>();
+            }
+            if (ie.contains("debug_yolo_interval") && ie["debug_yolo_interval"].is_number()) {
+                config.inferenceConfig.debugYoloInterval = ie["debug_yolo_interval"].get<int>();
+            }
+            if (config.inferenceConfig.debugYoloEnabled) {
+                Logger::Info("InferenceEngine config: YOLO debug logging enabled (interval=" + 
+                            std::to_string(config.inferenceConfig.debugYoloInterval) + " frames)");
+            }
         }
         
         // Parse position_mapper section
