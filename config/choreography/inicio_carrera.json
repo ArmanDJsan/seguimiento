@@ -1,0 +1,46 @@
+{
+  "name": "Inicio Carrera",
+  "description": "Coreografía de inicio de carrera: PTZ presets + ESP32 + grabación vMix sincronizados en 47 segundos",
+  "author": "VIB Automation",
+  "version": "1.0",
+  "events": [
+    { "type": "Comment", "text": "=== seg 0: PTZ 2,3,4 → preset 1 | ESP32 iniciar | StartRecording ===" },
+    { "type": "PTZPreset",    "camera": 2, "preset": 1, "comment": "PTZ 2 posición inicial" },
+    { "type": "PTZPreset",    "camera": 3, "preset": 1, "comment": "PTZ 3 posición inicial" },
+    { "type": "PTZPreset",    "camera": 4, "preset": 1, "comment": "PTZ 4 posición inicial" },
+    { "type": "ESP32Command", "command": "iniciar",     "comment": "ESP32: iniciar" },
+    { "type": "StartRecording",                          "comment": "vMix: iniciar grabación" },
+
+    { "type": "Comment", "text": "=== Timer hasta seg 5 (5 000 ms) ===" },
+    { "type": "Timer", "ms": 5000 },
+
+    { "type": "Comment", "text": "=== seg 5: PTZ 2 → preset 2 | ESP32 finalizar ===" },
+    { "type": "PTZPreset",    "camera": 2, "preset": 2, "comment": "PTZ 2 preset 2" },
+    { "type": "ESP32Command", "command": "finalizar",   "comment": "ESP32: finalizar" },
+
+    { "type": "Comment", "text": "=== Timer hasta seg 7 (2 000 ms) ===" },
+    { "type": "Timer", "ms": 2000 },
+
+    { "type": "Comment", "text": "=== seg 7: PTZ 3 → preset 2 ===" },
+    { "type": "PTZPreset", "camera": 3, "preset": 2, "comment": "PTZ 3 preset 2" },
+
+    { "type": "Comment", "text": "=== Timer hasta seg 14 (7 000 ms) ===" },
+    { "type": "Timer", "ms": 7000 },
+
+    { "type": "Comment", "text": "=== seg 14: PTZ 4 → preset 2 ===" },
+    { "type": "PTZPreset", "camera": 4, "preset": 2, "comment": "PTZ 4 preset 2" },
+
+    { "type": "Comment", "text": "=== Timer hasta seg 42 (28 000 ms) ===" },
+    { "type": "Timer", "ms": 28000 },
+
+    { "type": "Comment", "text": "=== seg 42: PTZ 2 → preset 3 ===" },
+    { "type": "PTZPreset", "camera": 2, "preset": 3, "comment": "PTZ 2 preset 3" },
+
+    { "type": "Comment", "text": "=== Timer hasta seg 47 (5 000 ms) ===" },
+    { "type": "Timer", "ms": 5000 },
+
+    { "type": "Comment", "text": "=== seg 47: StopRecording | ESP32 reload ===" },
+    { "type": "StopRecording",                        "comment": "vMix: detener grabación" },
+    { "type": "ESP32Command", "command": "reload",    "comment": "ESP32: reload" }
+  ]
+}

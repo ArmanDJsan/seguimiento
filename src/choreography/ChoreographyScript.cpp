@@ -271,6 +271,18 @@ std::optional<ChoreographyEvent> ChoreographyScript::ParseJsonEvent(const void* 
                      ", expected=" + std::to_string(expectedSpheres) + ", timeout=" + std::to_string(timeoutMs) + ")");
         return ChoreographyEvent::SphereArrivalWait(cameraID, expectedSpheres, timeoutMs);
     }
+    else if (typeLower == "ptzpreset") {
+        int camera = j.value("camera", 1);
+        int preset = j.value("preset", 1);
+        Logger::Debug("ChoreographyScript: Parsed PTZPreset(camera=" + std::to_string(camera) +
+                     ", preset=" + std::to_string(preset) + ")");
+        return ChoreographyEvent::PTZPreset(camera, preset);
+    }
+    else if (typeLower == "esp32command") {
+        std::string command = j.value("command", "");
+        Logger::Debug("ChoreographyScript: Parsed ESP32Command(command=" + command + ")");
+        return ChoreographyEvent::ESP32Command(command);
+    }
     else if (typeLower == "comment") {
         std::string text = j.value("text", "");
         // Don't log debug for comments - they're meta-events
@@ -488,6 +500,25 @@ std::optional<ChoreographyEvent> ChoreographyScript::ParseDslLine(const std::str
             if (!configOpt) return std::nullopt;
             Logger::Debug("ChoreographyScript: Parsed SceneSwitch(config=" + std::to_string(*configOpt) + ")");
             return ChoreographyEvent::SceneSwitch(*configOpt);
+        }
+        else if (cmdName == "ptzpreset") {
+            if (params.size() < 2) return std::nullopt;
+            auto cameraOpt = safeStoi(Trim(params[0]));
+            auto presetOpt = safeStoi(Trim(params[1]));
+            if (!cameraOpt || !presetOpt) return std::nullopt;
+            Logger::Debug("ChoreographyScript: Parsed PTZPreset(camera=" + std::to_string(*cameraOpt) +
+                         ", preset=" + std::to_string(*presetOpt) + ")");
+            return ChoreographyEvent::PTZPreset(*cameraOpt, *presetOpt);
+        }
+        else if (cmdName == "esp32command") {
+            if (params.empty()) return std::nullopt;
+            std::string command = Trim(params[0]);
+            // Strip surrounding quotes if present
+            if (command.size() >= 2 && command.front() == '"' && command.back() == '"') {
+                command = command.substr(1, command.size() - 2);
+            }
+            Logger::Debug("ChoreographyScript: Parsed ESP32Command(command=" + command + ")");
+            return ChoreographyEvent::ESP32Command(command);
         }
         
         Logger::Debug("ChoreographyScript: Unknown DSL command: " + cmdName);
