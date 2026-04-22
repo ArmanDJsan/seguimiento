@@ -189,6 +189,31 @@ public:
      * Get last error message
      */
     const std::string& GetLastError() const { return m_lastError; }
+    
+    // === Checkpoint Event Support for PTZ Tracking ===
+    
+    /**
+     * Callback type for checkpoint events
+     * @param checkpointName Name of the checkpoint crossed
+     * @param progress Current progress percentage
+     * @param sphereCount Number of spheres detected
+     */
+    using CheckpointEventCallback = std::function<void(const std::string& checkpointName, 
+                                                        float progress, int sphereCount)>;
+    
+    /**
+     * Set callback for checkpoint crossing events
+     * @param callback Function to call when checkpoint is crossed
+     */
+    void SetCheckpointCallback(CheckpointEventCallback callback);
+    
+    /**
+     * Emit checkpoint event (called by RouteMapper or externally)
+     * @param checkpointName Name of the crossed checkpoint
+     * @param progress Current progress percentage
+     * @param sphereCount Number of spheres detected
+     */
+    void EmitCheckpointEvent(const std::string& checkpointName, float progress, int sphereCount);
 
 private:
     // Dependencies
@@ -202,6 +227,9 @@ private:
     
     // Frame capture state
     std::function<void(int, void*, unsigned int, unsigned int)> m_frameCallback;
+    
+    // Checkpoint event callback
+    CheckpointEventCallback m_checkpointCallback;
     
     // Internal implementation methods
     VerificationResult ExecutePresenceCheck(const VerificationConfig& config);

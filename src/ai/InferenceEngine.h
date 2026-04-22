@@ -44,6 +44,25 @@ struct BallDetection {
 };
 
 /**
+ * Result of group centroid calculation for PTZ tracking
+ * Represents the center of mass of detected spheres
+ */
+struct CentroidResult {
+    float centroid_x = 0.0f;      // Normalized X position [0.0, 1.0]
+    float centroid_y = 0.0f;      // Normalized Y position [0.0, 1.0]
+    float std_deviation = 0.0f;   // Standard deviation of sphere positions (normalized)
+    int sphere_count = 0;         // Number of spheres in calculation
+    int64_t timestamp = 0;        // Timestamp of measurement
+    
+    CentroidResult() = default;
+    CentroidResult(float x, float y, float std, int count, int64_t ts = 0)
+        : centroid_x(x), centroid_y(y), std_deviation(std)
+        , sphere_count(count), timestamp(ts) {}
+    
+    bool IsValid() const { return sphere_count > 0; }
+};
+
+/**
  * Inference telemetry for performance monitoring
  */
 struct InferenceTelemetry {
@@ -186,6 +205,22 @@ public:
      * Get configuration
      */
     const InferenceEngineConfig& GetConfig() const { return m_config; }
+    
+    /**
+     * Calculate group centroid from detections for PTZ tracking
+     * @param detections Vector of ball detections
+     * @param confidenceThreshold Minimum confidence for inclusion (default 0.5)
+     * @return CentroidResult with centroid position and statistics
+     */
+    static CentroidResult CalculateGroupCentroid(
+        const std::vector<BallDetection>& detections,
+        float confidenceThreshold = 0.5f);
+    
+    /**
+     * Get last calculated centroid (from most recent ProcessBatch/ProcessFrame)
+     * @return Last centroid result
+     */
+    CentroidResult GetLastCentroid() const;
 
 private:
     /**
@@ -231,6 +266,9 @@ private:
     
     // Telemetry
     InferenceTelemetry m_lastTelemetry;
+    
+    // Last centroid for PTZ tracking
+    CentroidResult m_lastCentroid;
     
     // Helper methods
     bool LoadEngine(const std::string& enginePath);

@@ -38,6 +38,8 @@
 #include "../ai/InferenceEngine.h"
 #include "../tracking/PositionMapper.h"
 #include "../tracking/BallTracker.h"
+#include "../tracking/MovingAverageFilter.h"
+#include "../tracking/RouteMapper.h"
 #include "../scene/SceneManager.h"
 #include "../output/RankingPublisher.h"
 #include "../redis/RedisWorker.h"
@@ -46,9 +48,11 @@
 #include "../utils/ThreadOptimizer.h"
 #include "../utils/GPUDiagnostics.h"
 #include "../utils/FrameSaver.h"
+#include "../utils/TrackingLogger.h"
 #include "../control/VideoHubClient.h"
 #include "../control/TrackPhysicalController.h"
 #include "../control/VMixController.h"
+#include "../control/PTZController.h"
 #include "../choreography/ChoreographyEngine.h"
 #include "../verification/SphereVerifier.h"
 #include "../ui/UserMenu.h"
@@ -561,6 +565,54 @@ Config LoadConfig(const std::string& path) {
                             ", debug=" + std::to_string(config.choreographyConfig.debug));
             }
         }
+        
+        // Parse ptz_cameras section
+        if (j.contains("ptz_cameras") && j["ptz_cameras"].is_object()) {
+            auto& ptz = j["ptz_cameras"];
+            if (ptz.contains("enabled") && ptz["enabled"].is_boolean()) {
+                config.ptzCamerasConfig.enabled = ptz["enabled"].get<bool>();
+            }
+            if (ptz.contains("cameras") && ptz["cameras"].is_array()) {
+                for (const auto& cam : ptz["cameras"]) {
+                    PTZ::PTZCameraConfig camConfig;
+                    camConfig.cameraID = cam.value("id", 0);
+                    camConfig.ipAddress = cam.value("ip", "192.168.1.100");
+                    camConfig.viscaPort = cam.value("visca_port", 52381);
+                    camConfig.viscaAddress = cam.value("visca_address", 1);
+                    camConfig.basePreset = cam.value("base_preset", 1);
+                    if (cam.contains("presets") && cam["presets"].is_array()) {
+                        for (const auto& preset : cam["presets"]) {
+                            camConfig.presets.push_back(preset.get<int>());
+                        }
+                    }
+                    config.ptzCamerasConfig.cameras.push_back(camConfig);
+                }
+            }
+            if (config.ptzCamerasConfig.enabled) {
+                Logger::Info("PTZ Cameras config: enabled with " + 
+                            std::to_string(config.ptzCamerasConfig.cameras.size()) + " cameras");
+            }
+        }
+        
+        // Parse ptz_tracking section
+        if (j.contains("ptz_tracking") && j["ptz_tracking"].is_object()) {
+            auto& pt = j["ptz_tracking"];
+            if (pt.contains("enabled") && pt["enabled"].is_boolean() && pt["enabled"].get<bool>()) {
+                if (pt.contains("kp")) config.ptzTrackingConfig.kp = pt["kp"].get<float>();
+                if (pt.contains("dead_zone")) config.ptzTrackingConfig.deadZone = pt["dead_zone"].get<float>();
+                if (pt.contains("max_pan_speed")) config.ptzTrackingConfig.maxPanSpeed = pt["max_pan_speed"].get<int>();
+                if (pt.contains("max_tilt_speed")) config.ptzTrackingConfig.maxTiltSpeed = pt["max_tilt_speed"].get<int>();
+                if (pt.contains("zoom_out_threshold")) config.ptzTrackingConfig.zoomOutThreshold = pt["zoom_out_threshold"].get<float>();
+                if (pt.contains("zoom_in_threshold")) config.ptzTrackingConfig.zoomInThreshold = pt["zoom_in_threshold"].get<float>();
+                if (pt.contains("fallback_timeout_frames")) config.ptzTrackingConfig.fallbackTimeoutFrames = pt["fallback_timeout_frames"].get<int>();
+                if (pt.contains("engage_min_frames")) config.ptzTrackingConfig.engageMinFrames = pt["engage_min_frames"].get<int>();
+                if (pt.contains("min_sphere_count")) config.ptzTrackingConfig.minSphereCount = pt["min_sphere_count"].get<int>();
+                
+                Logger::Info("PTZ Tracking config: Kp=" + std::to_string(config.ptzTrackingConfig.kp) +
+                            ", dead_zone=" + std::to_string(config.ptzTrackingConfig.deadZone) +
+                            ", fallback_frames=" + std::to_string(config.ptzTrackingConfig.fallbackTimeoutFrames));
+            }
+        }
 
         Logger::Info("Configuración cargada: VideoHub=" + config.videohubIp + ":" + 
                      std::to_string(config.videohubPort) + ", ESP32=" + config.esp32Ip + ":" + 
@@ -848,6 +900,55 @@ bool RunRunningMode() {
     }
     
     // ============================================================================
+    // Initialize PTZ Controller and Tracking Components
+    // ============================================================================
+    std::shared_ptr<PTZ::PTZController> ptzController;
+    std::shared_ptr<Tracking::MovingAverageFilter> centroidFilter;
+    std::shared_ptr<Tracking::RouteMapper> routeMapper;
+    std::shared_ptr<Tracking::TrackingLogger> trackingLogger;
+    int framesWithoutDetection = 0;
+    int framesWithDetection = 0;
+    
+    if (config.ptzCamerasConfig.enabled) {
+        Logger::Info("Initializing PTZController...");
+        ptzController = std::make_shared<PTZ::PTZController>();
+        
+        if (ptzController->Initialize(config.ptzCamerasConfig.cameras, config.ptzTrackingConfig)) {
+            Logger::Info("PTZController initialized with " + 
+                        std::to_string(config.ptzCamerasConfig.cameras.size()) + " cameras");
+            
+            // Initialize centroid smoothing filter
+            int smoothingWindow = 5;  // Default window size
+            centroidFilter = std::make_shared<Tracking::MovingAverageFilter>(smoothingWindow);
+            
+            // Initialize route mapper
+            routeMapper = std::make_shared<Tracking::RouteMapper>();
+            if (routeMapper->LoadRoute("config/track_route.json")) {
+                Logger::Info("RouteMapper loaded track route");
+                
+                // Set up checkpoint callback to notify SphereVerifier
+                routeMapper->SetCheckpointCallback(
+                    [&sphereVerifier](const Tracking::Checkpoint& cp, int sphereCount) {
+                        sphereVerifier->EmitCheckpointEvent(cp.name, cp.progress_pct, sphereCount);
+                    }
+                );
+            } else {
+                Logger::Warning("RouteMapper using default linear route");
+            }
+            
+            // Initialize tracking logger
+            trackingLogger = std::make_shared<Tracking::TrackingLogger>("logs/tracking");
+            trackingLogger->Start();
+            Logger::Info("TrackingLogger started");
+        } else {
+            Logger::Warning("PTZController initialization failed - running without PTZ control");
+            ptzController.reset();
+        }
+    } else {
+        Logger::Info("PTZ tracking disabled in config");
+    }
+    
+    // ============================================================================
     // Initialize Choreography Engine
     // ============================================================================
     std::shared_ptr<Choreography::ChoreographyEngine> choreographyEngine;
@@ -1046,6 +1147,102 @@ bool RunRunningMode() {
                     if (rankingPublisher && rankingPublisher->IsEnabled()) {
                         auto ranking = ballTracker->GetRanking();
                         rankingPublisher->PublishRanking(ranking);
+                    }
+                    
+                    // === PTZ Tracking Integration ===
+                    if (ptzController && ptzController->IsInitialized() && centroidFilter) {
+                        // Calculate centroid from ball detections (uses ::CentroidResult from InferenceEngine.h)
+                        ::CentroidResult rawCentroid = InferenceEngine::CalculateGroupCentroid(
+                            ballDetections, 0.5f);
+                        
+                        // Apply smoothing filter (convert to Tracking::CentroidResult)
+                        auto smoothCentroid = centroidFilter->Update(
+                            Tracking::CentroidResult(
+                                rawCentroid.centroid_x, 
+                                rawCentroid.centroid_y,
+                                rawCentroid.std_deviation,
+                                rawCentroid.sphere_count,
+                                rawCentroid.timestamp
+                            )
+                        );
+                        
+                        auto& trackConfig = config.ptzTrackingConfig;
+                        int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now().time_since_epoch()).count();
+                        
+                        // Track route progress and update checkpoints
+                        float progress = 0.0f;
+                        if (routeMapper) {
+                            progress = routeMapper->MapToProgress(
+                                smoothCentroid.centroid_x, smoothCentroid.centroid_y);
+                            routeMapper->UpdateProgress(progress, smoothCentroid.sphere_count);
+                        }
+                        
+                        // State machine for tracking engagement
+                        if (smoothCentroid.sphere_count >= trackConfig.minSphereCount) {
+                            framesWithDetection++;
+                            framesWithoutDetection = 0;
+                            
+                            // Auto-engage tracking after N consecutive frames
+                            if (framesWithDetection >= trackConfig.engageMinFrames &&
+                                ptzController->GetTrackingMode() != PTZ::TrackingMode::TRACKING_MODE) {
+                                ptzController->SetTrackingMode(PTZ::TrackingMode::TRACKING_MODE);
+                            }
+                            
+                            // Calculate PTZ commands when in tracking mode
+                            if (ptzController->GetTrackingMode() == PTZ::TrackingMode::TRACKING_MODE) {
+                                // Error from center of frame (normalized)
+                                float panError = smoothCentroid.centroid_x - 0.5f;
+                                float tiltError = smoothCentroid.centroid_y - 0.5f;
+                                
+                                // Proportional control with dead zone
+                                int panSpeed = 0;
+                                int tiltSpeed = 0;
+                                
+                                if (std::abs(panError) > trackConfig.deadZone) {
+                                    panSpeed = static_cast<int>(panError * trackConfig.kp);
+                                    panSpeed = std::clamp(panSpeed, 
+                                        -trackConfig.maxPanSpeed, trackConfig.maxPanSpeed);
+                                }
+                                
+                                if (std::abs(tiltError) > trackConfig.deadZone) {
+                                    tiltSpeed = static_cast<int>(tiltError * trackConfig.kp);
+                                    tiltSpeed = std::clamp(tiltSpeed, 
+                                        -trackConfig.maxTiltSpeed, trackConfig.maxTiltSpeed);
+                                }
+                                
+                                // Send pan/tilt to all PTZ cameras
+                                ptzController->SendPanTiltAll(panSpeed, tiltSpeed);
+                                
+                                // Zoom control based on group spread
+                                if (smoothCentroid.std_deviation > trackConfig.zoomOutThreshold) {
+                                    ptzController->SendZoomAll(PTZ::ZoomDirection::Out, 2);
+                                } else if (smoothCentroid.std_deviation < trackConfig.zoomInThreshold) {
+                                    ptzController->SendZoomAll(PTZ::ZoomDirection::In, 1);
+                                }
+                                
+                                // Log tracking data
+                                if (trackingLogger) {
+                                    trackingLogger->Log(now, 
+                                        smoothCentroid.centroid_x, smoothCentroid.centroid_y,
+                                        smoothCentroid.std_deviation, smoothCentroid.sphere_count,
+                                        progress, 
+                                        static_cast<int>(ptzController->GetTrackingMode()),
+                                        static_cast<float>(panSpeed), static_cast<float>(tiltSpeed));
+                                }
+                            }
+                        } else {
+                            framesWithDetection = 0;
+                            framesWithoutDetection++;
+                            
+                            // Fallback after timeout
+                            if (framesWithoutDetection >= trackConfig.fallbackTimeoutFrames &&
+                                ptzController->GetTrackingMode() == PTZ::TrackingMode::TRACKING_MODE) {
+                                ptzController->SetTrackingMode(PTZ::TrackingMode::FALLBACK_MODE);
+                                ptzController->ReturnToBaseAll();
+                                centroidFilter->Reset();
+                            }
+                        }
                     }
                 }
                 
@@ -1378,6 +1575,20 @@ bool RunRunningMode() {
     
     // Cleanup
     Logger::Info("Cerrando modo running...");
+    
+    // Stop PTZ tracking components
+    if (trackingLogger) {
+        Logger::Info("Stopping TrackingLogger...");
+        trackingLogger->Stop();
+        trackingLogger.reset();
+    }
+    
+    if (ptzController) {
+        Logger::Info("Stopping PTZController...");
+        ptzController->ReturnToBaseAll();  // Return cameras to base before shutdown
+        ptzController->Shutdown();
+        ptzController.reset();
+    }
     
     // Stop choreography engine if running
     if (choreographyEngine) {

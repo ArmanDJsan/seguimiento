@@ -436,4 +436,34 @@ int64_t SphereVerifier::GetCurrentTimeMs() const {
     ).count();
 }
 
+// === Checkpoint Event Support ===
+
+void SphereVerifier::SetCheckpointCallback(CheckpointEventCallback callback) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_checkpointCallback = callback;
+    Logger::Info("SphereVerifier: Checkpoint callback registered");
+}
+
+void SphereVerifier::EmitCheckpointEvent(const std::string& checkpointName, 
+                                          float progress, int sphereCount) {
+    CheckpointEventCallback callback;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        callback = m_checkpointCallback;
+    }
+    
+    Logger::Info("SphereVerifier: Checkpoint event - " + checkpointName + 
+                 " at " + std::to_string(progress) + "% with " + 
+                 std::to_string(sphereCount) + " spheres");
+    
+    if (callback) {
+        try {
+            callback(checkpointName, progress, sphereCount);
+        } catch (const std::exception& e) {
+            Logger::Error("SphereVerifier: Checkpoint callback exception: " + 
+                         std::string(e.what()));
+        }
+    }
+}
+
 } // namespace Verification
