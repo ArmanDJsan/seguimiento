@@ -165,6 +165,13 @@ public:
     static constexpr int kZenithSlots = 4;        // f1-f4 (fixed, not managed here)
     static constexpr int kRadarCount = 4;         // RADAR_01 to RADAR_04
     
+    // Radar input names for VideoHub routing
+    static constexpr std::array<const char*, kRadarCount> kRadarNames = {"RADAR_01", "RADAR_02", "RADAR_03", "RADAR_04"};
+    
+    // Retry parameters for VideoHub routing commands
+    static constexpr int kRoutingMaxRetries = 3;
+    static constexpr int kRoutingRetryDelayMs = 50;
+    
     /**
      * Callback for slot mute state changes
      * @param slotIndex Slot that changed (0-7)

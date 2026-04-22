@@ -428,20 +428,21 @@ Config LoadConfig(const std::string& path) {
                     config.radarRoutingEnabled = rr["enabled"].get<bool>();
                 }
                 
-                // Parse individual radar output slots
-                const std::array<std::string, 4> radarKeys = {"RADAR_01", "RADAR_02", "RADAR_03", "RADAR_04"};
-                for (size_t i = 0; i < 4; ++i) {
-                    if (rr.contains(radarKeys[i]) && rr[radarKeys[i]].is_number()) {
-                        config.radarOutputSlots[i] = rr[radarKeys[i]].get<int>();
+                // Parse individual radar output slots using SceneManager constants
+                for (size_t i = 0; i < SceneManager::kRadarCount; ++i) {
+                    std::string radarKey = SceneManager::kRadarNames[i];
+                    if (rr.contains(radarKey) && rr[radarKey].is_number()) {
+                        config.radarOutputSlots[i] = rr[radarKey].get<int>();
                     }
                 }
                 
                 if (config.radarRoutingEnabled) {
                     std::ostringstream oss;
-                    oss << "Radar routing config: RADAR_01->" << config.radarOutputSlots[0]
-                        << ", RADAR_02->" << config.radarOutputSlots[1]
-                        << ", RADAR_03->" << config.radarOutputSlots[2]
-                        << ", RADAR_04->" << config.radarOutputSlots[3];
+                    oss << "Radar routing config: " 
+                        << SceneManager::kRadarNames[0] << "->" << config.radarOutputSlots[0]
+                        << ", " << SceneManager::kRadarNames[1] << "->" << config.radarOutputSlots[1]
+                        << ", " << SceneManager::kRadarNames[2] << "->" << config.radarOutputSlots[2]
+                        << ", " << SceneManager::kRadarNames[3] << "->" << config.radarOutputSlots[3];
                     Logger::Info(oss.str());
                 } else {
                     Logger::Info("Radar routing config: disabled");

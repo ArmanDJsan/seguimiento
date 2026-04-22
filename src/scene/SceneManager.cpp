@@ -327,12 +327,11 @@ void SceneManager::ApplyRadarRouting() {
     Logger::Debug("SceneManager: Applying radar routing...");
     
     // Route RADAR_01-04 to their configured output slots
-    const std::array<std::string, kRadarCount> radarNames = {"RADAR_01", "RADAR_02", "RADAR_03", "RADAR_04"};
     int successCount = 0;
     
     for (int i = 0; i < kRadarCount; ++i) {
         int outputSlot = m_config.radarOutputSlots[i];
-        if (SendVideoHubRoutingByName(outputSlot, radarNames[i])) {
+        if (SendVideoHubRoutingByName(outputSlot, kRadarNames[i])) {
             successCount++;
         }
     }
@@ -340,10 +339,10 @@ void SceneManager::ApplyRadarRouting() {
     if (successCount == kRadarCount) {
         std::ostringstream oss;
         oss << "SceneManager: Radar routing applied - "
-            << "RADAR_01->Out" << m_config.radarOutputSlots[0] << ", "
-            << "RADAR_02->Out" << m_config.radarOutputSlots[1] << ", "
-            << "RADAR_03->Out" << m_config.radarOutputSlots[2] << ", "
-            << "RADAR_04->Out" << m_config.radarOutputSlots[3];
+            << kRadarNames[0] << "->Out" << m_config.radarOutputSlots[0] << ", "
+            << kRadarNames[1] << "->Out" << m_config.radarOutputSlots[1] << ", "
+            << kRadarNames[2] << "->Out" << m_config.radarOutputSlots[2] << ", "
+            << kRadarNames[3] << "->Out" << m_config.radarOutputSlots[3];
         Logger::Info(oss.str());
     } else {
         Logger::Warning("SceneManager: Radar routing partially failed (" + 
@@ -358,12 +357,8 @@ bool SceneManager::SendVideoHubRoutingByName(int outputIndex, const std::string&
         return false;
     }
     
-    // Retry logic for transient failures
-    const int maxRetries = 3;
-    const int retryDelayMs = 50;
-    
     bool success = false;
-    for (int attempt = 0; attempt < maxRetries; ++attempt) {
+    for (int attempt = 0; attempt < kRoutingMaxRetries; ++attempt) {
         success = m_videoHub->RouteInputToOutput(outputIndex, inputName);
         
         if (success) {
@@ -379,17 +374,17 @@ bool SceneManager::SendVideoHubRoutingByName(int outputIndex, const std::string&
         }
         
         // If not the last attempt, wait before retrying
-        if (attempt < maxRetries - 1) {
+        if (attempt < kRoutingMaxRetries - 1) {
             Logger::Warning("SceneManager: Routing attempt " + std::to_string(attempt + 1) + 
                           " failed for " + inputName + " to output " + 
                           std::to_string(outputIndex) + ", retrying...");
-            std::this_thread::sleep_for(std::chrono::milliseconds(retryDelayMs));
+            std::this_thread::sleep_for(std::chrono::milliseconds(kRoutingRetryDelayMs));
         }
     }
     
     Logger::Error("SceneManager: Failed to route " + inputName + 
                  " to output " + std::to_string(outputIndex) + 
-                 " after " + std::to_string(maxRetries) + " attempts.");
+                 " after " + std::to_string(kRoutingMaxRetries) + " attempts.");
     
     return false;
 }
@@ -408,12 +403,8 @@ bool SceneManager::SendVideoHubRouting(int slotIndex, int cameraID) {
     oss << "CAM_" << std::setw(2) << std::setfill('0') << cameraID;
     std::string cameraName = oss.str();
     
-    // Retry logic for transient failures
-    const int maxRetries = 3;
-    const int retryDelayMs = 50;
-    
     bool success = false;
-    for (int attempt = 0; attempt < maxRetries; ++attempt) {
+    for (int attempt = 0; attempt < kRoutingMaxRetries; ++attempt) {
         // VideoHub output index = slotIndex (0-based)
         success = m_videoHub->RouteInputToOutput(slotIndex, cameraName);
         
@@ -430,18 +421,18 @@ bool SceneManager::SendVideoHubRouting(int slotIndex, int cameraID) {
         }
         
         // If not the last attempt, wait before retrying
-        if (attempt < maxRetries - 1) {
+        if (attempt < kRoutingMaxRetries - 1) {
             Logger::Warning("SceneManager: Routing attempt " + std::to_string(attempt + 1) + 
                           " failed for " + cameraName + " to slot G" + 
                           std::to_string(slotIndex + 1) + ", retrying...");
-            std::this_thread::sleep_for(std::chrono::milliseconds(retryDelayMs));
+            std::this_thread::sleep_for(std::chrono::milliseconds(kRoutingRetryDelayMs));
         }
     }
     
     // All retries failed
     Logger::Error("SceneManager: Failed to route " + cameraName + 
                  " to slot G" + std::to_string(slotIndex + 1) + 
-                 " after " + std::to_string(maxRetries) + " attempts. Check VideoHub connection.");
+                 " after " + std::to_string(kRoutingMaxRetries) + " attempts. Check VideoHub connection.");
     
     return false;
 }
