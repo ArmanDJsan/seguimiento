@@ -189,5 +189,65 @@
     { "index": 15, "name": "RADAR_03", "role": "radar" },
     { "index": 16, "name": "RADAR_04", "role": "radar" }
   ],
-  "target_spheres": 10
+  "target_spheres": 10,
+  "ptz_cameras": {
+    "enabled": true,
+    "cameras": [
+      {
+        "id": 0,
+        "name": "PTZ_START",
+        "ip": "192.168.1.100",
+        "visca_port": 52381,
+        "visca_address": 1,
+        "base_preset": 1,
+        "presets": [1, 2, 3],
+        "description": "PTZ camera covering start zone (0-25m)"
+      },
+      {
+        "id": 1,
+        "name": "PTZ_MID_1",
+        "ip": "192.168.1.101",
+        "visca_port": 52381,
+        "visca_address": 1,
+        "base_preset": 1,
+        "presets": [1, 2, 3],
+        "description": "PTZ camera covering mid zone part 1 (25-40m)"
+      },
+      {
+        "id": 2,
+        "name": "PTZ_MID_2",
+        "ip": "192.168.1.102",
+        "visca_port": 52381,
+        "visca_address": 1,
+        "base_preset": 1,
+        "presets": [1, 2, 3],
+        "description": "PTZ camera covering mid zone part 2 (40-60m)"
+      },
+      {
+        "id": 3,
+        "name": "PTZ_FINISH",
+        "ip": "192.168.1.103",
+        "visca_port": 52381,
+        "visca_address": 1,
+        "base_preset": 1,
+        "presets": [1, 2, 3],
+        "description": "PTZ camera covering finish zone (60-100m)"
+      }
+    ],
+    "description": "4x PTZ cameras (1080p 30fps) for coordinated centroid tracking"
+  },
+  "ptz_tracking": {
+    "enabled": true,
+    "kp": 50.0,
+    "dead_zone": 0.05,
+    "max_pan_speed": 24,
+    "max_tilt_speed": 20,
+    "zoom_out_threshold": 150.0,
+    "zoom_in_threshold": 50.0,
+    "fallback_timeout_frames": 60,
+    "engage_min_frames": 3,
+    "min_sphere_count": 3,
+    "smoothing_window": 5,
+    "description": "PTZ tracking control parameters - Kp=proportional gain, fallback after 2s without detection"
+  }
 }

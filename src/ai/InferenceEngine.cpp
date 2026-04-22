@@ -881,3 +881,52 @@ int64_t InferenceEngine::GetCurrentTimeMs() const {
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch());
     return ms.count();
 }
+
+// === PTZ Tracking Support ===
+
+CentroidResult InferenceEngine::CalculateGroupCentroid(
+    const std::vector<BallDetection>& detections,
+    float confidenceThreshold) {
+    
+    CentroidResult result;
+    std::vector<const BallDetection*> valid;
+    
+    // Filter by confidence threshold
+    for (const auto& det : detections) {
+        if (det.confidence >= confidenceThreshold) {
+            valid.push_back(&det);
+        }
+    }
+    
+    if (valid.empty()) {
+        return result;  // Return default (empty) result
+    }
+    
+    // Calculate centroid (mean position)
+    float sumX = 0.0f, sumY = 0.0f;
+    for (const auto* det : valid) {
+        sumX += det->x;
+        sumY += det->y;
+    }
+    
+    result.centroid_x = sumX / static_cast<float>(valid.size());
+    result.centroid_y = sumY / static_cast<float>(valid.size());
+    result.sphere_count = static_cast<int>(valid.size());
+    
+    // Calculate standard deviation (distance from centroid)
+    // This helps determine how spread out the group is for zoom control
+    float sumSqDiff = 0.0f;
+    for (const auto* det : valid) {
+        float dx = det->x - result.centroid_x;
+        float dy = det->y - result.centroid_y;
+        sumSqDiff += dx * dx + dy * dy;
+    }
+    result.std_deviation = std::sqrt(sumSqDiff / static_cast<float>(valid.size()));
+    
+    return result;
+}
+
+CentroidResult InferenceEngine::GetLastCentroid() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_lastCentroid;
+}
