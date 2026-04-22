@@ -1,0 +1,119 @@
+{
+  "name": "Default Race Track Route",
+  "description": "Linear track route for sphere racing (100m track mapped to normalized coordinates)",
+  "version": "1.0",
+  "waypoints": [
+    {
+      "x": 0.0,
+      "y": 0.5,
+      "progress_pct": 0.0,
+      "name": "START"
+    },
+    {
+      "x": 0.125,
+      "y": 0.5,
+      "progress_pct": 12.5,
+      "name": "SEGMENT_1"
+    },
+    {
+      "x": 0.25,
+      "y": 0.5,
+      "progress_pct": 25.0,
+      "name": "QUARTER"
+    },
+    {
+      "x": 0.375,
+      "y": 0.5,
+      "progress_pct": 37.5,
+      "name": "SEGMENT_3"
+    },
+    {
+      "x": 0.5,
+      "y": 0.5,
+      "progress_pct": 50.0,
+      "name": "HALF"
+    },
+    {
+      "x": 0.625,
+      "y": 0.5,
+      "progress_pct": 62.5,
+      "name": "SEGMENT_5"
+    },
+    {
+      "x": 0.75,
+      "y": 0.5,
+      "progress_pct": 75.0,
+      "name": "THREE_QUARTER"
+    },
+    {
+      "x": 0.875,
+      "y": 0.5,
+      "progress_pct": 87.5,
+      "name": "SEGMENT_7"
+    },
+    {
+      "x": 1.0,
+      "y": 0.5,
+      "progress_pct": 100.0,
+      "name": "FINISH"
+    }
+  ],
+  "checkpoints": [
+    {
+      "progress_pct": 25.0,
+      "name": "QUARTER",
+      "description": "25% checkpoint - triggers zone transition"
+    },
+    {
+      "progress_pct": 50.0,
+      "name": "HALF",
+      "description": "50% checkpoint - mid-race milestone"
+    },
+    {
+      "progress_pct": 75.0,
+      "name": "THREE_QUARTER",
+      "description": "75% checkpoint - final zone approach"
+    },
+    {
+      "progress_pct": 100.0,
+      "name": "FINISH",
+      "description": "Finish line - race complete"
+    }
+  ],
+  "ptz_zones": {
+    "description": "Maps PTZ cameras to track segments based on progress",
+    "zones": [
+      {
+        "camera_id": 0,
+        "name": "PTZ_START",
+        "progress_range": [0, 25],
+        "description": "PTZ camera 1 covers start to 25%"
+      },
+      {
+        "camera_id": 1,
+        "name": "PTZ_MID_1",
+        "progress_range": [20, 50],
+        "description": "PTZ camera 2 covers 20-50% with overlap"
+      },
+      {
+        "camera_id": 2,
+        "name": "PTZ_MID_2",
+        "progress_range": [45, 80],
+        "description": "PTZ camera 3 covers 45-80% with overlap"
+      },
+      {
+        "camera_id": 3,
+        "name": "PTZ_FINISH",
+        "progress_range": [70, 100],
+        "description": "PTZ camera 4 covers 70% to finish"
+      }
+    ]
+  },
+  "track_properties": {
+    "length_meters": 100.0,
+    "width_meters": 6.0,
+    "lanes": 10,
+    "surface": "synthetic",
+    "slope_degrees": 5.0
+  }
+}

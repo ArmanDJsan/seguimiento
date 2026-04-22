@@ -16,6 +16,7 @@
 #include "../tracking/PositionMapper.h"  // TrackBounds
 #include "../tracking/BallTracker.h"     // BallTrackerConfig
 #include "../output/RankingPublisher.h"  // RankingPublisherConfig
+#include "../control/PTZController.h"    // PTZCameraConfig, PTZTrackingConfig
 
 /**
  * Choreography configuration
@@ -37,6 +38,18 @@ struct ChoreographyConfig {
         , vmixRequired(false)
         , triggerKey("F12")
         , debug(false)
+    {}
+};
+
+/**
+ * PTZ Cameras configuration
+ */
+struct PTZCamerasConfig {
+    bool enabled;
+    std::vector<PTZ::PTZCameraConfig> cameras;
+    
+    PTZCamerasConfig()
+        : enabled(false)
     {}
 };
 
@@ -111,6 +124,12 @@ struct Config {
     
     // Choreography configuration
     ChoreographyConfig choreographyConfig;
+    
+    // PTZ cameras configuration
+    PTZCamerasConfig ptzCamerasConfig;
+    
+    // PTZ tracking configuration
+    PTZ::PTZTrackingConfig ptzTrackingConfig;
     
     // Constructor con valores por defecto
     Config() 
