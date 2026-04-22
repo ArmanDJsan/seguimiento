@@ -23,13 +23,13 @@
     { "index": 7, "name": "CAM_07", "role": "stream" },
     { "index": 8, "name": "CAM_08", "role": "stream" },
     { "index": 9, "name": "CAM_09", "role": "stream" },
-    { "index": 10, "name": "CAM_10", "role": "stream" },
-    { "index": 11, "name": "CAM_11", "role": "stream" },
-    { "index": 12, "name": "CAM_12", "role": "stream" },
-    { "index": 13, "name": "RADAR_01", "role": "radar" },
-    { "index": 14, "name": "RADAR_02", "role": "radar" },
-    { "index": 15, "name": "RADAR_03", "role": "radar" },
-    { "index": 16, "name": "RADAR_04", "role": "radar" }
+    { "index": 10, "name": "RADAR_01", "role": "radar" },
+    { "index": 11, "name": "RADAR_02", "role": "radar" },
+    { "index": 12, "name": "RADAR_03", "role": "radar" },
+    { "index": 13, "name": "RADAR_04", "role": "radar" },
+    { "index": 14, "name": "RADAR_05", "role": "radar" },
+    { "index": 15, "name": "RADAR_06", "role": "radar" },
+    { "index": 16, "name": "RADAR_07", "role": "radar" }
   ],
   "target_spheres": 10
 }

@@ -64,15 +64,20 @@ constexpr int kVideoHubPrimaryOutput = 0;
 namespace {
 std::unordered_map<std::string, int> BuildInputLookup() {
     std::unordered_map<std::string, int> lookup;
-    for (int i = 1; i <= 12; ++i) {
+    // Cameras on ports 1-9
+    for (int i = 1; i <= 9; ++i) {
         std::stringstream ss;
         ss << "CAM_" << std::setw(2) << std::setfill('0') << i;
         lookup[ss.str()] = i;
     }
-    lookup["RADAR_01"] = 13;
-    lookup["RADAR_02"] = 14;
-    lookup["RADAR_03"] = 15;
-    lookup["RADAR_04"] = 16;
+    // Radars on ports 10-16
+    lookup["RADAR_01"] = 10;
+    lookup["RADAR_02"] = 11;
+    lookup["RADAR_03"] = 12;
+    lookup["RADAR_04"] = 13;
+    lookup["RADAR_05"] = 14;
+    lookup["RADAR_06"] = 15;
+    lookup["RADAR_07"] = 16;
     return lookup;
 }
 
@@ -80,6 +85,37 @@ std::vector<int> RangeInclusive(int start, int end) {
     std::vector<int> values(static_cast<size_t>(end - start + 1));
     std::iota(values.begin(), values.end(), start);
     return values;
+}
+
+std::unordered_map<int, std::string> LoadPortLabels(const std::string& path) {
+    std::unordered_map<int, std::string> labels;
+    
+    std::ifstream file(path);
+    if (!file.is_open()) {
+        Logger::Warning("No se pudo abrir config.json para cargar etiquetas; usando valores por defecto");
+        return labels;
+    }
+
+    try {
+        json j;
+        file >> j;
+
+        if (j.contains("ports") && j["ports"].is_array()) {
+            for (const auto& port : j["ports"]) {
+                if (port.contains("index") && port["index"].is_number() &&
+                    port.contains("name") && port["name"].is_string()) {
+                    int index = port["index"].get<int>();
+                    std::string name = port["name"].get<std::string>();
+                    labels[index] = name;
+                }
+            }
+            Logger::Info("Cargadas " + std::to_string(labels.size()) + " etiquetas de puertos desde config.json");
+        }
+    } catch (const json::exception& e) {
+        Logger::Error("Error al parsear etiquetas de puertos: " + std::string(e.what()));
+    }
+
+    return labels;
 }
 
 struct Config {
@@ -182,11 +218,11 @@ bool RunPhase1(VMixController& vmix,
         return false;
     }
 
-    if (!ValidateSignalGroup(videoHub, deckLinkSource, RangeInclusive(1, 12), "Streaming (1-12)")) {
+    if (!ValidateSignalGroup(videoHub, deckLinkSource, RangeInclusive(1, 9), "Streaming (1-9)")) {
         return false;
     }
 
-    if (!ValidateSignalGroup(videoHub, deckLinkSource, RangeInclusive(13, 16), "Seguimiento (13-16)")) {
+    if (!ValidateSignalGroup(videoHub, deckLinkSource, RangeInclusive(10, 16), "Seguimiento (10-16)")) {
         return false;
     }
 
@@ -255,6 +291,16 @@ VIB::RunResult RunSystem(int timeoutSeconds) {
             result.errorMessage = "No se pudo establecer conexion con VideoHub";
             Logger::Error("[HW/SW ERROR] " + result.errorMessage);
             return result;
+        }
+
+        // Set VideoHub input labels from configuration
+        // The VideoHub is intelligent and will ignore labels that are already set
+        auto portLabels = LoadPortLabels("config.json");
+        if (!portLabels.empty()) {
+            if (!videoHub.RefreshInputLabels(portLabels)) {
+                Logger::Warning("No se pudieron establecer las etiquetas de entrada del VideoHub");
+                // This is not fatal - continue with startup
+            }
         }
 
         vmix.ConnectTcp();  // prepare TCP channel; errors are logged but non-fatal
