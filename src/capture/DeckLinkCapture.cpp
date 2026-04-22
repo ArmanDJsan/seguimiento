@@ -8,6 +8,10 @@
 
 // 1. Windows base headers (FUNDAMENTAL - must come first)
 #include <winsock2.h>  // Network types (if needed, must come before windows.h)
+// Prevent Windows.h from defining min/max macros that conflict with std::min/std::max
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>   // Base Windows definitions
 #include <objbase.h>   // COM interfaces (HRESULT, REFIID, IUnknown)
 

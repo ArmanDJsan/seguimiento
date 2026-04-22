@@ -19,6 +19,11 @@
 #include <sstream>
 #include <iomanip>
 #include <limits>
+
+// Prevent Windows.h from defining min/max macros that conflict with std::min/std::max
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <Windows.h>
 #include <objbase.h>  // For COM: CoInitializeEx, CoUninitialize
 #include <d3d11.h>

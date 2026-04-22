@@ -7,6 +7,10 @@
  */
 
 // 1. Windows base headers (FUNDAMENTAL - must come first)
+// Prevent Windows.h from defining min/max macros that conflict with std::min/std::max
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>   // Base Windows definitions
 #include <objbase.h>   // COM interfaces (HRESULT, REFIID, IUnknown)
 
