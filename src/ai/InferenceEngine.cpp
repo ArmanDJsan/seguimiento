@@ -15,6 +15,8 @@
 #include <cstring>
 #include <sstream>
 #include <iomanip>
+#include <map>
+#include <atomic>
 
 // YOLO output format constants
 // Base attributes: [x, y, w, h, objectness]
@@ -845,13 +847,34 @@ std::vector<BallDetection> InferenceEngine::PostProcess(const float* rawOutput,
                 continue;
             }
             
+            // Convert bounding box coordinates
+            // Model outputs in (x1, y1, x2, y2) absolute pixel format
+            // Need to convert to normalized (center_x, center_y, width, height)
+            float x1 = det[0];
+            float y1 = det[1];
+            float x2 = det[2];
+            float y2 = det[3];
+            
+            // Calculate center point and dimensions
+            float center_x = (x1 + x2) / 2.0f;
+            float center_y = (y1 + y2) / 2.0f;
+            float width = x2 - x1;
+            float height = y2 - y1;
+            
+            // Normalize to [0, 1] range based on input dimensions
+            // Guard against division by zero (should never happen if engine initialized correctly)
+            float norm_x = (m_config.inputWidth > 0) ? center_x / static_cast<float>(m_config.inputWidth) : 0.0f;
+            float norm_y = (m_config.inputHeight > 0) ? center_y / static_cast<float>(m_config.inputHeight) : 0.0f;
+            float norm_width = (m_config.inputWidth > 0) ? width / static_cast<float>(m_config.inputWidth) : 0.0f;
+            float norm_height = (m_config.inputHeight > 0) ? height / static_cast<float>(m_config.inputHeight) : 0.0f;
+            
             BallDetection bd;
             bd.ballID = bestClass;  // 0-based ball IDs (B0-B9, matching YOLO class IDs 0-9)
             bd.cameraID = cameraIDs[b];
-            bd.x = det[0];
-            bd.y = det[1];
-            bd.width = det[2];
-            bd.height = det[3];
+            bd.x = norm_x;
+            bd.y = norm_y;
+            bd.width = norm_width;
+            bd.height = norm_height;
             bd.confidence = confidence;
             bd.timestamp = now;
             
@@ -898,9 +921,26 @@ void InferenceEngine::ApplyNMS(std::vector<BallDetection>& detections) {
             // Only apply NMS within same camera
             if (detections[i].cameraID != detections[j].cameraID) continue;
             
+            // CLASS-AWARE NMS: Only suppress detections with the SAME class ID
+            // Different spheres (different class IDs) can occupy nearby positions
+            if (detections[i].ballID != detections[j].ballID) continue;
+            
             float iou = computeIoU(detections[i], detections[j]);
             if (iou > m_config.nmsThreshold) {
                 suppressed[j] = true;
+                
+                // Debug: Log NMS suppressions for same-class detections (thread-safe)
+                // Note: Static counter is intentionally shared across all InferenceEngine instances
+                // to limit total debug output volume across the entire application
+                static std::atomic<int> nmsDebugCount{0};
+                if (nmsDebugCount.load() < 10) {
+                    Logger::Info("[NMS_DEBUG] Suppressing detection: ballID=" + std::to_string(detections[j].ballID) + 
+                                ", conf=" + std::to_string(detections[j].confidence) + 
+                                ", IoU=" + std::to_string(iou) + 
+                                " (kept ballID=" + std::to_string(detections[i].ballID) + 
+                                ", conf=" + std::to_string(detections[i].confidence) + ")");
+                    nmsDebugCount++;
+                }
             }
         }
     }
@@ -912,6 +952,24 @@ void InferenceEngine::ApplyNMS(std::vector<BallDetection>& detections) {
                                  return suppressed[idx];
                              });
     detections.erase(it, detections.end());
+    
+    // Debug: Log final detection summary by class (thread-safe)
+    // Note: Static counter is intentionally shared across all InferenceEngine instances
+    // to limit total debug output volume across the entire application
+    static std::atomic<int> nmsSummaryCount{0};
+    if (nmsSummaryCount.load() < 5) {
+        std::map<int, int> classCounts;
+        for (const auto& det : detections) {
+            classCounts[det.ballID]++;
+        }
+        std::ostringstream oss;
+        oss << "[NMS_SUMMARY] Final detections by class: ";
+        for (const auto& kv : classCounts) {
+            oss << "B" << kv.first << "(" << kv.second << ") ";
+        }
+        Logger::Info(oss.str());
+        nmsSummaryCount++;
+    }
 }
 
 int64_t InferenceEngine::GetCurrentTimeMs() const {
