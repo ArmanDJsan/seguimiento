@@ -103,6 +103,35 @@ The executable will be in `src/bin/Release/VIB.exe`
 
 ## Configuration
 
+VIB uses a `config.json` file to define system parameters, VideoHub routing, camera groups, and radar assignments.
+
+📖 **Configuration Guide**: For detailed configuration documentation, including VideoHub setups, camera groups, and radar routing, see [CONFIGURATION.md](CONFIGURATION.md).
+
+### Quick Start Configuration
+
+Create a `config.json` file in the application directory:
+
+```json
+{
+  "videohub": {
+    "ip": "192.168.1.50",
+    "port": 9990
+  },
+  "esp32": {
+    "ip": "192.168.88.114",
+    "port": 80
+  },
+  "target_spheres": 10,
+  "configurations": {
+    "config_a": {
+      "g1_g4": [1, 2, 3, 12],
+      "g5_g8": [4, 5, 6, 7],
+      "radars": [13, 14, 15, 16]
+    }
+  }
+}
+```
+
 ### DeckLink Cards
 
 The system auto-detects connected DeckLink devices. Ensure your cards are:
