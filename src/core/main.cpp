@@ -88,6 +88,7 @@ struct Config {
     std::string esp32Ip;
     uint16_t esp32Port;
     int targetSpheres;
+    std::unordered_map<std::string, std::vector<int>> radarGroups;
 };
 
 Config LoadConfig(const std::string& path) {
@@ -132,6 +133,23 @@ Config LoadConfig(const std::string& path) {
         // Parse target_spheres from root
         if (j.contains("target_spheres") && j["target_spheres"].is_number()) {
             config.targetSpheres = j["target_spheres"].get<int>();
+        }
+
+        // Parse radar_groups from root
+        if (j.contains("radar_groups") && j["radar_groups"].is_object()) {
+            for (auto& [groupName, radars] : j["radar_groups"].items()) {
+                if (radars.is_array()) {
+                    std::vector<int> radarList;
+                    for (auto& radar : radars) {
+                        if (radar.is_number()) {
+                            radarList.push_back(radar.get<int>());
+                        }
+                    }
+                    config.radarGroups[groupName] = radarList;
+                    Logger::Info("Grupo de radar cargado: " + groupName + " con " + 
+                                 std::to_string(radarList.size()) + " cámaras");
+                }
+            }
         }
 
         Logger::Info("Configuración cargada: VideoHub=" + config.videohubIp + ":" + 
@@ -199,7 +217,35 @@ bool RunPhase1(VMixController& vmix,
     return true;
 }
 
-bool RunPhase2(VideoHubClient& videoHub, int targetSpheres) {
+bool AssignRadarsToGroups(VideoHubClient& videoHub, 
+                         const std::unordered_map<std::string, std::vector<int>>& radarGroups) {
+    Logger::Info("Asignando radares a grupos de cámaras...");
+    
+    // Map radars (13-16) to camera groups
+    std::unordered_map<int, int> radarToCameraMapping;
+    radarToCameraMapping[13] = 9;   // RADAR_01 -> CAM_09 (g9_g12 group)
+    radarToCameraMapping[14] = 10;  // RADAR_02 -> CAM_10 (g9_g12 group)
+    radarToCameraMapping[15] = 11;  // RADAR_03 -> CAM_11 (g9_g12 group)
+    radarToCameraMapping[16] = 12;  // RADAR_04 -> CAM_12 (g9_g12 group)
+    
+    // Route each radar to its corresponding camera group
+    for (const auto& [radarPort, cameraPort] : radarToCameraMapping) {
+        if (!videoHub.RouteInputToOutput(cameraPort, radarPort)) {
+            Logger::Error("[HW/SW ERROR]: No se pudo asignar RADAR_" + 
+                         std::to_string(radarPort - 12) + " al grupo de CAM_" + 
+                         std::to_string(cameraPort));
+            return false;
+        }
+        Logger::Info("RADAR_" + std::to_string(radarPort - 12) + 
+                    " asignado a CAM_" + std::to_string(cameraPort));
+    }
+    
+    Logger::Info("Todos los radares asignados correctamente a sus grupos");
+    return true;
+}
+
+bool RunPhase2(VideoHubClient& videoHub, int targetSpheres,
+               const std::unordered_map<std::string, std::vector<int>>& radarGroups) {
     if (!videoHub.RouteInputToOutput(kVideoHubPrimaryOutput, "CAM_01")) {
         Logger::Error("[HW/SW ERROR]: No se pudo fijar CAM_01 en la salida");
         return false;
@@ -216,6 +262,13 @@ bool RunPhase2(VideoHubClient& videoHub, int targetSpheres) {
     }
 
     Logger::Info("Fase 2 (Escena) completada: conteo de esferas OK");
+    
+    // After successful sphere detection, assign radars to camera groups
+    if (!AssignRadarsToGroups(videoHub, radarGroups)) {
+        Logger::Error("[HW/SW ERROR]: No se pudieron asignar radares a grupos de cámaras");
+        return false;
+    }
+    
     return true;
 }
 
@@ -267,7 +320,7 @@ VIB::RunResult RunSystem(int timeoutSeconds) {
         }
 
         // Fase 2: Escena (YOLO check)
-        if (!RunPhase2(videoHub, config.targetSpheres)) {
+        if (!RunPhase2(videoHub, config.targetSpheres, config.radarGroups)) {
             result.errorMessage = "Ignicion abortada durante Fase 2 - Error de escena";
             Logger::Error(result.errorMessage);
             return result;
