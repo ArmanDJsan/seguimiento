@@ -181,6 +181,44 @@ bool VideoHubClient::RefreshInputLabels(const std::unordered_map<int, std::strin
     return SendCommand(command.str());
 }
 
+bool VideoHubClient::SetRadarRouting(const std::vector<int>& radarIndexes) {
+    if (radarIndexes.empty()) {
+        Logger::Warning("[VideoHub] No radar indexes provided for routing");
+        return true;  // Not an error, just nothing to do
+    }
+
+    // Validate all radar indexes before sending
+    for (int radarIndex : radarIndexes) {
+        if (radarIndex < 0) {
+            Logger::Error("[TECH ERROR] Invalid radar index: " + std::to_string(radarIndex));
+            return false;
+        }
+        if (m_maxSourceIndex >= 0 && radarIndex > m_maxSourceIndex) {
+            Logger::Error("[TECH ERROR] Radar index exceeds configured range: " + 
+                         std::to_string(radarIndex) + " > " + std::to_string(m_maxSourceIndex));
+            return false;
+        }
+        bool configured = std::any_of(m_inputLookup.begin(), m_inputLookup.end(),
+                                      [radarIndex](const auto& entry) { return entry.second == radarIndex; });
+        if (!configured) {
+            Logger::Error("[TECH ERROR] Unknown radar index (not configured): " + std::to_string(radarIndex));
+            return false;
+        }
+    }
+
+    // Log radar routing setup
+    std::ostringstream logMsg;
+    logMsg << "[VideoHub] Setting radar routing: [";
+    for (size_t i = 0; i < radarIndexes.size(); ++i) {
+        if (i > 0) logMsg << ", ";
+        logMsg << radarIndexes[i];
+    }
+    logMsg << "]";
+    Logger::Info(logMsg.str());
+
+    return true;  // All radars validated successfully
+}
+
 void VideoHubClient::LogSocketError(const std::string& context) {
     int code = WSAGetLastError();
     Logger::Error("[TECH ERROR] VideoHub socket error during " + context +

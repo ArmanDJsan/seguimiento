@@ -82,12 +82,20 @@ std::vector<int> RangeInclusive(int start, int end) {
     return values;
 }
 
+struct VideoHubConfig {
+    std::string name;
+    std::vector<int> g1_g4;
+    std::vector<int> g5_g8;
+    std::vector<int> radars;
+};
+
 struct Config {
     std::string videohubIp;
     uint16_t videohubPort;
     std::string esp32Ip;
     uint16_t esp32Port;
     int targetSpheres;
+    std::unordered_map<std::string, VideoHubConfig> configurations;
 };
 
 Config LoadConfig(const std::string& path) {
@@ -134,10 +142,56 @@ Config LoadConfig(const std::string& path) {
             config.targetSpheres = j["target_spheres"].get<int>();
         }
 
+        // Parse configurations section
+        if (j.contains("configurations") && j["configurations"].is_object()) {
+            const auto& configs = j["configurations"];
+            for (auto it = configs.begin(); it != configs.end(); ++it) {
+                VideoHubConfig vhConfig;
+                vhConfig.name = it.key();
+                
+                const auto& configData = it.value();
+                
+                // Parse g1_g4 array
+                if (configData.contains("g1_g4") && configData["g1_g4"].is_array()) {
+                    for (const auto& val : configData["g1_g4"]) {
+                        if (val.is_number_integer()) {
+                            vhConfig.g1_g4.push_back(val.get<int>());
+                        }
+                    }
+                }
+                
+                // Parse g5_g8 array
+                if (configData.contains("g5_g8") && configData["g5_g8"].is_array()) {
+                    for (const auto& val : configData["g5_g8"]) {
+                        if (val.is_number_integer()) {
+                            vhConfig.g5_g8.push_back(val.get<int>());
+                        }
+                    }
+                }
+                
+                // Parse radars array
+                if (configData.contains("radars") && configData["radars"].is_array()) {
+                    for (const auto& val : configData["radars"]) {
+                        if (val.is_number_integer()) {
+                            vhConfig.radars.push_back(val.get<int>());
+                        }
+                    }
+                }
+                
+                config.configurations[vhConfig.name] = vhConfig;
+                
+                Logger::Info("Configuración cargada: " + vhConfig.name + 
+                            " - g1_g4=" + std::to_string(vhConfig.g1_g4.size()) + 
+                            " cameras, g5_g8=" + std::to_string(vhConfig.g5_g8.size()) + 
+                            " cameras, radars=" + std::to_string(vhConfig.radars.size()));
+            }
+        }
+
         Logger::Info("Configuración cargada: VideoHub=" + config.videohubIp + ":" + 
                      std::to_string(config.videohubPort) + ", ESP32=" + config.esp32Ip + ":" + 
                      std::to_string(config.esp32Port) + ", target_spheres=" + 
-                     std::to_string(config.targetSpheres));
+                     std::to_string(config.targetSpheres) + ", configs=" + 
+                     std::to_string(config.configurations.size()));
 
     } catch (const json::exception& e) {
         Logger::Warning("Error al parsear config.json: " + std::string(e.what()) + "; usando valores por defecto");
@@ -146,6 +200,25 @@ Config LoadConfig(const std::string& path) {
     }
 
     return config;
+}
+
+bool ApplyVideoHubConfiguration(VideoHubClient& videoHub, 
+                                const VideoHubConfig& vhConfig,
+                                const std::string& configName) {
+    Logger::Info("[VideoHub] Aplicando configuración: " + configName);
+    
+    // Set radar routing to ensure radars are properly assigned
+    if (!vhConfig.radars.empty()) {
+        if (!videoHub.SetRadarRouting(vhConfig.radars)) {
+            Logger::Error("[HW/SW ERROR]: No se pudo configurar routing de radares para " + configName);
+            return false;
+        }
+    } else {
+        Logger::Warning("[VideoHub] Configuración " + configName + " no tiene radares asignados");
+    }
+    
+    Logger::Info("[VideoHub] Configuración " + configName + " aplicada exitosamente");
+    return true;
 }
 
 bool ValidateSignalGroup(VideoHubClient& videoHub,
@@ -177,9 +250,29 @@ bool ValidateSignalGroup(VideoHubClient& videoHub,
 bool RunPhase1(VMixController& vmix,
                VideoHubClient& videoHub,
                DeckLinkSource& deckLinkSource,
-               TrackPhysicalController& trackController) {
+               TrackPhysicalController& trackController,
+               const Config& config) {
     if (!vmix.CheckInputsHealthy()) {
         return false;
+    }
+
+    // Apply default configuration (config_a) radar routing
+    if (!config.configurations.empty()) {
+        auto it = config.configurations.find("config_a");
+        if (it != config.configurations.end()) {
+            if (!ApplyVideoHubConfiguration(videoHub, it->second, it->first)) {
+                Logger::Warning("[VideoHub] No se pudo aplicar configuración de radares para config_a");
+                // Continue anyway - this is not a fatal error
+            }
+        } else {
+            Logger::Warning("[VideoHub] config_a no encontrada, usando primera configuración disponible");
+            if (!config.configurations.empty()) {
+                const auto& firstConfig = config.configurations.begin();
+                ApplyVideoHubConfiguration(videoHub, firstConfig->second, firstConfig->first);
+            }
+        }
+    } else {
+        Logger::Warning("[VideoHub] No hay configuraciones definidas en config.json");
     }
 
     if (!ValidateSignalGroup(videoHub, deckLinkSource, RangeInclusive(1, 12), "Streaming (1-12)")) {
@@ -260,7 +353,7 @@ VIB::RunResult RunSystem(int timeoutSeconds) {
         vmix.ConnectTcp();  // prepare TCP channel; errors are logged but non-fatal
 
         // Fase 1: Sweep hardware/software links
-        if (!RunPhase1(vmix, videoHub, deckLinkSource, trackController)) {
+        if (!RunPhase1(vmix, videoHub, deckLinkSource, trackController, config)) {
             result.errorMessage = "Ignicion abortada durante Fase 1 - Error de hardware/software";
             Logger::Error(result.errorMessage);
             return result;

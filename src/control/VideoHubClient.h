@@ -10,6 +10,7 @@
 
 #include <string>
 #include <unordered_map>
+#include <vector>
 #include <cstdint>
 // winsock2.h must be included before windows.h to avoid conflicts with winsock.h
 #include <winsock2.h>
@@ -29,6 +30,8 @@ public:
     bool RouteInputToOutput(int outputIndex, const std::string& sourceName);
 
     bool RefreshInputLabels(const std::unordered_map<int, std::string>& labels);
+    
+    bool SetRadarRouting(const std::vector<int>& radarIndexes);
 
 private:
     bool InitializeWinsock();
