@@ -862,10 +862,11 @@ std::vector<BallDetection> InferenceEngine::PostProcess(const float* rawOutput,
             float height = y2 - y1;
             
             // Normalize to [0, 1] range based on input dimensions
-            float norm_x = center_x / static_cast<float>(m_config.inputWidth);
-            float norm_y = center_y / static_cast<float>(m_config.inputHeight);
-            float norm_width = width / static_cast<float>(m_config.inputWidth);
-            float norm_height = height / static_cast<float>(m_config.inputHeight);
+            // Guard against division by zero (should never happen if engine initialized correctly)
+            float norm_x = (m_config.inputWidth > 0) ? center_x / static_cast<float>(m_config.inputWidth) : 0.0f;
+            float norm_y = (m_config.inputHeight > 0) ? center_y / static_cast<float>(m_config.inputHeight) : 0.0f;
+            float norm_width = (m_config.inputWidth > 0) ? width / static_cast<float>(m_config.inputWidth) : 0.0f;
+            float norm_height = (m_config.inputHeight > 0) ? height / static_cast<float>(m_config.inputHeight) : 0.0f;
             
             BallDetection bd;
             bd.ballID = bestClass;  // 0-based ball IDs (B0-B9, matching YOLO class IDs 0-9)
@@ -929,6 +930,8 @@ void InferenceEngine::ApplyNMS(std::vector<BallDetection>& detections) {
                 suppressed[j] = true;
                 
                 // Debug: Log NMS suppressions for same-class detections (thread-safe)
+                // Note: Static counter is intentionally shared across all InferenceEngine instances
+                // to limit total debug output volume across the entire application
                 static std::atomic<int> nmsDebugCount{0};
                 if (nmsDebugCount.load() < 10) {
                     Logger::Info("[NMS_DEBUG] Suppressing detection: ballID=" + std::to_string(detections[j].ballID) + 
@@ -951,6 +954,8 @@ void InferenceEngine::ApplyNMS(std::vector<BallDetection>& detections) {
     detections.erase(it, detections.end());
     
     // Debug: Log final detection summary by class (thread-safe)
+    // Note: Static counter is intentionally shared across all InferenceEngine instances
+    // to limit total debug output volume across the entire application
     static std::atomic<int> nmsSummaryCount{0};
     if (nmsSummaryCount.load() < 5) {
         std::map<int, int> classCounts;
