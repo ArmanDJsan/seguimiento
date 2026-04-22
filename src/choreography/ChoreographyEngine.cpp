@@ -7,7 +7,7 @@
 #include "ChoreographyEngine.h"
 #include "../control/VMixController.h"
 #include "../control/PTZController.h"
-#include "../control/ESP32Controller.h"
+#include "../control/TrackPhysicalController.h"
 #include "../scene/SceneManager.h"
 #include "../control/VideoHubClient.h"
 #include "../verification/SphereVerifier.h"
@@ -22,7 +22,7 @@ ChoreographyEngine::ChoreographyEngine(VMixController* vmixController, SceneMana
     , m_sceneManager(sceneManager)
     , m_videoHub(nullptr)
     , m_ptzController(nullptr)
-    , m_esp32Controller(nullptr)
+    , m_trackController(nullptr)
     , m_sphereVerifier(nullptr)
     , m_scriptLoaded(false)
     , m_state(EngineState::Idle)
@@ -427,13 +427,27 @@ EventResult ChoreographyEngine::ExecuteEventInternal(const ChoreographyEvent& ev
         case EventType::ESP32Command: {
             auto* params = std::get_if<ESP32CommandParams>(&event.params);
             if (params) {
-                if (!m_esp32Controller) {
-                    Logger::Warning("ChoreographyEngine: ESP32Command event - no ESP32Controller set, skipping");
+                if (!m_trackController) {
+                    Logger::Warning("ChoreographyEngine: ESP32Command event - no TrackPhysicalController set, skipping");
                     result.success = true;  // Non-fatal: skip gracefully
                 } else {
                     Logger::Debug("ChoreographyEngine: ESP32Command command=" + params->command);
-                    result.success = m_esp32Controller->SendCommand(params->command);
-                    if (!result.success) {
+                    // Map logical command names to TrackPhysicalController methods
+                    if (params->command == "iniciar") {
+                        result.success = m_trackController->openGate();
+                    } else if (params->command == "finalizar") {
+                        result.success = m_trackController->closeGates();
+                    } else if (params->command == "reload") {
+                        result.success = m_trackController->openElevator();
+                    } else if (params->command == "test") {
+                        result.success = m_trackController->executeTest();
+                    } else {
+                        Logger::Warning("ChoreographyEngine: Unknown ESP32 command '" +
+                                        params->command + "'");
+                        result.success = false;
+                        result.errorMessage = "Unknown ESP32 command: " + params->command;
+                    }
+                    if (!result.success && result.errorMessage.empty()) {
                         result.errorMessage = "ESP32 command '" + params->command + "' failed";
                     }
                 }
