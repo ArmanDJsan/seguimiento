@@ -898,6 +898,10 @@ void InferenceEngine::ApplyNMS(std::vector<BallDetection>& detections) {
             // Only apply NMS within same camera
             if (detections[i].cameraID != detections[j].cameraID) continue;
             
+            // CLASS-AWARE NMS: Only suppress detections with the SAME class ID
+            // Different spheres (different class IDs) can occupy nearby positions
+            if (detections[i].ballID != detections[j].ballID) continue;
+            
             float iou = computeIoU(detections[i], detections[j]);
             if (iou > m_config.nmsThreshold) {
                 suppressed[j] = true;
