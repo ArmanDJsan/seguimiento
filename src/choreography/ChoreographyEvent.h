@@ -58,6 +58,12 @@ enum class EventType {
     SpherePositionCapture,  // Capture positions of spheres
     SphereArrivalWait,      // Wait for sphere arrivals
     
+    // PTZ commands
+    PTZPreset,              // Call a preset on a PTZ camera (1-indexed camera number)
+
+    // ESP32 commands
+    ESP32Command,           // Send an HTTP command to the ESP32 device
+
     // Meta events
     Comment,                // Comment (no-op, for documentation)
     Label                   // Label for jump targets (future use)
@@ -148,6 +154,27 @@ struct TextParam {
 };
 
 /**
+ * Parameters for PTZ Preset
+ */
+struct PTZPresetParams {
+    int cameraNumber;   // 1-indexed camera number (1-4)
+    int presetNumber;   // Preset number (1-255)
+    
+    PTZPresetParams() : cameraNumber(1), presetNumber(1) {}
+    PTZPresetParams(int cam, int preset) : cameraNumber(cam), presetNumber(preset) {}
+};
+
+/**
+ * Parameters for ESP32 Command
+ */
+struct ESP32CommandParams {
+    std::string command;  // Logical command name: "iniciar", "finalizar", "reload", etc.
+    
+    ESP32CommandParams() = default;
+    explicit ESP32CommandParams(const std::string& cmd) : command(cmd) {}
+};
+
+/**
  * Parameters for Sphere Verification
  */
 struct SphereVerificationParams {
@@ -176,7 +203,9 @@ using EventParams = std::variant<
     NDISlotParams,
     SceneSwitchParams,
     TextParam,
-    SphereVerificationParams
+    SphereVerificationParams,
+    PTZPresetParams,
+    ESP32CommandParams
 >;
 
 /**
@@ -298,6 +327,16 @@ struct ChoreographyEvent {
         return {EventType::SphereArrivalWait, SphereVerificationParams(cameraID, expectedSpheres, timeoutMs, "arrivals")};
     }
     
+    // PTZ commands
+    static ChoreographyEvent PTZPreset(int cameraNumber, int presetNumber) {
+        return {EventType::PTZPreset, PTZPresetParams(cameraNumber, presetNumber)};
+    }
+    
+    // ESP32 commands
+    static ChoreographyEvent ESP32Command(const std::string& command) {
+        return {EventType::ESP32Command, ESP32CommandParams(command)};
+    }
+    
     // Meta events
     static ChoreographyEvent Comment(const std::string& text) {
         ChoreographyEvent e{EventType::Comment, TextParam(text)};
@@ -337,6 +376,8 @@ struct ChoreographyEvent {
             case EventType::SpherePresenceCheck: return "SpherePresenceCheck";
             case EventType::SpherePositionCapture: return "SpherePositionCapture";
             case EventType::SphereArrivalWait: return "SphereArrivalWait";
+            case EventType::PTZPreset: return "PTZPreset";
+            case EventType::ESP32Command: return "ESP32Command";
             case EventType::Comment: return "Comment";
             case EventType::Label: return "Label";
             default: return "Unknown";
@@ -351,6 +392,8 @@ struct ChoreographyEvent {
             case EventType::SpherePresenceCheck:
             case EventType::SpherePositionCapture:
             case EventType::SphereArrivalWait:
+            case EventType::PTZPreset:
+            case EventType::ESP32Command:
             case EventType::Comment:
             case EventType::Label:
                 return false;
