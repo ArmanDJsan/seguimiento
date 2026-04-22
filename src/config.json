@@ -128,10 +128,13 @@
     "input_width": 1920,
     "input_height": 1080,
     "nms_threshold": 0.4,
-    "confidence_threshold": 0.6,
+    "confidence_threshold": 0.7,
     "num_classes": 10,
     "skip_resize": true,
-    "description": "TensorRT engine for ball detection - Using 1920x1080 (full HD) for better small object detection"
+    "max_detections": 300,
+    "debug_yolo_enabled": false,
+    "debug_yolo_interval": 300,
+    "description": "TensorRT engine for ball detection - Using 1920x1080 (full HD) for better small object detection. Optimized: maxDetections=300 (reduced from 8400), confidence=0.7 (increased from 0.6)"
   },
   "position_mapper": {
     "calibration_file": "config/calibration.json",

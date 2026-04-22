@@ -87,6 +87,9 @@ struct InferenceEngineConfig {
     bool useFP16 = true;
     int numClasses = 10;    // 10 ball types
     bool skipResize = true; // When true, input is directly at native resolution
+    int maxDetections = 300;  // Maximum detections to process (reduced from 8400 for memory optimization)
+    bool debugYoloEnabled = false;  // Enable debug logging of YOLO raw output
+    int debugYoloInterval = 300;    // Print debug info every N frames (when enabled)
 };
 
 /**
