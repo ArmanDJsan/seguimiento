@@ -7,7 +7,7 @@
  * Usage:
  *   ESP32Controller ctrl("192.168.88.114", 80);
  *   ctrl.SendCommand("iniciar");   // → GET /iniciar
- *   ctrl.SendCommand("finalizar"); // → GET /cerrar
+ *   ctrl.SendCommand("finalizar"); // → GET /cerrar  (maps "finalizar" to the "/cerrar" endpoint)
  *   ctrl.SendCommand("reload");    // → GET /recargar
  */
 

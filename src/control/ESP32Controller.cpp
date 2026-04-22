@@ -69,7 +69,9 @@ bool ESP32Controller::EnsureConnection() {
         m_httpConnection = WinHttpConnect(m_httpSession, m_host.c_str(),
                                           m_port, 0);
         if (!m_httpConnection) {
-            Logger::Error("ESP32Controller: Failed to connect to ESP32 at host");
+            Logger::Error("ESP32Controller: Failed to connect to ESP32 at " +
+                          std::string(m_host.begin(), m_host.end()) + ":" +
+                          std::to_string(m_port));
             return false;
         }
     }
@@ -89,7 +91,8 @@ bool ESP32Controller::GetRequest(const std::wstring& path) {
                                             WINHTTP_DEFAULT_ACCEPT_TYPES,
                                             0);
     if (!hRequest) {
-        Logger::Error("ESP32Controller: Failed to create request for path");
+        Logger::Error("ESP32Controller: Failed to create request for path " +
+                      std::string(path.begin(), path.end()));
         return false;
     }
 
@@ -98,9 +101,11 @@ bool ESP32Controller::GetRequest(const std::wstring& path) {
     if (!WinHttpSendRequest(hRequest,
                             WINHTTP_NO_ADDITIONAL_HEADERS, 0,
                             WINHTTP_NO_REQUEST_DATA, 0, 0, 0)) {
-        Logger::Error("ESP32Controller: Failed to send request");
+        Logger::Error("ESP32Controller: Failed to send request to path " +
+                      std::string(path.begin(), path.end()));
     } else if (!WinHttpReceiveResponse(hRequest, nullptr)) {
-        Logger::Error("ESP32Controller: Failed to receive response");
+        Logger::Error("ESP32Controller: Failed to receive response for path " +
+                      std::string(path.begin(), path.end()));
     } else {
         DWORD statusCode = 0;
         DWORD statusSize = sizeof(statusCode);
