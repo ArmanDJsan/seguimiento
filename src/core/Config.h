@@ -8,6 +8,7 @@
 
 #include <string>
 #include <vector>
+#include <array>
 #include <cstdint>
 
 #include "../scene/SceneManager.h"       // GroupConfig
@@ -84,6 +85,14 @@ struct Config {
     ManualKeysConfig sceneManagerManualKeys;
     std::vector<GroupConfig> sceneManagerGroups;
     
+    // Radar routing configuration - maps RADAR_01-04 to VideoHub outputs
+    // When enabled, radar routing is applied each time a scene config (config_a/b/c) is applied
+    // This ensures radars are always correctly routed for stability
+    bool radarRoutingEnabled;                 // Enable/disable automatic radar routing
+    std::array<int, 4> radarOutputSlots;      // VideoHub output indices for RADAR_01-04
+                                              // Uses 0-based VideoHub protocol indices
+                                              // Default: {8, 9, 10, 11} meaning physical outputs 9-12 on the device
+    
     // NDI configuration - when disabled, vMix captures directly from VideoHub
     bool ndiEnabled;
     
@@ -126,6 +135,8 @@ struct Config {
         , sceneManagerTriggerMode(TriggerMode::EVENT)
         , sceneManagerEventCooldownMs(500)
         , sceneManagerHysteresisFrames(3)
+        , radarRoutingEnabled(true)
+        , radarOutputSlots{8, 9, 10, 11}  // Default: RADAR_01-04 -> outputs 8-11
         , ndiEnabled(false)
         , calibrationFile("config/calibration.json")
     {}
