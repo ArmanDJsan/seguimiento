@@ -1528,7 +1528,7 @@ bool RunSphereVerifierTest() {
         
         int op = -1;
         std::cin >> op;
-        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+        std::cin.ignore((std::numeric_limits<std::streamsize>::max)(), '\n');;
         
         switch (op) {
             case 1: {
@@ -1600,7 +1600,7 @@ bool RunSphereVerifierTest() {
                 std::cout << "  Ingrese nueva camara (1-16): ";
                 int newCam;
                 std::cin >> newCam;
-                std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+                std::cin.ignore((std::numeric_limits<std::streamsize>::max)(), '\n');
                 if (newCam >= 1 && newCam <= 16) {
                     cameraID = newCam;
                     Logger::Info("Camara cambiada a: " + std::to_string(cameraID));
@@ -1615,7 +1615,7 @@ bool RunSphereVerifierTest() {
                 std::cout << "  Ingrese numero de esferas esperadas: ";
                 int newCount;
                 std::cin >> newCount;
-                std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+                std::cin.ignore((std::numeric_limits<std::streamsize>::max)(), '\n');
                 if (newCount >= 1 && newCount <= 20) {
                     expectedSpheres = newCount;
                     Logger::Info("Esferas esperadas cambiado a: " + std::to_string(expectedSpheres));
@@ -1929,7 +1929,7 @@ bool RunRadarTestMode() {
     Logger::Info("====================================");
     
     std::cout << "\n  Presione ENTER para volver al menu...";
-    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    std::cin.ignore((std::numeric_limits<std::streamsize>::max)(), '\n');
     std::cin.get();
     
     Logger::Info("Test de Radar 1 finalizado");
