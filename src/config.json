@@ -107,6 +107,14 @@
         "trigger_threshold": 75.0,
         "description": "Late-track config - rotates G5-G8 to finish line cameras"
       }
+    },
+    "radar_routing": {
+      "enabled": true,
+      "RADAR_01": 8,
+      "RADAR_02": 9,
+      "RADAR_03": 10,
+      "RADAR_04": 11,
+      "description": "Map RADAR inputs to VideoHub outputs. Values are 0-based protocol indices (8=physical output 9). Applied with every config change for stability."
     }
   },
   "ndi": {

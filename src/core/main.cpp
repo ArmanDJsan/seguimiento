@@ -419,6 +419,35 @@ Config LoadConfig(const std::string& path) {
             } else if (config.sceneManagerEnabled) {
                 Logger::Warning("SceneManager config: No 'groups' section found, using defaults from SceneManagerConfig");
             }
+            
+            // Parse radar_routing section within scene_manager
+            if (sm.contains("radar_routing") && sm["radar_routing"].is_object()) {
+                auto& rr = sm["radar_routing"];
+                
+                if (rr.contains("enabled") && rr["enabled"].is_boolean()) {
+                    config.radarRoutingEnabled = rr["enabled"].get<bool>();
+                }
+                
+                // Parse individual radar output slots using SceneManager constants
+                for (size_t i = 0; i < SceneManager::kRadarCount; ++i) {
+                    std::string radarKey = SceneManager::kRadarNames[i];
+                    if (rr.contains(radarKey) && rr[radarKey].is_number()) {
+                        config.radarOutputSlots[i] = rr[radarKey].get<int>();
+                    }
+                }
+                
+                if (config.radarRoutingEnabled) {
+                    std::ostringstream oss;
+                    oss << "Radar routing config: " 
+                        << SceneManager::kRadarNames[0] << "->" << config.radarOutputSlots[0]
+                        << ", " << SceneManager::kRadarNames[1] << "->" << config.radarOutputSlots[1]
+                        << ", " << SceneManager::kRadarNames[2] << "->" << config.radarOutputSlots[2]
+                        << ", " << SceneManager::kRadarNames[3] << "->" << config.radarOutputSlots[3];
+                    Logger::Info(oss.str());
+                } else {
+                    Logger::Info("Radar routing config: disabled");
+                }
+            }
         } else if (config.sceneManagerEnabled) {
             Logger::Warning("SceneManager config: No 'scene_manager' section found, using defaults");
         }
@@ -791,6 +820,8 @@ bool RunRunningMode() {
     sceneConfig.hysteresisFrames = config.sceneManagerHysteresisFrames;
     sceneConfig.manualKeys = config.sceneManagerManualKeys;
     sceneConfig.groups = config.sceneManagerGroups;
+    sceneConfig.radarRoutingEnabled = config.radarRoutingEnabled;
+    sceneConfig.radarOutputSlots = config.radarOutputSlots;
     
     auto sceneManager = std::make_shared<SceneManager>(&videoHub, sceneConfig);
     if (config.sceneManagerEnabled && !sceneManager->Initialize()) {

@@ -125,6 +125,11 @@ struct SceneManagerConfig {
     ManualKeysConfig manualKeys;               // Manual mode key mappings
     std::map<std::string, std::string> configNameToConfig; // Zone name -> config name mapping
     
+    // Radar routing configuration
+    // VideoHub protocol uses 0-based indices: index 8 = physical output 9 on the device
+    bool radarRoutingEnabled = true;           // Enable automatic radar routing
+    std::array<int, 4> radarOutputSlots = {8, 9, 10, 11}; // VideoHub protocol indices for RADAR_01-04
+    
     // Default configuration with 2 groups
     SceneManagerConfig() {
         GroupConfig configA;
@@ -159,6 +164,14 @@ public:
     static constexpr int kStreamingSlots = 8;     // G1-G8
     static constexpr int kMaxCameras = 12;        // CAM_01 to CAM_12
     static constexpr int kZenithSlots = 4;        // f1-f4 (fixed, not managed here)
+    static constexpr int kRadarCount = 4;         // RADAR_01 to RADAR_04
+    
+    // Radar input names for VideoHub routing
+    static constexpr std::array<const char*, kRadarCount> kRadarNames = {"RADAR_01", "RADAR_02", "RADAR_03", "RADAR_04"};
+    
+    // Retry parameters for VideoHub routing commands
+    static constexpr int kRoutingMaxRetries = 3;
+    static constexpr int kRoutingRetryDelayMs = 50;
     
     /**
      * Callback for slot mute state changes
@@ -358,7 +371,9 @@ private:
     
     // Helper methods
     void ApplyGroupConfig(int configIndex);
+    void ApplyRadarRouting();          // Apply radar routing to VideoHub outputs
     bool SendVideoHubRouting(int slotIndex, int cameraID);
+    bool SendVideoHubRoutingByName(int outputIndex, const std::string& inputName);
     void MuteSlot(int slotIndex);
     void UnmuteSlot(int slotIndex);
     int64_t GetCurrentTimeMs() const;
