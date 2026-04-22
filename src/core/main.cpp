@@ -1043,7 +1043,9 @@ bool RunRunningMode() {
             capture->SetFrameReadyHandler([ndiManager, cameraSelector, 
                                           perfMonitor, &config, inferenceStream,
                                           inferenceEngine, positionMapper, ballTracker, 
-                                          sceneManager, rankingPublisher, inferenceReady]
+                                          sceneManager, rankingPublisher, inferenceReady,
+                                          ptzController, centroidFilter, routeMapper,
+                                          trackingLogger, &framesWithDetection, &framesWithoutDetection]
                                          (const VideoChannel& channel, cudaStream_t stream) {
                 // Static flag to save only one frame per channel
                 // This array is shared across all lambda invocations, ensuring each channel
