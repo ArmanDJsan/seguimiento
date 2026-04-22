@@ -309,6 +309,89 @@ void SceneManager::ApplyGroupConfig(int configIndex) {
         << "G5-G8=[" << config.slotsG5_G8[0] << "," << config.slotsG5_G8[1] << ","
         << config.slotsG5_G8[2] << "," << config.slotsG5_G8[3] << "]";
     Logger::Info(oss.str());
+    
+    // Apply radar routing to ensure radars are always mapped correctly
+    ApplyRadarRouting();
+}
+
+void SceneManager::ApplyRadarRouting() {
+    if (!m_config.radarRoutingEnabled) {
+        return;
+    }
+    
+    if (!m_videoHub || !m_videoHub->IsConnected()) {
+        Logger::Warning("SceneManager: Cannot apply radar routing - VideoHub not connected");
+        return;
+    }
+    
+    Logger::Debug("SceneManager: Applying radar routing...");
+    
+    // Route RADAR_01-04 to their configured output slots
+    const std::array<std::string, kRadarCount> radarNames = {"RADAR_01", "RADAR_02", "RADAR_03", "RADAR_04"};
+    int successCount = 0;
+    
+    for (int i = 0; i < kRadarCount; ++i) {
+        int outputSlot = m_config.radarOutputSlots[i];
+        if (SendVideoHubRoutingByName(outputSlot, radarNames[i])) {
+            successCount++;
+        }
+    }
+    
+    if (successCount == kRadarCount) {
+        std::ostringstream oss;
+        oss << "SceneManager: Radar routing applied - "
+            << "RADAR_01->Out" << m_config.radarOutputSlots[0] << ", "
+            << "RADAR_02->Out" << m_config.radarOutputSlots[1] << ", "
+            << "RADAR_03->Out" << m_config.radarOutputSlots[2] << ", "
+            << "RADAR_04->Out" << m_config.radarOutputSlots[3];
+        Logger::Info(oss.str());
+    } else {
+        Logger::Warning("SceneManager: Radar routing partially failed (" + 
+                       std::to_string(successCount) + "/" + std::to_string(kRadarCount) + " succeeded)");
+    }
+}
+
+bool SceneManager::SendVideoHubRoutingByName(int outputIndex, const std::string& inputName) {
+    if (!m_videoHub || !m_videoHub->IsConnected()) {
+        Logger::Error("SceneManager: Cannot send routing command - VideoHub not connected (" + 
+                     inputName + " -> Out" + std::to_string(outputIndex) + ")");
+        return false;
+    }
+    
+    // Retry logic for transient failures
+    const int maxRetries = 3;
+    const int retryDelayMs = 50;
+    
+    bool success = false;
+    for (int attempt = 0; attempt < maxRetries; ++attempt) {
+        success = m_videoHub->RouteInputToOutput(outputIndex, inputName);
+        
+        if (success) {
+            if (attempt > 0) {
+                Logger::Info("SceneManager: Successfully routed " + inputName + 
+                           " to output " + std::to_string(outputIndex) + 
+                           " on retry attempt " + std::to_string(attempt + 1));
+            } else {
+                Logger::Debug("SceneManager: Routed " + inputName + 
+                            " to output " + std::to_string(outputIndex));
+            }
+            return true;
+        }
+        
+        // If not the last attempt, wait before retrying
+        if (attempt < maxRetries - 1) {
+            Logger::Warning("SceneManager: Routing attempt " + std::to_string(attempt + 1) + 
+                          " failed for " + inputName + " to output " + 
+                          std::to_string(outputIndex) + ", retrying...");
+            std::this_thread::sleep_for(std::chrono::milliseconds(retryDelayMs));
+        }
+    }
+    
+    Logger::Error("SceneManager: Failed to route " + inputName + 
+                 " to output " + std::to_string(outputIndex) + 
+                 " after " + std::to_string(maxRetries) + " attempts.");
+    
+    return false;
 }
 
 bool SceneManager::SendVideoHubRouting(int slotIndex, int cameraID) {
