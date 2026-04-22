@@ -1292,6 +1292,10 @@ bool RunRunningMode() {
     Logger::Info("F3  - Restaurar a 4 camaras");
     Logger::Info("F4  - Parada de emergencia");
     Logger::Info("F5  - Reset telemetria");
+    if (ptzController && ptzController->IsInitialized()) {
+        Logger::Info("--- PTZ Controls ---");
+        Logger::Info("F8  - PTZ Choreography Option 7 (Preset 1->2->3 cycle)");
+    }
     Logger::Info("--- SceneManager Manual Mode ---");
     Logger::Info("M   - Toggle AUTO/MANUAL mode");
     Logger::Info("F1/F6/F7 - Select config_a/b/c (MANUAL)");
@@ -1325,6 +1329,11 @@ bool RunRunningMode() {
     
     // Choreography key debounce
     bool f12KeyPressed = false;
+    
+    // PTZ Choreography (F8) - Option 7
+    bool f8KeyPressed = false;
+    std::atomic<bool> ptzChoreographyRunning{false};
+    std::thread ptzChoreographyThread;
     
     while (running) {
         // Check for exit condition
@@ -1385,6 +1394,75 @@ bool RunRunningMode() {
             }
         } else {
             f5Pressed = false;
+        }
+        
+        // ============================================================================
+        // PTZ Choreography Option 7 (F8)
+        // Cycles through presets 1, 2, 3 with 5-second delays on PTZ_START camera
+        // ============================================================================
+        if (GetAsyncKeyState(VK_F8) & 0x8000) {
+            if (!f8KeyPressed && ptzController && ptzController->IsInitialized()) {
+                f8KeyPressed = true;
+                
+                if (!ptzChoreographyRunning) {
+                    // Start choreography
+                    Logger::Info("[PTZ_CHOREOGRAPHY] F8 pressed - Starting preset cycle (1->2->3->1...)");
+                    ptzChoreographyRunning = true;
+                    
+                    // Launch choreography thread
+                    ptzChoreographyThread = std::thread([&ptzController, &ptzChoreographyRunning]() {
+                        Logger::Info("[PTZ_CHOREOGRAPHY] Thread started - cycling through presets");
+                        
+                        while (ptzChoreographyRunning) {
+                            // Preset 1
+                            if (!ptzChoreographyRunning) break;
+                            Logger::Info("[PTZ_CHOREOGRAPHY] Executing preset 1");
+                            ptzController->CallPreset(0, 1);  // Camera 0 (PTZ_START), Preset 1
+                            
+                            // Wait 5 seconds
+                            for (int i = 0; i < 50 && ptzChoreographyRunning; ++i) {
+                                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                            }
+                            
+                            // Preset 2
+                            if (!ptzChoreographyRunning) break;
+                            Logger::Info("[PTZ_CHOREOGRAPHY] Executing preset 2");
+                            ptzController->CallPreset(0, 2);  // Camera 0 (PTZ_START), Preset 2
+                            
+                            // Wait 5 seconds
+                            for (int i = 0; i < 50 && ptzChoreographyRunning; ++i) {
+                                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                            }
+                            
+                            // Preset 3
+                            if (!ptzChoreographyRunning) break;
+                            Logger::Info("[PTZ_CHOREOGRAPHY] Executing preset 3");
+                            ptzController->CallPreset(0, 3);  // Camera 0 (PTZ_START), Preset 3
+                            
+                            // Wait 5 seconds before looping back to preset 1
+                            for (int i = 0; i < 50 && ptzChoreographyRunning; ++i) {
+                                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                            }
+                        }
+                        
+                        Logger::Info("[PTZ_CHOREOGRAPHY] Thread stopped");
+                    });
+                } else {
+                    // Stop choreography
+                    Logger::Info("[PTZ_CHOREOGRAPHY] F8 pressed - Stopping preset cycle");
+                    ptzChoreographyRunning = false;
+                    
+                    if (ptzChoreographyThread.joinable()) {
+                        ptzChoreographyThread.join();
+                    }
+                    
+                    // Return to base preset
+                    ptzController->ReturnToBase(0);
+                    Logger::Info("[PTZ_CHOREOGRAPHY] Returned to base preset");
+                }
+            }
+        } else {
+            f8KeyPressed = false;
         }
         
         // ============================================================================
@@ -1600,6 +1678,15 @@ bool RunRunningMode() {
     
     // Cleanup
     Logger::Info("Cerrando modo running...");
+    
+    // Stop PTZ choreography thread if running
+    if (ptzChoreographyRunning) {
+        Logger::Info("Stopping PTZ choreography thread...");
+        ptzChoreographyRunning = false;
+        if (ptzChoreographyThread.joinable()) {
+            ptzChoreographyThread.join();
+        }
+    }
     
     // Stop PTZ tracking components
     if (trackingLogger) {
