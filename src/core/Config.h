@@ -89,8 +89,9 @@ struct Config {
     // When enabled, radar routing is applied each time a scene config (config_a/b/c) is applied
     // This ensures radars are always correctly routed for stability
     bool radarRoutingEnabled;                 // Enable/disable automatic radar routing
-    std::array<int, 4> radarOutputSlots;      // VideoHub output slots for RADAR_01-04 (0-based indices)
-                                              // Default: {8, 9, 10, 11} -> RADAR_01->Out8, RADAR_02->Out9, etc.
+    std::array<int, 4> radarOutputSlots;      // VideoHub output indices for RADAR_01-04
+                                              // Uses 0-based VideoHub protocol indices
+                                              // Default: {8, 9, 10, 11} meaning physical outputs 9-12 on the device
     
     // NDI configuration - when disabled, vMix captures directly from VideoHub
     bool ndiEnabled;

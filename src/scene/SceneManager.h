@@ -126,8 +126,9 @@ struct SceneManagerConfig {
     std::map<std::string, std::string> configNameToConfig; // Zone name -> config name mapping
     
     // Radar routing configuration
+    // VideoHub protocol uses 0-based indices: index 8 = physical output 9 on the device
     bool radarRoutingEnabled = true;           // Enable automatic radar routing
-    std::array<int, 4> radarOutputSlots = {8, 9, 10, 11}; // VideoHub output slots for RADAR_01-04 (0-based)
+    std::array<int, 4> radarOutputSlots = {8, 9, 10, 11}; // VideoHub protocol indices for RADAR_01-04
     
     // Default configuration with 2 groups
     SceneManagerConfig() {
