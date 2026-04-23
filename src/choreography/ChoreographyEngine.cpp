@@ -160,9 +160,16 @@ bool ChoreographyEngine::Start() {
         return true;
     }
     
-    if (m_vmixRequired && m_vmixController && !m_vmixController->IsTcpConnected()) {
-        SetError("vMix TCP not connected");
-        return false;
+    // Attempt TCP connection when a controller is available but not yet connected
+    if (m_vmixController && !m_vmixController->IsTcpConnected()) {
+        Logger::Info("ChoreographyEngine: vMix TCP not connected, attempting to connect...");
+        if (!m_vmixController->ConnectTcp()) {
+            Logger::Warning("ChoreographyEngine: vMix TCP connection failed at start");
+            if (m_vmixRequired) {
+                SetError("vMix TCP not connected");
+                return false;
+            }
+        }
     }
     
     // Stop any existing thread
@@ -620,11 +627,7 @@ bool ChoreographyEngine::SendVMixCommand(const std::string& command) {
         return true;  // Not an error if controller not set
     }
     
-    if (!m_vmixController->IsTcpConnected()) {
-        Logger::Error("ChoreographyEngine: vMix TCP not connected");
-        return false;
-    }
-    
+    // SendTcpCommand handles reconnection internally; no early-return here
     bool success = m_vmixController->SendTcpCommand(command);
     if (success) {
         Logger::Debug("ChoreographyEngine: vMix command sent successfully: " + 
