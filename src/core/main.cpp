@@ -1184,7 +1184,7 @@ bool RunRunningMode() {
                     // === PTZ Tracking Integration ===
                     // Only runs when ptz_tracking.enabled = true in config.json.
                     // Set it to false to use PTZ cameras in choreography/preset mode only.
-                    if (config->ptzAutoTrackingEnabled &&
+                    if (config.ptzAutoTrackingEnabled &&
                         ptzController && ptzController->IsInitialized() && centroidFilter) {
                         // Calculate centroid from ball detections (uses ::CentroidResult from InferenceEngine.h)
                         ::CentroidResult rawCentroid = InferenceEngine::CalculateGroupCentroid(

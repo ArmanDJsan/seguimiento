@@ -25,7 +25,7 @@ public:
         std::wstring testEndpoint = L"/status";
         std::wstring openGateEndpoint = L"/iniciar";
         std::wstring openElevatorEndpoint = L"/recargar";
-        std::wstring closeGatesEndpoint = L"/cerrar";
+        std::wstring closeGatesEndpoint = L"/finalizar";
     };
 
     TrackPhysicalController(const std::wstring& host, uint16_t port, Endpoints endpoints = {});
