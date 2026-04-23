@@ -253,7 +253,7 @@ bool VMixController::IsTcpConnected() const {
 bool VMixController::SendTcpCommand(const std::string& command) {
     // Attempt reconnection if socket is not connected
     if (!IsTcpConnected()) {
-        Logger::Warning("[TECH ERROR] vMix TCP not connected, attempting reconnect...");
+        Logger::Warning("vMix TCP not connected, attempting reconnect...");
         if (!ConnectTcp()) {
             Logger::Error("[TECH ERROR] vMix TCP reconnect failed, cannot send command");
             return false;
