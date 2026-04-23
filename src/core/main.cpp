@@ -984,6 +984,10 @@ bool RunRunningMode() {
         choreographyEngine->SetSphereVerifier(sphereVerifier.get());
         choreographyEngine->SetContinueOnError(config.choreographyConfig.continueOnError);
         choreographyEngine->SetVMixRequired(config.choreographyConfig.vmixRequired);
+        if (ptzController) {
+            choreographyEngine->SetPTZController(ptzController.get());
+        }
+        choreographyEngine->SetTrackPhysicalController(&trackController);
         
         // Set up callbacks for debug logging
         if (config.choreographyConfig.debug) {
