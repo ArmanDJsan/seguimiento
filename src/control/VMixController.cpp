@@ -251,9 +251,13 @@ bool VMixController::IsTcpConnected() const {
 }
 
 bool VMixController::SendTcpCommand(const std::string& command) {
+    // Attempt reconnection if socket is not connected
     if (!IsTcpConnected()) {
-        Logger::Error("[TECH ERROR] vMix TCP not connected");
-        return false;
+        Logger::Warning("vMix TCP not connected, attempting reconnect...");
+        if (!ConnectTcp()) {
+            Logger::Error("[TECH ERROR] vMix TCP reconnect failed, cannot send command");
+            return false;
+        }
     }
     const char* buffer = command.c_str();
     int total = static_cast<int>(command.size());
@@ -261,7 +265,9 @@ bool VMixController::SendTcpCommand(const std::string& command) {
     while (sentTotal < total) {
         int sent = send(m_tcpSocket, buffer + sentTotal, total - sentTotal, 0);
         if (sent == SOCKET_ERROR) {
-            Logger::Error("[TECH ERROR] Failed to send vMix TCP command");
+            Logger::Error("[TECH ERROR] Failed to send vMix TCP command, closing socket");
+            closesocket(m_tcpSocket);
+            m_tcpSocket = INVALID_SOCKET;
             return false;
         }
         sentTotal += sent;
