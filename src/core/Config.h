@@ -131,6 +131,11 @@ struct Config {
     // PTZ tracking configuration
     PTZ::PTZTrackingConfig ptzTrackingConfig;
     
+    // When false, PTZ cameras execute choreography/presets only and do NOT
+    // perform automatic centroid-based pan/tilt/zoom tracking.
+    // Set ptz_tracking.enabled = false in config.json to disable auto-tracking.
+    bool ptzAutoTrackingEnabled;
+    
     // Constructor con valores por defecto
     Config() 
         : videohubIp("192.168.1.50")
@@ -158,5 +163,6 @@ struct Config {
         , radarOutputSlots{8, 9, 10, 11}  // Default: RADAR_01-04 -> outputs 8-11
         , ndiEnabled(false)
         , calibrationFile("config/calibration.json")
+        , ptzAutoTrackingEnabled(true)
     {}
 };

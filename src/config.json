@@ -240,7 +240,7 @@
     "description": "4x PTZ cameras (1080p 30fps) for coordinated centroid tracking"
   },
   "ptz_tracking": {
-    "enabled": true,
+    "enabled": false,
     "kp": 50.0,
     "dead_zone": 0.05,
     "max_pan_speed": 24,

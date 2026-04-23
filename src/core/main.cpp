@@ -618,21 +618,24 @@ Config LoadConfig(const std::string& path) {
         // Parse ptz_tracking section
         if (j.contains("ptz_tracking") && j["ptz_tracking"].is_object()) {
             auto& pt = j["ptz_tracking"];
-            if (pt.contains("enabled") && pt["enabled"].is_boolean() && pt["enabled"].get<bool>()) {
-                if (pt.contains("kp")) config.ptzTrackingConfig.kp = pt["kp"].get<float>();
-                if (pt.contains("dead_zone")) config.ptzTrackingConfig.deadZone = pt["dead_zone"].get<float>();
-                if (pt.contains("max_pan_speed")) config.ptzTrackingConfig.maxPanSpeed = pt["max_pan_speed"].get<int>();
-                if (pt.contains("max_tilt_speed")) config.ptzTrackingConfig.maxTiltSpeed = pt["max_tilt_speed"].get<int>();
-                if (pt.contains("zoom_out_threshold")) config.ptzTrackingConfig.zoomOutThreshold = pt["zoom_out_threshold"].get<float>();
-                if (pt.contains("zoom_in_threshold")) config.ptzTrackingConfig.zoomInThreshold = pt["zoom_in_threshold"].get<float>();
-                if (pt.contains("fallback_timeout_frames")) config.ptzTrackingConfig.fallbackTimeoutFrames = pt["fallback_timeout_frames"].get<int>();
-                if (pt.contains("engage_min_frames")) config.ptzTrackingConfig.engageMinFrames = pt["engage_min_frames"].get<int>();
-                if (pt.contains("min_sphere_count")) config.ptzTrackingConfig.minSphereCount = pt["min_sphere_count"].get<int>();
-                
-                Logger::Info("PTZ Tracking config: Kp=" + std::to_string(config.ptzTrackingConfig.kp) +
-                            ", dead_zone=" + std::to_string(config.ptzTrackingConfig.deadZone) +
-                            ", fallback_frames=" + std::to_string(config.ptzTrackingConfig.fallbackTimeoutFrames));
+            // Read enabled flag - controls whether auto centroid tracking runs
+            if (pt.contains("enabled") && pt["enabled"].is_boolean()) {
+                config.ptzAutoTrackingEnabled = pt["enabled"].get<bool>();
             }
+            if (pt.contains("kp")) config.ptzTrackingConfig.kp = pt["kp"].get<float>();
+            if (pt.contains("dead_zone")) config.ptzTrackingConfig.deadZone = pt["dead_zone"].get<float>();
+            if (pt.contains("max_pan_speed")) config.ptzTrackingConfig.maxPanSpeed = pt["max_pan_speed"].get<int>();
+            if (pt.contains("max_tilt_speed")) config.ptzTrackingConfig.maxTiltSpeed = pt["max_tilt_speed"].get<int>();
+            if (pt.contains("zoom_out_threshold")) config.ptzTrackingConfig.zoomOutThreshold = pt["zoom_out_threshold"].get<float>();
+            if (pt.contains("zoom_in_threshold")) config.ptzTrackingConfig.zoomInThreshold = pt["zoom_in_threshold"].get<float>();
+            if (pt.contains("fallback_timeout_frames")) config.ptzTrackingConfig.fallbackTimeoutFrames = pt["fallback_timeout_frames"].get<int>();
+            if (pt.contains("engage_min_frames")) config.ptzTrackingConfig.engageMinFrames = pt["engage_min_frames"].get<int>();
+            if (pt.contains("min_sphere_count")) config.ptzTrackingConfig.minSphereCount = pt["min_sphere_count"].get<int>();
+            
+            Logger::Info(std::string("PTZ Auto-tracking: ") + (config.ptzAutoTrackingEnabled ? "ENABLED" : "DISABLED") +
+                        " | Kp=" + std::to_string(config.ptzTrackingConfig.kp) +
+                        ", dead_zone=" + std::to_string(config.ptzTrackingConfig.deadZone) +
+                        ", fallback_frames=" + std::to_string(config.ptzTrackingConfig.fallbackTimeoutFrames));
         }
 
         Logger::Info("Configuración cargada: VideoHub=" + config.videohubIp + ":" + 
@@ -1175,7 +1178,10 @@ bool RunRunningMode() {
                     }
                     
                     // === PTZ Tracking Integration ===
-                    if (ptzController && ptzController->IsInitialized() && centroidFilter) {
+                    // Only runs when ptz_tracking.enabled = true in config.json.
+                    // Set it to false to use PTZ cameras in choreography/preset mode only.
+                    if (config->ptzAutoTrackingEnabled &&
+                        ptzController && ptzController->IsInitialized() && centroidFilter) {
                         // Calculate centroid from ball detections (uses ::CentroidResult from InferenceEngine.h)
                         ::CentroidResult rawCentroid = InferenceEngine::CalculateGroupCentroid(
                             ballDetections, 0.5f);
