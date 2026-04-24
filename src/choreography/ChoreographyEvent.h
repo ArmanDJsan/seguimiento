@@ -31,6 +31,8 @@ enum class EventType {
     AudioOff,               // Disable audio for input
     StartRecording,         // Start recording
     StopRecording,          // Stop recording
+    StartMultiCorder,       // Start MultiCorder recording
+    StopMultiCorder,        // Stop MultiCorder recording
     BrowserReload,          // Reload browser input
     
     // Overlay commands
@@ -259,6 +261,14 @@ struct ChoreographyEvent {
         return {EventType::StopRecording};
     }
     
+    static ChoreographyEvent StartMultiCorder() {
+        return {EventType::StartMultiCorder};
+    }
+    
+    static ChoreographyEvent StopMultiCorder() {
+        return {EventType::StopMultiCorder};
+    }
+    
     static ChoreographyEvent BrowserReload(const std::string& guid) {
         return {EventType::BrowserReload, GuidParam(guid)};
     }
@@ -360,6 +370,8 @@ struct ChoreographyEvent {
             case EventType::AudioOff: return "AudioOff";
             case EventType::StartRecording: return "StartRecording";
             case EventType::StopRecording: return "StopRecording";
+            case EventType::StartMultiCorder: return "StartMultiCorder";
+            case EventType::StopMultiCorder: return "StopMultiCorder";
             case EventType::BrowserReload: return "BrowserReload";
             case EventType::OverlayInputIn: return "OverlayInputIn";
             case EventType::OverlayInputOut: return "OverlayInputOut";

@@ -556,6 +556,14 @@ std::string ChoreographyEngine::BuildVMixCommand(const ChoreographyEvent& event)
             cmd << "StopRecording";
             break;
         
+        case EventType::StartMultiCorder:
+            cmd << "StartMultiCorder";
+            break;
+        
+        case EventType::StopMultiCorder:
+            cmd << "StopMultiCorder";
+            break;
+        
         case EventType::BrowserReload: {
             auto* params = std::get_if<GuidParam>(&event.params);
             if (params) {
