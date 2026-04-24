@@ -169,6 +169,14 @@ std::optional<ChoreographyEvent> ChoreographyScript::ParseJsonEvent(const void* 
         Logger::Debug("ChoreographyScript: Parsed StopRecording");
         return ChoreographyEvent::StopRecording();
     }
+    else if (typeLower == "startmulticorder") {
+        Logger::Debug("ChoreographyScript: Parsed StartMultiCorder");
+        return ChoreographyEvent::StartMultiCorder();
+    }
+    else if (typeLower == "stopmulticorder") {
+        Logger::Debug("ChoreographyScript: Parsed StopMultiCorder");
+        return ChoreographyEvent::StopMultiCorder();
+    }
     else if (typeLower == "browserreload") {
         std::string guid = j.value("guid", "");
         validateGuid(guid, "BrowserReload");
