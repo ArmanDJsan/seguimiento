@@ -2314,7 +2314,7 @@ bool RunVMixUTCChoreography() {
     // Create choreography engine with vMix controller only
     Choreography::ChoreographyEngine engine(&vmix, nullptr);
     engine.SetContinueOnError(true);
-    engine.SetVMixRequired(false);
+    engine.SetVMixRequired(true);
     
     // Set up progress callbacks
     engine.SetStateCallback([](Choreography::EngineState state) {
