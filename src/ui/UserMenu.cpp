@@ -67,12 +67,16 @@ void UserMenu::PrintMenuOptions() {
     std::cout << "  |       - Verificacion de presencia de esferas                      |\n";
     std::cout << "  |       - Captura de posiciones                                     |\n";
     std::cout << "  |                                                                    |\n";
+    std::cout << "  |   [7] COREOGRAFIA VMIX UTC (SOLO VMIX)                             |\n";
+    std::cout << "  |       Ejecuta la coreografia de replay convertida desde UTC        |\n";
+    std::cout << "  |       Solo requiere conexion vMix TCP                              |\n";
+    std::cout << "  |                                                                    |\n";
     std::cout << "  +--------------------------------------------------------------------+\n";
     std::cout << "\n";
 }
 
 int UserMenu::GetUserChoice() {
-    std::cout << "  Seleccione una opcion (1-6): ";
+    std::cout << "  Seleccione una opcion (1-7): ";
     
     int choice = -1;
     std::cin >> choice;
@@ -96,6 +100,7 @@ MenuOption UserMenu::IntToMenuOption(int choice) {
         case 4: return MenuOption::TOOLS_CONFIG;
         case 5: return MenuOption::RADAR_TEST_MODE;
         case 6: return MenuOption::SPHERE_VERIFIER_TEST;
+        case 7: return MenuOption::VMIX_UTC_CHOREOGRAPHY;
         default: return MenuOption::INVALID;
     }
 }

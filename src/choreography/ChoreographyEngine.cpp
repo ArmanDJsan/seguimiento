@@ -620,6 +620,22 @@ std::string ChoreographyEngine::BuildVMixCommand(const ChoreographyEvent& event)
             cmd << "ReplaySelectLastEvent";
             break;
         
+        case EventType::ScriptStart: {
+            auto* params = std::get_if<TextParam>(&event.params);
+            if (params) {
+                cmd << "ScriptStart Value=" << params->text;
+            }
+            break;
+        }
+        
+        case EventType::ScriptStop: {
+            auto* params = std::get_if<TextParam>(&event.params);
+            if (params) {
+                cmd << "ScriptStop Value=" << params->text;
+            }
+            break;
+        }
+        
         default:
             return "";
     }

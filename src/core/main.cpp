@@ -2300,6 +2300,106 @@ bool RunRadarTestMode() {
     return true;
 }
 
+bool RunVMixUTCChoreography() {
+    Logger::Info("=== INICIANDO COREOGRAFIA VMIX UTC ===");
+    Logger::Info("Solo se conectara a vMix TCP para ejecutar la secuencia de comandos");
+    
+    // Load configuration
+    Config config = LoadConfig("config.json");
+    
+    // Connect to vMix TCP
+    VMixController vmix(L"127.0.0.1", 8088, 8099);
+    vmix.ConnectTcp();
+    
+    // Create choreography engine with vMix controller only
+    Choreography::ChoreographyEngine engine(&vmix, nullptr);
+    engine.SetContinueOnError(true);
+    engine.SetVMixRequired(true);
+    
+    // Set up progress callbacks
+    engine.SetStateCallback([](Choreography::EngineState state) {
+        std::string stateStr;
+        switch (state) {
+            case Choreography::EngineState::Idle: stateStr = "Idle"; break;
+            case Choreography::EngineState::Ready: stateStr = "Ready"; break;
+            case Choreography::EngineState::Running: stateStr = "Running"; break;
+            case Choreography::EngineState::Paused: stateStr = "Paused"; break;
+            case Choreography::EngineState::Stopping: stateStr = "Stopping"; break;
+            case Choreography::EngineState::Error: stateStr = "Error"; break;
+        }
+        Logger::Info("[CHOREOGRAPHY UTC] State: " + stateStr);
+    });
+    
+    engine.SetEventStartCallback([](size_t index, const Choreography::ChoreographyEvent& event) {
+        Logger::Info("[CHOREOGRAPHY UTC] Event " + std::to_string(index) + ": " + event.GetTypeName());
+    });
+    
+    engine.SetEventCompleteCallback([](const Choreography::EventResult& result) {
+        if (!result.success) {
+            Logger::Warning("[CHOREOGRAPHY UTC] Event " + std::to_string(result.eventIndex) + 
+                           " failed: " + result.errorMessage);
+        }
+    });
+    
+    engine.SetErrorCallback([](const std::string& error) {
+        Logger::Error("[CHOREOGRAPHY UTC] Error: " + error);
+    });
+    
+    // Load choreography script
+    std::string scriptPath = "config/choreography/vmix_utc_replay.json";
+    Logger::Info("Loading choreography script: " + scriptPath);
+    
+    if (!engine.Load(scriptPath)) {
+        Logger::Error("Failed to load choreography script: " + engine.GetLastError());
+        std::cout << "\n  Error: No se pudo cargar el script de coreografia.\n";
+        std::cout << "  " << engine.GetLastError() << "\n";
+        std::cout << "  Presione ENTER para continuar...";
+        std::cin.get();
+        return false;
+    }
+    
+    // Start execution
+    Logger::Info("Starting vMix UTC choreography execution...");
+    std::cout << "\n  Ejecutando coreografia vMix UTC...\n";
+    std::cout << "  Duracion estimada: ~111 segundos (~1min 51s)\n";
+    std::cout << "  Presione Ctrl+C para cancelar.\n\n";
+    
+    if (!engine.Start()) {
+        Logger::Error("Failed to start choreography: " + engine.GetLastError());
+        std::cout << "  Error al iniciar la coreografia: " << engine.GetLastError() << "\n";
+        std::cout << "  Presione ENTER para continuar...";
+        std::cin.get();
+        return false;
+    }
+    
+    // Wait for completion
+    while (engine.IsRunning()) {
+        auto status = engine.GetStatus();
+        std::cout << "\r  Progreso: evento " << status.currentEventIndex + 1 
+                  << "/" << status.totalEvents 
+                  << " (" << status.currentEventType << ")"
+                  << " - " << status.elapsedTime.count() / 1000 << "s transcurridos   " << std::flush;
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
+    
+    std::cout << "\n\n";
+    
+    auto finalState = engine.GetState();
+    if (finalState == Choreography::EngineState::Error) {
+        Logger::Warning("Choreography finished with errors");
+        std::cout << "  Coreografia finalizada con errores.\n";
+    } else {
+        Logger::Info("Choreography completed successfully");
+        std::cout << "  Coreografia completada exitosamente.\n";
+    }
+    
+    std::cout << "  Presione ENTER para continuar...";
+    std::cin.get();
+    
+    Logger::Info("vMix UTC Choreography mode finalizado");
+    return true;
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {
@@ -2360,9 +2460,16 @@ int main(int argc, char* argv[]) {
                     // Vuelve al menú
                     break;
                     
+                case MenuOption::VMIX_UTC_CHOREOGRAPHY:
+                    if (!RunVMixUTCChoreography()) {
+                        Logger::Warning("Coreografía vMix UTC finalizó con advertencias");
+                    }
+                    // Vuelve al menú
+                    break;
+                    
                 case MenuOption::INVALID:
                 default:
-                    std::cout << "\n  Opcion invalida. Por favor seleccione 1-6.\n";
+                    std::cout << "\n  Opcion invalida. Por favor seleccione 1-7.\n";
                     std::this_thread::sleep_for(std::chrono::seconds(1));
                     break;
             }

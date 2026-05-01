@@ -66,6 +66,10 @@ enum class EventType {
     // ESP32 commands
     ESP32Command,           // Send an HTTP command to the ESP32 device
 
+    // vMix Script commands
+    ScriptStart,            // Start a vMix script by name
+    ScriptStop,             // Stop a vMix script by name
+
     // Meta events
     Comment,                // Comment (no-op, for documentation)
     Label                   // Label for jump targets (future use)
@@ -347,6 +351,15 @@ struct ChoreographyEvent {
         return {EventType::ESP32Command, ESP32CommandParams(command)};
     }
     
+    // vMix Script commands
+    static ChoreographyEvent ScriptStart(const std::string& scriptName) {
+        return {EventType::ScriptStart, TextParam(scriptName)};
+    }
+    
+    static ChoreographyEvent ScriptStop(const std::string& scriptName) {
+        return {EventType::ScriptStop, TextParam(scriptName)};
+    }
+    
     // Meta events
     static ChoreographyEvent Comment(const std::string& text) {
         ChoreographyEvent e{EventType::Comment, TextParam(text)};
@@ -390,6 +403,8 @@ struct ChoreographyEvent {
             case EventType::SphereArrivalWait: return "SphereArrivalWait";
             case EventType::PTZPreset: return "PTZPreset";
             case EventType::ESP32Command: return "ESP32Command";
+            case EventType::ScriptStart: return "ScriptStart";
+            case EventType::ScriptStop: return "ScriptStop";
             case EventType::Comment: return "Comment";
             case EventType::Label: return "Label";
             default: return "Unknown";
