@@ -23,6 +23,7 @@ enum class MenuOption {
     TOOLS_CONFIG = 4,
     RADAR_TEST_MODE = 5,        // Test de inferencia con Radar 1 (cámara 13)
     SPHERE_VERIFIER_TEST = 6,   // Test usando SphereVerifier (reemplazo de opción 5)
+    VMIX_UTC_CHOREOGRAPHY = 7,  // Ejecutar coreografía vMix UTC (solo vMix TCP)
     INVALID = -1
 };
 

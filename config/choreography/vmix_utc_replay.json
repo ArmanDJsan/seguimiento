@@ -1,0 +1,45 @@
+{
+  "name": "vMix UTC Replay",
+  "description": "Coreografía convertida desde UTC de vMix: grabación + replay + marcador (~111s)",
+  "author": "VIB Automation",
+  "version": "1.0",
+  "events": [
+    { "type": "Comment", "text": "=== Ocultar overlay y preparar video principal ===" },
+    { "type": "OverlayInputXOut", "layer": 1 },
+    { "type": "Timer", "ms": 500 },
+
+    { "type": "Restart", "guid": "4aa1c3e6-8887-4688-baac-a05f77c312df", "comment": "Reiniciar video principal" },
+    { "type": "CutDirect", "guid": "4aa1c3e6-8887-4688-baac-a05f77c312df", "layer": -1, "comment": "Cortar al video principal" },
+    { "type": "Play", "guid": "4aa1c3e6-8887-4688-baac-a05f77c312df", "comment": "Reproducir video principal" },
+    { "type": "StartRecording", "comment": "Iniciar grabación vMix" },
+    { "type": "Timer", "ms": 2000 },
+
+    { "type": "Comment", "text": "=== Iniciar grabación de replay ===" },
+    { "type": "ReplayStartRecording" },
+    { "type": "Timer", "ms": 14500 },
+
+    { "type": "Comment", "text": "=== Activar marcador + overlay + marca replay in ===" },
+    { "type": "ScriptStart", "script": "marcador", "comment": "Iniciar script marcador en vMix" },
+    { "type": "OverlayInputXIn", "guid": "6c4f13c8-811f-4106-a268-258236dc7d9b", "layer": 1, "comment": "Mostrar overlay marcador" },
+    { "type": "ReplayMarkIn", "comment": "Marcar punto de inicio del replay" },
+    { "type": "Timer", "ms": 6000 },
+    { "type": "Timer", "ms": 39000 },
+
+    { "type": "Comment", "text": "=== Ocultar overlay + marca replay out ===" },
+    { "type": "OverlayInputXOut", "layer": 1 },
+    { "type": "Timer", "ms": 1000 },
+    { "type": "ReplayMarkOut", "comment": "Marcar punto final del replay" },
+    { "type": "Timer", "ms": 300 },
+
+    { "type": "Comment", "text": "=== Configurar y detener replay ===" },
+    { "type": "ReplaySelectLastEvent" },
+    { "type": "ReplaySetSpeed", "speed": 60 },
+    { "type": "ReplayStopRecording" },
+    { "type": "ScriptStop", "script": "marcador", "comment": "Detener script marcador en vMix" },
+
+    { "type": "Comment", "text": "=== Reproducir bumper/replay y finalizar ===" },
+    { "type": "QuickPlay", "guid": "24770592-adde-40ea-aa27-231d7b7bd61a", "comment": "Reproducir replay/bumper" },
+    { "type": "Timer", "ms": 48000 },
+    { "type": "StopRecording", "comment": "Detener grabación vMix" }
+  ]
+}

@@ -291,6 +291,16 @@ std::optional<ChoreographyEvent> ChoreographyScript::ParseJsonEvent(const void* 
         Logger::Debug("ChoreographyScript: Parsed ESP32Command(command=" + command + ")");
         return ChoreographyEvent::ESP32Command(command);
     }
+    else if (typeLower == "scriptstart") {
+        std::string scriptName = j.value("script", j.value("name", ""));
+        Logger::Debug("ChoreographyScript: Parsed ScriptStart(script=" + scriptName + ")");
+        return ChoreographyEvent::ScriptStart(scriptName);
+    }
+    else if (typeLower == "scriptstop") {
+        std::string scriptName = j.value("script", j.value("name", ""));
+        Logger::Debug("ChoreographyScript: Parsed ScriptStop(script=" + scriptName + ")");
+        return ChoreographyEvent::ScriptStop(scriptName);
+    }
     else if (typeLower == "comment") {
         std::string text = j.value("text", "");
         // Don't log debug for comments - they're meta-events
@@ -527,6 +537,24 @@ std::optional<ChoreographyEvent> ChoreographyScript::ParseDslLine(const std::str
             }
             Logger::Debug("ChoreographyScript: Parsed ESP32Command(command=" + command + ")");
             return ChoreographyEvent::ESP32Command(command);
+        }
+        else if (cmdName == "scriptstart") {
+            if (params.empty()) return std::nullopt;
+            std::string scriptName = Trim(params[0]);
+            if (scriptName.size() >= 2 && scriptName.front() == '"' && scriptName.back() == '"') {
+                scriptName = scriptName.substr(1, scriptName.size() - 2);
+            }
+            Logger::Debug("ChoreographyScript: Parsed ScriptStart(script=" + scriptName + ")");
+            return ChoreographyEvent::ScriptStart(scriptName);
+        }
+        else if (cmdName == "scriptstop") {
+            if (params.empty()) return std::nullopt;
+            std::string scriptName = Trim(params[0]);
+            if (scriptName.size() >= 2 && scriptName.front() == '"' && scriptName.back() == '"') {
+                scriptName = scriptName.substr(1, scriptName.size() - 2);
+            }
+            Logger::Debug("ChoreographyScript: Parsed ScriptStop(script=" + scriptName + ")");
+            return ChoreographyEvent::ScriptStop(scriptName);
         }
         
         Logger::Debug("ChoreographyScript: Unknown DSL command: " + cmdName);
