@@ -45,3 +45,22 @@ Release/
 # Windows
 Thumbs.db
 Desktop.ini
+
+# Training
+training/.venv/
+training/llegada/
+training/*.zip
+training/runs/
+training/__pycache__/
+*.pt
+*.engine
+*.onnx
+
+# Training - datasets y artefactos pesados (no versionar)
+training/*.rar
+training/*.mp4
+training/*.ppm
+training/video_inferencia/
+training/cvat_images*/
+training/labeled_preview*/
+training/descartadas/

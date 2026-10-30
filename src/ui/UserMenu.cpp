@@ -71,12 +71,35 @@ void UserMenu::PrintMenuOptions() {
     std::cout << "  |       Ejecuta la coreografia de replay convertida desde UTC        |\n";
     std::cout << "  |       Solo requiere conexion vMix TCP                              |\n";
     std::cout << "  |                                                                    |\n";
+    std::cout << "  |   [8] MODO PISTA AUTOMATIZADA                                      |\n";
+    std::cout << "  |       Control automatizado de pista fisica (1 camara PTZ)         |\n";
+    std::cout << "  |       - Verifica esferas en salida                                 |\n";
+    std::cout << "  |       - Controla compuertas y ascensor (ESP32)                    |\n";
+    std::cout << "  |                                                                    |\n";
+    std::cout << "  |   [9] LIVE PREVIEW - PRUEBA DE DETECCION                          |\n";
+    std::cout << "  |       Muestra video en vivo con detecciones YOLO en tiempo real   |\n";
+    std::cout << "  |       - NDI: VIB_Pista_Auto (video)                               |\n";
+    std::cout << "  |       - Consola: detecciones en vivo                              |\n";
+    std::cout << "  |       - ESC para salir                                            |\n";
+    std::cout << "  |                                                                    |\n";
+    std::cout << "  |   [10] CAPTURA PARA ENTRENAMIENTO                                 |\n";
+    std::cout << "  |       Video NDI continuo + guarda frames para etiquetar           |\n";
+    std::cout << "  |       - NDI: VIB_Training (video)                                 |\n";
+    std::cout << "  |       - ESPACIO: guardar frame actual                             |\n";
+    std::cout << "  |       - ESC: salir                                                |\n";
+    std::cout << "  |                                                                    |\n";
+    std::cout << "  |   [11] TEST ORDEN DE LLEGADA                                      |\n";
+    std::cout << "  |       Deteccion continua de la camara de meta (motor dedicado)    |\n";
+    std::cout << "  |       - Boxes con color/clase y orden de izquierda a derecha      |\n";
+    std::cout << "  |       - NDI: VIB_Llegada_Raw / VIB_Llegada_Boxes                  |\n";
+    std::cout << "  |       - ESC para salir                                            |\n";
+    std::cout << "  |                                                                    |\n";
     std::cout << "  +--------------------------------------------------------------------+\n";
     std::cout << "\n";
 }
 
 int UserMenu::GetUserChoice() {
-    std::cout << "  Seleccione una opcion (1-7): ";
+    std::cout << "  Seleccione una opcion (1-11): ";
     
     int choice = -1;
     std::cin >> choice;
@@ -101,6 +124,10 @@ MenuOption UserMenu::IntToMenuOption(int choice) {
         case 5: return MenuOption::RADAR_TEST_MODE;
         case 6: return MenuOption::SPHERE_VERIFIER_TEST;
         case 7: return MenuOption::VMIX_UTC_CHOREOGRAPHY;
+        case 8: return MenuOption::AUTOMATED_TRACK;
+        case 9: return MenuOption::LIVE_PREVIEW;
+        case 10: return MenuOption::TRAINING_CAPTURE;
+        case 11: return MenuOption::ARRIVAL_TEST;
         default: return MenuOption::INVALID;
     }
 }

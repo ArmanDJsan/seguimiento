@@ -239,10 +239,153 @@ std::optional<ChoreographyEvent> ChoreographyScript::ParseJsonEvent(const void* 
         Logger::Debug("ChoreographyScript: Parsed ReplaySelectLastEvent");
         return ChoreographyEvent::ReplaySelectLastEvent();
     }
+    else if (typeLower == "replaycamera") {
+        // Canonical form: { "type": "ReplayCamera", "camera": 4, "channel": "A" }
+        int camera = 1;
+        if (j.contains("camera")) {
+            if (j["camera"].is_number_integer()) {
+                camera = j["camera"].get<int>();
+            } else if (j["camera"].is_string()) {
+                try {
+                    camera = std::stoi(j["camera"].get<std::string>());
+                } catch (const std::exception&) {
+                    Logger::Warning("ChoreographyScript: Invalid ReplayCamera 'camera' value");
+                }
+            }
+        }
+
+        std::string channel = "A";
+        if (j.contains("channel") && j["channel"].is_string()) {
+            channel = j["channel"].get<std::string>();
+        }
+        std::transform(channel.begin(), channel.end(), channel.begin(), ::toupper);
+
+        if (camera < 1 || camera > 8) {
+            Logger::Warning("ChoreographyScript: ReplayCamera camera out of range (1-8): " +
+                            std::to_string(camera));
+            return std::nullopt;
+        }
+        if (channel.size() != 1 || channel[0] < 'A' || channel[0] > 'D') {
+            Logger::Warning("ChoreographyScript: ReplayCamera invalid channel '" + channel +
+                            "' (expected A, B, C or D)");
+            return std::nullopt;
+        }
+
+        Logger::Debug("ChoreographyScript: Parsed ReplayCamera(camera=" + std::to_string(camera) +
+                      ", channel=" + channel + ")");
+        return ChoreographyEvent::ReplayCamera(camera, channel);
+    }
+    else if (typeLower.rfind("replayselectcamera", 0) == 0 ||
+             typeLower.rfind("replaycamera", 0) == 0) {
+        // Backwards-compatible alias with the camera in the type name:
+        // { "type": "ReplaySelectCamera4" } or { "type": "ReplayCamera4" }
+        const size_t prefixLen = (typeLower.rfind("replayselectcamera", 0) == 0) ? 18 : 12;
+        std::string suffix = typeLower.substr(prefixLen);
+        bool allDigits = !suffix.empty() &&
+            std::all_of(suffix.begin(), suffix.end(), [](char c) { return c >= '0' && c <= '9'; });
+        if (!allDigits) {
+            Logger::Warning("ChoreographyScript: Invalid ReplayCamera type: " + type);
+            return std::nullopt;
+        }
+
+        int camera = 0;
+        try {
+            camera = std::stoi(suffix);
+        } catch (const std::exception&) {
+            Logger::Warning("ChoreographyScript: Invalid camera number in type: " + type);
+            return std::nullopt;
+        }
+        if (camera < 1 || camera > 8) {
+            Logger::Warning("ChoreographyScript: ReplayCamera camera out of range (1-8): " +
+                            std::to_string(camera));
+            return std::nullopt;
+        }
+
+        std::string channel = "A";
+        if (j.contains("channel") && j["channel"].is_string()) {
+            channel = j["channel"].get<std::string>();
+        }
+        std::transform(channel.begin(), channel.end(), channel.begin(), ::toupper);
+
+        Logger::Debug("ChoreographyScript: Parsed ReplayCamera alias(camera=" +
+                      std::to_string(camera) + ", channel=" + channel + ")");
+        return ChoreographyEvent::ReplayCamera(camera, channel);
+    }
+    else if (typeLower == "replaymarkinout") {
+        // Value = number of previous seconds, e.g. { "type": "ReplayMarkInOut", "value": 60 }
+        int seconds = 0;
+        if (j.contains("value")) {
+            if (j["value"].is_number_integer()) {
+                seconds = j["value"].get<int>();
+            } else if (j["value"].is_number_float()) {
+                seconds = static_cast<int>(j["value"].get<double>());
+            } else if (j["value"].is_string()) {
+                std::string valueStr = j["value"].get<std::string>();
+                try {
+                    seconds = std::stoi(valueStr);
+                } catch (const std::exception&) {
+                    Logger::Warning("ChoreographyScript: Invalid ReplayMarkInOut value '" +
+                                    valueStr + "'");
+                }
+            }
+        }
+        if (seconds <= 0) {
+            Logger::Warning("ChoreographyScript: ReplayMarkInOut requires a positive 'value' "
+                            "in seconds");
+        }
+        Logger::Debug("ChoreographyScript: Parsed ReplayMarkInOut(seconds=" +
+                      std::to_string(seconds) + ")");
+        return ChoreographyEvent::ReplayMarkInOut(seconds);
+    }
+    else if (typeLower == "replayexportlastevent") {
+        // Optional Value = custom export folder
+        std::string folder;
+        if (j.contains("folder") && j["folder"].is_string()) {
+            folder = j["folder"].get<std::string>();
+        } else if (j.contains("value") && j["value"].is_string()) {
+            folder = j["value"].get<std::string>();
+        }
+        Logger::Debug("ChoreographyScript: Parsed ReplayExportLastEvent" +
+                      (folder.empty() ? std::string() : "(folder=" + folder + ")"));
+        return ChoreographyEvent::ReplayExportLastEvent(folder);
+    }
+    else if (typeLower == "replaydeletelastevent") {
+        Logger::Debug("ChoreographyScript: Parsed ReplayDeleteLastEvent");
+        return ChoreographyEvent::ReplayDeleteLastEvent();
+    }
+    else if (typeLower == "waitforexport") {
+        // Optional folder (defaults to the last export folder) and timings
+        std::string folder;
+        if (j.contains("folder") && j["folder"].is_string()) {
+            folder = j["folder"].get<std::string>();
+        } else if (j.contains("value") && j["value"].is_string()) {
+            folder = j["value"].get<std::string>();
+        }
+        const int timeoutMs = j.value("timeout", j.value("timeout_ms", 0));
+        const int stableMs = j.value("stable", j.value("stable_ms", 0));
+        Logger::Debug("ChoreographyScript: Parsed WaitForExport" +
+                      (folder.empty() ? std::string() : "(folder=" + folder + ")") +
+                      "(timeout=" + std::to_string(timeoutMs) + "ms, stable=" +
+                      std::to_string(stableMs) + "ms)");
+        return ChoreographyEvent::WaitForExport(folder, timeoutMs, stableMs);
+    }
     else if (typeLower == "timer") {
         int ms = j.value("ms", j.value("milliseconds", 1000));
         Logger::Debug("ChoreographyScript: Parsed Timer(ms=" + std::to_string(ms) + ")");
         return ChoreographyEvent::Timer(ms);
+    }
+    else if (typeLower == "measurepoint") {
+        // Medicion por evento (fase 1): no bloquea la linea de tiempo, el
+        // engine solo encola y sigue.
+        int camera = j.value("camera", j.value("cameraID", 1));
+        int punto = j.value("punto", j.value("point", 1));
+        int burstMs = j.value("burst_ms", 400);
+        int maxMs = j.value("max_ms", 2000);
+        Logger::Debug("ChoreographyScript: Parsed MeasurePoint(camera=" + std::to_string(camera) +
+                      ", punto=" + std::to_string(punto) +
+                      ", burst_ms=" + std::to_string(burstMs) +
+                      ", max_ms=" + std::to_string(maxMs) + ")");
+        return ChoreographyEvent::MeasurePoint(camera, punto, burstMs, maxMs);
     }
     else if (typeLower == "ndislotchange") {
         int slot = j.value("slot", 0);
@@ -399,7 +542,10 @@ std::optional<ChoreographyEvent> ChoreographyScript::ParseDslLine(const std::str
         if (cmdName == "replaymarkout") return ChoreographyEvent::ReplayMarkOut();
         if (cmdName == "replaylive") return ChoreographyEvent::ReplayLive();
         if (cmdName == "replayselectlastevent") return ChoreographyEvent::ReplaySelectLastEvent();
-        
+        if (cmdName == "replayexportlastevent") return ChoreographyEvent::ReplayExportLastEvent();
+        if (cmdName == "replaydeletelastevent") return ChoreographyEvent::ReplayDeleteLastEvent();
+        if (cmdName == "waitforexport") return ChoreographyEvent::WaitForExport();
+
         Logger::Debug("ChoreographyScript: Unknown command without params: " + cmdName);
         return std::nullopt;
     }
@@ -495,6 +641,83 @@ std::optional<ChoreographyEvent> ChoreographyScript::ParseDslLine(const std::str
             if (!speedOpt) return std::nullopt;
             Logger::Debug("ChoreographyScript: Parsed ReplaySetSpeed(speed=" + std::to_string(*speedOpt) + "%)");
             return ChoreographyEvent::ReplaySetSpeed(*speedOpt);
+        }
+        else if (cmdName == "replaycamera" || cmdName == "replayselectcamera") {
+            if (params.empty()) return std::nullopt;
+            auto cameraOpt = safeStoi(Trim(params[0]));
+            if (!cameraOpt) return std::nullopt;
+            std::string channel = "A";
+            if (params.size() > 1) {
+                channel = Trim(params[1]);
+                if (channel.size() >= 2 && channel.front() == '"' && channel.back() == '"') {
+                    channel = channel.substr(1, channel.size() - 2);
+                }
+                std::transform(channel.begin(), channel.end(), channel.begin(), ::toupper);
+            }
+            if (*cameraOpt < 1 || *cameraOpt > 8) {
+                Logger::Warning("ChoreographyScript: ReplayCamera camera out of range (1-8): " +
+                                std::to_string(*cameraOpt));
+                return std::nullopt;
+            }
+            if (channel.size() != 1 || channel[0] < 'A' || channel[0] > 'D') {
+                Logger::Warning("ChoreographyScript: ReplayCamera invalid channel '" + channel +
+                                "' (expected A, B, C or D)");
+                return std::nullopt;
+            }
+            Logger::Debug("ChoreographyScript: Parsed ReplayCamera(camera=" +
+                         std::to_string(*cameraOpt) + ", channel=" + channel + ")");
+            return ChoreographyEvent::ReplayCamera(*cameraOpt, channel);
+        }
+        else if (cmdName == "replaymarkinout") {
+            if (params.empty()) return std::nullopt;
+            auto secondsOpt = safeStoi(Trim(params[0]));
+            if (!secondsOpt) return std::nullopt;
+            if (*secondsOpt <= 0) {
+                Logger::Warning("ChoreographyScript: ReplayMarkInOut requires a positive "
+                                "number of seconds");
+            }
+            Logger::Debug("ChoreographyScript: Parsed ReplayMarkInOut(seconds=" +
+                         std::to_string(*secondsOpt) + ")");
+            return ChoreographyEvent::ReplayMarkInOut(*secondsOpt);
+        }
+        else if (cmdName == "replayexportlastevent") {
+            std::string folder;
+            if (!params.empty()) {
+                folder = Trim(params[0]);
+                if (folder.size() >= 2 && folder.front() == '"' && folder.back() == '"') {
+                    folder = folder.substr(1, folder.size() - 2);
+                }
+            }
+            Logger::Debug("ChoreographyScript: Parsed ReplayExportLastEvent" +
+                         (folder.empty() ? std::string() : "(folder=" + folder + ")"));
+            return ChoreographyEvent::ReplayExportLastEvent(folder);
+        }
+        else if (cmdName == "waitforexport") {
+            auto unquote = [](const std::string& s) {
+                if (s.size() >= 2 && s.front() == '"' && s.back() == '"') {
+                    return s.substr(1, s.size() - 2);
+                }
+                return s;
+            };
+            std::string folder;
+            int timeoutMs = 0;
+            int stableMs = 0;
+            if (!params.empty()) {
+                folder = unquote(Trim(params[0]));
+            }
+            if (params.size() > 1) {
+                auto timeoutOpt = safeStoi(Trim(params[1]));
+                if (!timeoutOpt) return std::nullopt;
+                timeoutMs = *timeoutOpt;
+            }
+            if (params.size() > 2) {
+                auto stableOpt = safeStoi(Trim(params[2]));
+                if (!stableOpt) return std::nullopt;
+                stableMs = *stableOpt;
+            }
+            Logger::Debug("ChoreographyScript: Parsed WaitForExport" +
+                         (folder.empty() ? std::string() : "(folder=" + folder + ")"));
+            return ChoreographyEvent::WaitForExport(folder, timeoutMs, stableMs);
         }
         else if (cmdName == "timer") {
             if (params.empty()) return std::nullopt;
@@ -676,6 +899,29 @@ std::string ChoreographyScript::ToJsonString(const Script& script) {
         else if (auto* p = std::get_if<ReplaySpeedParams>(&event.params)) {
             eventJson["speed"] = p->percentage;
         }
+        else if (auto* p = std::get_if<ReplayCameraParams>(&event.params)) {
+            eventJson["camera"] = p->cameraNumber;
+            eventJson["channel"] = p->channel;
+        }
+        else if (auto* p = std::get_if<ReplayMarkInOutParams>(&event.params)) {
+            eventJson["value"] = p->seconds;
+        }
+        else if (auto* p = std::get_if<ReplayExportParams>(&event.params)) {
+            if (!p->folder.empty()) {
+                eventJson["value"] = p->folder;
+            }
+        }
+        else if (auto* p = std::get_if<WaitForExportParams>(&event.params)) {
+            if (!p->folder.empty()) {
+                eventJson["folder"] = p->folder;
+            }
+            if (p->timeoutMs > 0) {
+                eventJson["timeout"] = p->timeoutMs;
+            }
+            if (p->stableMs > 0) {
+                eventJson["stable"] = p->stableMs;
+            }
+        }
         else if (auto* p = std::get_if<NDISlotParams>(&event.params)) {
             eventJson["slot"] = p->slot;
             eventJson["camera"] = p->cameraID;
@@ -691,6 +937,12 @@ std::string ChoreographyScript::ToJsonString(const Script& script) {
         }
         else if (auto* p = std::get_if<TextParam>(&event.params)) {
             eventJson["text"] = p->text;
+        }
+        else if (auto* p = std::get_if<MeasurePointParams>(&event.params)) {
+            eventJson["camera"] = p->camera;
+            eventJson["punto"] = p->punto;
+            eventJson["burst_ms"] = p->burstMs;
+            eventJson["max_ms"] = p->maxMs;
         }
         
         if (!event.comment.empty()) {

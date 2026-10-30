@@ -36,6 +36,7 @@
 
 // 3. CUDA and standard library headers
 #include <cuda_runtime.h>
+#include <cstdint>
 #include <string>
 #include <memory>
 #include <queue>
@@ -67,6 +68,22 @@ struct VideoChannel {
     bool isActive;
 };
 
+// Forward declaration: anillo corto de frames del medidor por evento
+// (src/measure/MeasurePointCoordinator.h). El .h de captura no lo incluye para
+// no arrastrar la cabecera de inferencia; el .cpp si.
+namespace Measure {
+    class FrameRing;
+}
+
+/**
+ * Frame recibido del DeckLink con el instante sellado en OnFrameArrived.
+ * El sello es el `t` que usa el medidor por evento (nunca la hora del envio).
+ */
+struct QueuedFrame {
+    IDeckLinkVideoInputFrame* frame = nullptr;
+    int64_t arrivalEpochMs = 0;   // epoch ms, sellado en OnFrameArrived
+};
+
 /**
  * Custom DeckLink capture class with zero-copy memory allocator
  * Philosophy: Maximum performance over development comfort
@@ -77,8 +94,10 @@ public:
     DeckLinkCapture();
     ~DeckLinkCapture();
     
-    // Initialize capture from specific DeckLink device
-    bool Initialize(int deviceIndex, const std::string& channelName);
+    // Initialize capture from specific DeckLink device.
+    // logicalChannelId decouples the per-channel index (NDI senders, per-channel
+    // arrays) from the physical device index. Defaults to deviceIndex.
+    bool Initialize(int deviceIndex, const std::string& channelName, int logicalChannelId = -1);
     
     // Start/Stop capture with C++20 thread safety
     bool Start();
@@ -86,6 +105,13 @@ public:
     
     // Register a callback invoked after color conversion and inference hook
     void SetFrameReadyHandler(std::function<void(const VideoChannel&, cudaStream_t)> handler);
+    
+    /**
+     * Engancha el anillo corto del medidor por evento (puede ser nullptr).
+     * Si esta enganchado, cada frame UYVY se copia al anillo con el instante
+     * sellado en OnFrameArrived. Si es nullptr el costo es cero.
+     */
+    void SetMeasureRing(Measure::FrameRing* ring) { m_measureRing = ring; }
     
     // Get CUDA buffer for YOLO/TensorRT processing
     void* GetBGRABuffer() const { return m_channel.cudaBGRABuffer; }
@@ -228,7 +254,7 @@ private:
     
     // Capture thread function (C++20 jthread)
     void CaptureThreadFunc(std::stop_token stopToken);
-    void ProcessFrame(IDeckLinkVideoInputFrame* videoFrame);
+    void ProcessFrame(const QueuedFrame& queuedFrame);
     void ExecuteInference();
     
     // Channel data
@@ -250,8 +276,11 @@ private:
     std::jthread m_captureThread;
     
     // Frame queue for async processing
-    std::queue<IDeckLinkVideoInputFrame*> m_frameQueue;
+    std::queue<QueuedFrame> m_frameQueue;
     std::mutex m_queueMutex;
     std::condition_variable_any m_frameCv;
     std::function<void(const VideoChannel&, cudaStream_t)> m_frameReadyHandler;
+    
+    // Anillo corto del medidor por evento (opcional, nullptr = deshabilitado)
+    Measure::FrameRing* m_measureRing = nullptr;
 };

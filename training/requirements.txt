@@ -1,0 +1,14 @@
+# Entorno de entrenamiento — modelo de llegada
+#
+# IMPORTANTE (RTX 5080 / Blackwell sm_120): PyTorch debe ser CUDA 12.8+.
+# El pip de PyPI trae cu12.1 que NO soporta la RTX 5080. Instalar con:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+#
+# (En esta máquina se usa training/.venv con --system-site-packages para
+#  reutilizar el TensorRT 10.16 ya instalado; solo se instaló torch/onnx dentro.)
+
+ultralytics>=8.4.8      # soporte YOLO26 (end-to-end, sin NMS)
+onnx>=1.16              # para el .onnx intermedio y verificación
+
+# TensorRT: >=10.7 para Blackwell. En esta máquina ya está (10.16) en el sistema.
+# En un entorno limpio:  pip install tensorrt

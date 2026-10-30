@@ -122,6 +122,7 @@
     <ClCompile Include="tracking\BallTracker.cpp" />
     <ClCompile Include="scene\SceneManager.cpp" />
     <ClCompile Include="output\RankingPublisher.cpp" />
+    <ClCompile Include="output\ArrivalEmitter.cpp" />
     <ClCompile Include="redis\RedisWorker.cpp" />
     <ClCompile Include="telemetry\PerformanceMonitor.cpp" />
     <ClCompile Include="utils\Logger.cpp" />
@@ -135,6 +136,9 @@
     <ClCompile Include="choreography\ChoreographyScript.cpp" />
     <ClCompile Include="choreography\ChoreographyEngine.cpp" />
     <ClCompile Include="verification\SphereVerifier.cpp" />
+    <ClCompile Include="verification\ArrivalOrderStabilizer.cpp" />
+    <ClCompile Include="measure\MeasurePointCoordinator.cpp" />
+    <ClCompile Include="measure\AnimationPublisher.cpp" />
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="capture\CudaColorConversion.cu">
@@ -165,6 +169,7 @@
     <ClInclude Include="tracking\KalmanFilter.h" />
     <ClInclude Include="scene\SceneManager.h" />
     <ClInclude Include="output\RankingPublisher.h" />
+    <ClInclude Include="output\ArrivalEmitter.h" />
     <ClInclude Include="telemetry\PerformanceMonitor.h" />
     <ClInclude Include="redis\RedisWorker.h" />
     <ClInclude Include="utils\Logger.h" />
@@ -182,6 +187,9 @@
     <ClInclude Include="choreography\ChoreographyScript.h" />
     <ClInclude Include="choreography\ChoreographyEngine.h" />
     <ClInclude Include="verification\SphereVerifier.h" />
+    <ClInclude Include="verification\ArrivalOrderStabilizer.h" />
+    <ClInclude Include="measure\MeasurePointCoordinator.h" />
+    <ClInclude Include="measure\AnimationPublisher.h" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="shaders\ColorConversion.hlsl">

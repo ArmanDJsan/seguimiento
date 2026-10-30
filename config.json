@@ -1,0 +1,409 @@
+{
+  "videohub": {
+    "ip": "192.168.1.50",
+    "port": 9990
+  },
+  "esp32": {
+    "ip": "10.1.40.20",
+    "port": 80,
+    "endpoints": {
+      "test": "/test",
+      "iniciar": "/iniciar",
+      "finalizar": "/finalizar",
+      "recargar": "/recargar"
+    }
+  },
+  "redis": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 6379
+  },
+  "camera_selector": {
+    "enabled": false,
+    "top_k": 4,
+    "motion_threshold": 0.05,
+    "edge_handover_margin": 0.1
+  },
+  "detection_optimization": {
+    "hysteresis": {
+      "switch_threshold": 0.15,
+      "min_active_frames": 10,
+      "decay_factor": 0.98
+    }
+  },
+  "performance_optimization": {
+    "cpu_affinity": {
+      "enabled": true,
+      "capture_threads_cores": "0-3",
+      "processing_threads_cores": "4-7",
+      "description": "Pin video threads to CCD0 (cores 0-7) to avoid inter-CCD latency on Threadripper"
+    },
+    "gpu_scheduling": {
+      "hardware_accelerated_scheduling": "required",
+      "check_on_startup": true,
+      "pcie_bandwidth_monitoring": true,
+      "description": "Requires Windows Hardware Accelerated GPU Scheduling enabled in Graphics Settings"
+    },
+    "cuda_optimization": {
+      "multi_buffering_ndi": true,
+      "event_pooling": false,
+      "stream_priority_high": true,
+      "description": "Enable multi-buffering for NDI to reduce GPU->CPU transfer blocking"
+    },
+    "telemetry_targets": {
+      "cap_max_ms": 15.0,
+      "sel_max_ms": 5.0,
+      "ndi_max_ms": 10.0,
+      "total_max_ms": 32.0,
+      "description": "Performance KPIs under high motion (Avg motion > 0.5)"
+    }
+  },
+  "scene_manager": {
+    "enabled": true,
+    "mute_timeout_ms": 200,
+    "mode": "manual",
+    "trigger_mode": "event",
+    "event_cooldown_ms": 500,
+    "hysteresis_frames": 3,
+    "manual_keys": {
+      "toggle_mode": "M",
+      "config_select": [
+        "F1",
+        "F6",
+        "F7"
+      ],
+      "group_select": "G",
+      "camera_select": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ]
+    },
+    "zones": {
+      "ZONE_START": {
+        "range_m": [
+          0,
+          75
+        ],
+        "triggers_config": "config_a",
+        "covered_by_ptz": [
+          1
+        ]
+      },
+      "ZONE_MID": {
+        "range_m": [
+          75,
+          150
+        ],
+        "triggers_config": "config_b",
+        "covered_by_ptz": [
+          2,
+          3
+        ]
+      },
+      "ZONE_FINISH": {
+        "range_m": [
+          150,
+          300
+        ],
+        "triggers_config": "config_c",
+        "covered_by_ptz": [
+          4
+        ]
+      }
+    },
+    "groups": {
+      "config_a": {
+        "g1_g4": [
+          1,
+          2,
+          3,
+          12
+        ],
+        "g5_g8": [
+          4,
+          5,
+          6,
+          7
+        ],
+        "trigger_threshold": 25.0,
+        "description": "Initial config - cameras 1-3,12 in G1-G4, cameras 4-7 in G5-G8"
+      },
+      "config_b": {
+        "g1_g4": [
+          8,
+          9,
+          10,
+          12
+        ],
+        "g5_g8": [
+          4,
+          5,
+          6,
+          7
+        ],
+        "trigger_threshold": 50.0,
+        "description": "Mid-track config - cameras 8-10,12 in G1-G4"
+      },
+      "config_c": {
+        "g1_g4": [
+          8,
+          9,
+          10,
+          12
+        ],
+        "g5_g8": [
+          11,
+          1,
+          2,
+          3
+        ],
+        "trigger_threshold": 75.0,
+        "description": "Late-track config - rotates G5-G8 to finish line cameras"
+      }
+    },
+    "radar_routing": {
+      "enabled": true,
+      "RADAR_01": 8,
+      "RADAR_02": 9,
+      "RADAR_03": 10,
+      "RADAR_04": 11,
+      "description": "Map RADAR inputs to VideoHub outputs. Values are 0-based protocol indices (8=physical output 9). Applied with every config change for stability."
+    }
+  },
+  "ndi": {
+    "enabled": false,
+    "description": "NDI output is disabled - vMix captures directly from VideoHub"
+  },
+  "inference_engine": {
+    "model_path": "models/modelo_1920x1088.engine",
+    "batch_size": 4,
+    "precision": "FP16",
+    "input_width": 1920,
+    "input_height": 1080,
+    "nms_threshold": 0.4,
+    "confidence_threshold": 0.6,
+    "num_classes": 10,
+    "skip_resize": true,
+    "max_detections": 300,
+    "debug_yolo_enabled": true,
+    "debug_yolo_interval": 300,
+    "description": "TensorRT engine for ball detection - Using 1920x1080 (full HD) for better small object detection. Optimized: maxDetections=300 (reduced from 8400), confidence=0.7 (increased from 0.6)"
+  },
+  "position_mapper": {
+    "calibration_file": "config/calibration.json",
+    "track_bounds": {
+      "x_min": 0.0,
+      "x_max": 100.0,
+      "y_min": 0.0,
+      "y_max": 6.0
+    },
+    "description": "Homography-based pixel to global coordinate transformation"
+  },
+  "ball_tracker": {
+    "num_balls": 10,
+    "kalman_process_noise_pos": 0.01,
+    "kalman_process_noise_vel": 0.1,
+    "kalman_measurement_noise": 0.5,
+    "max_occlusion_frames": 30,
+    "association_gate_distance": 2.0,
+    "min_confidence_threshold": 0.3,
+    "description": "Kalman filter-based multi-ball tracking with Hungarian assignment"
+  },
+  "ranking_publisher": {
+    "enabled": true,
+    "vmix_host": "192.168.1.10",
+    "vmix_tcp_port": 8099,
+    "publish_rate_hz": 30,
+    "title_input_name": "RankingTitle",
+    "description": "Publish ball rankings to vMix GT Titles"
+  },
+  "choreography": {
+    "enabled": true,
+    "script_path": "config/choreography/inicio_carrera_tlms.json",
+    "auto_start": true,
+    "continue_on_error": false,
+    "vmix_required": true,
+    "trigger_key": "F12",
+    "debug": true,
+    "description": "vMix choreography automation - executes sequences of vMix commands and NDI slot changes"
+  },
+  "animation": {
+    "enabled": false,
+    "host": "127.0.0.1",
+    "port": 9100,
+    "description": "Salida UDP del medidor por evento: un datagrama por MeasurePoint con el orden de las esferas (posiciones = orden, no coordenadas)"
+  },
+  "ports": [
+    {
+      "index": 1,
+      "name": "CAM_01",
+      "role": "stream",
+      "is_output": true
+    },
+    {
+      "index": 2,
+      "name": "CAM_02",
+      "role": "stream"
+    },
+    {
+      "index": 3,
+      "name": "CAM_03",
+      "role": "stream"
+    },
+    {
+      "index": 4,
+      "name": "CAM_04",
+      "role": "stream"
+    },
+    {
+      "index": 5,
+      "name": "CAM_05",
+      "role": "stream"
+    },
+    {
+      "index": 6,
+      "name": "CAM_06",
+      "role": "stream"
+    },
+    {
+      "index": 7,
+      "name": "CAM_07",
+      "role": "stream"
+    },
+    {
+      "index": 8,
+      "name": "CAM_08",
+      "role": "stream"
+    },
+    {
+      "index": 9,
+      "name": "CAM_09",
+      "role": "stream"
+    },
+    {
+      "index": 10,
+      "name": "CAM_10",
+      "role": "stream"
+    },
+    {
+      "index": 11,
+      "name": "CAM_11",
+      "role": "stream"
+    },
+    {
+      "index": 12,
+      "name": "CAM_12",
+      "role": "stream"
+    },
+    {
+      "index": 13,
+      "name": "RADAR_01",
+      "role": "radar"
+    },
+    {
+      "index": 14,
+      "name": "RADAR_02",
+      "role": "radar"
+    },
+    {
+      "index": 15,
+      "name": "RADAR_03",
+      "role": "radar"
+    },
+    {
+      "index": 16,
+      "name": "RADAR_04",
+      "role": "radar"
+    }
+  ],
+  "target_spheres": 10,
+  "ptz_cameras": {
+    "enabled": true,
+    "cameras": [
+      {
+        "id": 0,
+        "name": "PTZ_START",
+        "ip": "192.168.1.101",
+        "visca_port": 1259,
+        "visca_address": 1,
+        "base_preset": 1,
+        "presets": [
+          1,
+          2,
+          3
+        ],
+        "description": "PTZ camera covering start zone (0-25m)"
+      },
+      {
+        "id": 1,
+        "name": "PTZ_MID_1",
+        "ip": "192.168.1.102",
+        "visca_port": 1259,
+        "visca_address": 1,
+        "base_preset": 1,
+        "presets": [
+          1,
+          2,
+          3
+        ],
+        "description": "PTZ camera covering mid zone part 1 (25-40m)"
+      },
+      {
+        "id": 2,
+        "name": "PTZ_MID_2",
+        "ip": "192.168.1.103",
+        "visca_port": 1259,
+        "visca_address": 1,
+        "base_preset": 1,
+        "presets": [
+          1,
+          2,
+          3
+        ],
+        "description": "PTZ camera covering mid zone part 2 (40-60m)"
+      },
+      {
+        "id": 3,
+        "name": "PTZ_FINISH",
+        "ip": "192.168.1.104",
+        "visca_port": 1259,
+        "visca_address": 1,
+        "base_preset": 1,
+        "presets": [
+          1,
+          2,
+          3
+        ],
+        "description": "PTZ camera covering finish zone (60-100m)"
+      }
+    ],
+    "description": "4x PTZ cameras (1080p 30fps) for coordinated centroid tracking"
+  },
+  "automated_track": {
+    "decklink_device_index": 8,
+    "description": "Modo Pista Automatizada - indice del dispositivo DeckLink (0-11). Cambiar si la captura no tiene senal."
+  },
+  "training_capture": {
+    "videohub_input": 13,
+    "videohub_output": 1,
+    "decklink_device": 2,
+    "ndi_name": "VIB_Training",
+    "description": "Opcion 10 (Captura para entrenamiento). videohub_input/output son puertos FISICOS 1-based (13 = puerto fisico 13). decklink_device es el numero 'device #N' que aparece en el log (1-based, #6 = DeckLink 8K Pro Mini (2) 2)."
+  },
+  "ptz_tracking": {
+    "enabled": false,
+    "kp": 50.0,
+    "dead_zone": 0.05,
+    "max_pan_speed": 24,
+    "max_tilt_speed": 20,
+    "zoom_out_threshold": 0.15,
+    "zoom_in_threshold": 0.05,
+    "fallback_timeout_frames": 60,
+    "engage_min_frames": 3,
+    "min_sphere_count": 3,
+    "smoothing_window": 5,
+    "description": "PTZ tracking control parameters - thresholds in normalized coordinates (0.0-1.0)"
+  }
+}

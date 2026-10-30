@@ -889,62 +889,41 @@ void InferenceEngine::ApplyNMS(std::vector<BallDetection>& detections) {
     if (detections.size() <= 1) {
         return;
     }
-    
+
     // Sort by confidence (descending)
     std::sort(detections.begin(), detections.end(),
               [](const BallDetection& a, const BallDetection& b) {
                   return a.confidence > b.confidence;
               });
-    
+
     std::vector<bool> suppressed(detections.size(), false);
-    
+
     auto computeIoU = [](const BallDetection& a, const BallDetection& b) -> float {
         float x1 = std::max(a.x - a.width / 2, b.x - b.width / 2);
         float y1 = std::max(a.y - a.height / 2, b.y - b.height / 2);
         float x2 = std::min(a.x + a.width / 2, b.x + b.width / 2);
         float y2 = std::min(a.y + a.height / 2, b.y + b.height / 2);
-        
         float intersection = std::max(0.0f, x2 - x1) * std::max(0.0f, y2 - y1);
         float areaA = a.width * a.height;
         float areaB = b.width * b.height;
         float unionArea = areaA + areaB - intersection;
-        
         return (unionArea > 0) ? intersection / unionArea : 0.0f;
     };
-    
+
     for (size_t i = 0; i < detections.size(); ++i) {
         if (suppressed[i]) continue;
-        
         for (size_t j = i + 1; j < detections.size(); ++j) {
             if (suppressed[j]) continue;
-            
-            // Only apply NMS within same camera
             if (detections[i].cameraID != detections[j].cameraID) continue;
-            
-            // CLASS-AWARE NMS: Only suppress detections with the SAME class ID
-            // Different spheres (different class IDs) can occupy nearby positions
             if (detections[i].ballID != detections[j].ballID) continue;
-            
+
             float iou = computeIoU(detections[i], detections[j]);
-            if (iou > m_config.nmsThreshold) {
+            if (iou > 0.7f) {  // IoU threshold raised to 0.7 (was 0.4)
                 suppressed[j] = true;
-                
-                // Debug: Log NMS suppressions for same-class detections (thread-safe)
-                // Note: Static counter is intentionally shared across all InferenceEngine instances
-                // to limit total debug output volume across the entire application
-                static std::atomic<int> nmsDebugCount{0};
-                if (nmsDebugCount.load() < 10) {
-                    Logger::Info("[NMS_DEBUG] Suppressing detection: ballID=" + std::to_string(detections[j].ballID) + 
-                                ", conf=" + std::to_string(detections[j].confidence) + 
-                                ", IoU=" + std::to_string(iou) + 
-                                " (kept ballID=" + std::to_string(detections[i].ballID) + 
-                                ", conf=" + std::to_string(detections[i].confidence) + ")");
-                    nmsDebugCount++;
-                }
             }
         }
     }
-    
+
     // Remove suppressed detections
     auto it = std::remove_if(detections.begin(), detections.end(),
                              [&suppressed, &detections](const BallDetection& d) {
@@ -953,23 +932,6 @@ void InferenceEngine::ApplyNMS(std::vector<BallDetection>& detections) {
                              });
     detections.erase(it, detections.end());
     
-    // Debug: Log final detection summary by class (thread-safe)
-    // Note: Static counter is intentionally shared across all InferenceEngine instances
-    // to limit total debug output volume across the entire application
-    static std::atomic<int> nmsSummaryCount{0};
-    if (nmsSummaryCount.load() < 5) {
-        std::map<int, int> classCounts;
-        for (const auto& det : detections) {
-            classCounts[det.ballID]++;
-        }
-        std::ostringstream oss;
-        oss << "[NMS_SUMMARY] Final detections by class: ";
-        for (const auto& kv : classCounts) {
-            oss << "B" << kv.first << "(" << kv.second << ") ";
-        }
-        Logger::Info(oss.str());
-        nmsSummaryCount++;
-    }
 }
 
 int64_t InferenceEngine::GetCurrentTimeMs() const {

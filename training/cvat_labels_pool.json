@@ -1,0 +1,142 @@
+[
+  {
+    "name": "bola_0",
+    "color": "#ffffff",
+    "type": "rectangle",
+    "attributes": [
+      {
+        "name": "color",
+        "input_type": "text",
+        "mutable": false,
+        "values": ["blanca"],
+        "default_value": "blanca"
+      }
+    ]
+  },
+  {
+    "name": "bola_1",
+    "color": "#ffff00",
+    "type": "rectangle",
+    "attributes": [
+      {
+        "name": "color",
+        "input_type": "text",
+        "mutable": false,
+        "values": ["amarilla"],
+        "default_value": "amarilla"
+      }
+    ]
+  },
+  {
+    "name": "bola_2",
+    "color": "#32b7fa",
+    "type": "rectangle",
+    "attributes": [
+      {
+        "name": "color",
+        "input_type": "text",
+        "mutable": false,
+        "values": ["azul"],
+        "default_value": "azul"
+      }
+    ]
+  },
+  {
+    "name": "bola_3",
+    "color": "#ff0000",
+    "type": "rectangle",
+    "attributes": [
+      {
+        "name": "color",
+        "input_type": "text",
+        "mutable": false,
+        "values": ["roja"],
+        "default_value": "roja"
+      }
+    ]
+  },
+  {
+    "name": "bola_4",
+    "color": "#800080",
+    "type": "rectangle",
+    "attributes": [
+      {
+        "name": "color",
+        "input_type": "text",
+        "mutable": false,
+        "values": ["morada"],
+        "default_value": "morada"
+      }
+    ]
+  },
+  {
+    "name": "bola_5",
+    "color": "#ffa500",
+    "type": "rectangle",
+    "attributes": [
+      {
+        "name": "color",
+        "input_type": "text",
+        "mutable": false,
+        "values": ["naranja"],
+        "default_value": "naranja"
+      }
+    ]
+  },
+  {
+    "name": "bola_6",
+    "color": "#00ff00",
+    "type": "rectangle",
+    "attributes": [
+      {
+        "name": "color",
+        "input_type": "text",
+        "mutable": false,
+        "values": ["verde"],
+        "default_value": "verde"
+      }
+    ]
+  },
+  {
+    "name": "bola_7",
+    "color": "#800000",
+    "type": "rectangle",
+    "attributes": [
+      {
+        "name": "color",
+        "input_type": "text",
+        "mutable": false,
+        "values": ["vinotinto"],
+        "default_value": "vinotinto"
+      }
+    ]
+  },
+  {
+    "name": "bola_8",
+    "color": "#404040",
+    "type": "rectangle",
+    "attributes": [
+      {
+        "name": "color",
+        "input_type": "text",
+        "mutable": false,
+        "values": ["negra"],
+        "default_value": "negra"
+      }
+    ]
+  },
+  {
+    "name": "bola_9",
+    "color": "#ffffe0",
+    "type": "rectangle",
+    "attributes": [
+      {
+        "name": "color",
+        "input_type": "text",
+        "mutable": false,
+        "values": ["amarillo_blanca"],
+        "default_value": "amarillo_blanca"
+      }
+    ]
+  }
+]
