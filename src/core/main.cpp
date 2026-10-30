@@ -103,7 +103,6 @@ std::unordered_map<std::string, int> BuildInputLookup() {
     lookup["RADAR_02"] = 13;
     lookup["RADAR_03"] = 14;
     lookup["RADAR_04"] = 15;
-    lookup["CAM_29"] = 28;   // PTZ camera on physical input 29 (0-based index 28)
     return lookup;
 }
 
@@ -111,6 +110,36 @@ std::vector<int> RangeInclusive(int start, int end) {
     std::vector<int> values(static_cast<size_t>(end - start + 1));
     std::iota(values.begin(), values.end(), start);
     return values;
+}
+
+/**
+ * Rutea las PTZ (RADAR_01..04) a sus salidas segun scene_manager.radar_routing.
+ * Mismo criterio que SceneManager::ApplyRadarRouting: por nombre, leyendo los
+ * slots del config. No hay numeros de puerto hardcodeados en el codigo.
+ * Devuelve true si se ruteo todo (o si el ruteo esta deshabilitado en config).
+ */
+bool ApplyRadarRoutingFromConfig(VideoHubClient& videoHub, const Config& config,
+                                 const std::string& tag) {
+    if (!config.radarRoutingEnabled) {
+        Logger::Info("[" + tag + "] Radar routing: deshabilitado en config "
+                     "(scene_manager.radar_routing.enabled=false)");
+        return true;
+    }
+
+    int okCount = 0;
+    for (int i = 0; i < SceneManager::kRadarCount; ++i) {
+        const int outSlot = config.radarOutputSlots[static_cast<size_t>(i)];
+        const std::string inputName = SceneManager::kRadarNames[i];
+        if (videoHub.RouteInputToOutput(outSlot, inputName)) {
+            ++okCount;
+            Logger::Info("[" + tag + "] VideoHub: " + inputName + " -> out " +
+                         std::to_string(outSlot) + " (indice de protocolo, 0-based) OK");
+        } else {
+            Logger::Warning("[" + tag + "] VideoHub: fallo ruteando " + inputName +
+                            " -> out " + std::to_string(outSlot) + " (no critico)");
+        }
+    }
+    return okCount == SceneManager::kRadarCount;
 }
 
 // Config struct is now defined in Config.h
@@ -2539,16 +2568,9 @@ bool RunAutomatedTrackMode() {
     }
     Logger::Info("[PISTA AUTO] VideoHub conectado a " + config.videohubIp);
 
-    // Route PTZ camera: physical input 29 -> physical output 13
-    // VideoHub protocol uses 0-based indices: input 29 = index 28, output 13 = index 12
-    constexpr int kPTZVideoHubInputIdx = 28;   // Physical input 29 (0-based)
-    constexpr int kPTZVideoHubOutputIdx = 12;  // Physical output 13 (0-based)
-
-    if (!videoHub.RouteInputToOutput(kPTZVideoHubOutputIdx, kPTZVideoHubInputIdx)) {
-        Logger::Warning("[PISTA AUTO] No se pudo rutear input 29 -> output 13 (no critico en stub)");
-    } else {
-        Logger::Info("[PISTA AUTO] VideoHub: input 29 -> output 13 OK");
-    }
+    // Ruteo de las PTZ: los radares se resuelven por nombre y sus salidas se
+    // leen de scene_manager.radar_routing (no hay input/output fijo en codigo).
+    ApplyRadarRoutingFromConfig(videoHub, config, "PISTA AUTO");
 
     // Initialize InferenceEngine (stub mode OK for Phase 1)
     Logger::Info("[PISTA AUTO] Inicializando InferenceEngine...");
@@ -2724,7 +2746,7 @@ bool RunAutomatedTrackMode() {
     std::cout << "  |              MODO PISTA AUTOMATIZADA - FASE 1                      |\n";
     std::cout << "  +--------------------------------------------------------------------+\n";
     std::cout << "  |                                                                    |\n";
-    std::cout << "  |   Camara:    Input 29 -> Output 13 (VideoHub)                      |\n";
+    std::cout << "  |   Radar:     RADAR_01..04 -> salidas de radar_routing (VideoHub)   |\n";
     std::cout << "  |   PTZ:       " << (ptzAvailable ? "CONECTADO" : "NO DISPONIBLE") << "                                              |\n";
     std::cout << "  |   Preset:    1 (vista amplia de todo el tramo)                     |\n";
     std::cout << "  |   Esferas:   10 esperadas en la salida                             |\n";
@@ -2803,7 +2825,7 @@ bool RunAutomatedTrackMode() {
             std::cout << "  |  Verifique que:                                                    |\n";
             std::cout << "  |  - Las 10 esferas esten visibles en la salida                     |\n";
             std::cout << "  |  - La camara PTZ este encendida y en preset 1                      |\n";
-            std::cout << "  |  - El VideoHub este enrutando input 29 -> output 13                |\n";
+            std::cout << "  |  - El VideoHub rutee los radares segun radar_routing               |\n";
             std::cout << "  +--------------------------------------------------------------------+\n";
         } else {
             Logger::Info("[PISTA AUTO] Verificacion COMPLETADA EXITOSAMENTE");
@@ -2902,8 +2924,7 @@ bool RunLivePreview() {
         std::cin.get();
         return false;
     }
-    videoHub.RouteInputToOutput(12, 28); // input 29 -> output 13
-    Logger::Info("[LIVE] VideoHub: input 29 -> output 13 OK");
+    ApplyRadarRoutingFromConfig(videoHub, config, "LIVE");
 
     auto inferenceEngine = std::make_shared<InferenceEngine>();
     inferenceEngine->Initialize(config.inferenceConfig);
@@ -3097,8 +3118,7 @@ bool RunArrivalOrderTest() {
         std::cin.get();
         return false;
     }
-    videoHub.RouteInputToOutput(12, 28); // input 29 -> output 13 (camara de meta)
-    Logger::Info("[LLEGADA] VideoHub: input 29 -> output 13 OK");
+    ApplyRadarRoutingFromConfig(videoHub, config, "LLEGADA");
 
     // Dedicated arrival engine (second engine, does not touch the main one)
     auto inferenceEngine = std::make_shared<InferenceEngine>();

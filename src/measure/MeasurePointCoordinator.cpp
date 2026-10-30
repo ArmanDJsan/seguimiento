@@ -26,6 +26,7 @@
 #include <cstring>
 #include <functional>
 #include <sstream>
+#include <unordered_map>
 
 namespace Measure {
 
@@ -550,6 +551,28 @@ bool MeasurePointCoordinator::IngestFrame(FrameRing* ring, int64_t index, FrameS
         out.epochMs = epochMs;
         out.xs.clear();
         return true;
+    }
+
+    // Una esfera = una posicion. El motor de inferencia puede devolver la misma
+    // esfera dos veces (InferenceEngine usa IoU fijo y descarta su nmsThreshold,
+    // asi que dos cajas poco solapadas de la misma esfera sobreviven), y sin
+    // esto el top-10 por confianza mete la misma esfera dos veces en el array.
+    // Nos quedamos con la deteccion de mayor confianza por ballID antes de
+    // recortar a 10 y de ordenar por x.
+    {
+        std::unordered_map<int, size_t> bestByBall;
+        std::vector<BallDetection> unique;
+        unique.reserve(detections.size());
+        for (const auto& det : detections) {
+            auto it = bestByBall.find(det.ballID);
+            if (it == bestByBall.end()) {
+                bestByBall.emplace(det.ballID, unique.size());
+                unique.push_back(det);
+            } else if (det.confidence > unique[it->second].confidence) {
+                unique[it->second] = det;
+            }
+        }
+        detections.swap(unique);
     }
 
     // Si el modelo devuelve mas de 10, quedarse con las de mayor confianza.
