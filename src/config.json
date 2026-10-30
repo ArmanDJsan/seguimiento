@@ -203,6 +203,12 @@
     "debug": false,
     "description": "vMix choreography automation - executes sequences of vMix commands and NDI slot changes"
   },
+  "animation": {
+    "enabled": false,
+    "host": "127.0.0.1",
+    "port": 9100,
+    "description": "Salida UDP del medidor por evento: un datagrama por MeasurePoint con el orden de las esferas (posiciones = orden, no coordenadas)"
+  },
   "ports": [
     { "index": 1, "name": "CAM_01", "role": "stream", "is_output": true },
     { "index": 2, "name": "CAM_02", "role": "stream" },

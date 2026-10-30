@@ -23,11 +23,13 @@
 // 3. Project headers
 #include "DeckLinkCapture.h"
 #include "CudaColorConversion.h"
+#include "../measure/MeasurePointCoordinator.h"
 #include "../utils/Logger.h"
 #include "../utils/ThreadOptimizer.h"
 
 // 4. Standard library headers
 #include <algorithm>
+#include <chrono>
 
 // CUDA error checking macro
 #define CUDA_CHECK(call) \
@@ -410,16 +412,16 @@ void DeckLinkCapture::CaptureThreadFunc(std::stop_token stopToken) {
         }
 
         if (!m_frameQueue.empty()) {
-            IDeckLinkVideoInputFrame* frame = m_frameQueue.front();
+            QueuedFrame queued = m_frameQueue.front();
             m_frameQueue.pop();
             lock.unlock();
 
             // Process frame (transfer to CUDA memory)
-            ProcessFrame(frame);
+            ProcessFrame(queued);
 
             // Release frame reference if DeckLink uses COM-style lifetime
-            if (frame) {
-                frame->Release();
+            if (queued.frame) {
+                queued.frame->Release();
             }
         }
     }
@@ -431,11 +433,19 @@ void DeckLinkCapture::OnFrameArrived(IDeckLinkVideoInputFrame* videoFrame) {
     if (!videoFrame || !m_channel.isActive) {
         return;
     }
+    // Sello de tiempo del frame: es el `t` del paquete de medicion (nunca la
+    // hora del envio). Se toma aca, en la llegada, no en el procesamiento.
+    const int64_t arrivalEpochMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+
     // Producer: enqueue frame and wake capture thread
     videoFrame->AddRef(); // retain while in queue
     {
         std::lock_guard<std::mutex> lock(m_queueMutex);
-        m_frameQueue.push(videoFrame);
+        QueuedFrame queued;
+        queued.frame = videoFrame;
+        queued.arrivalEpochMs = arrivalEpochMs;
+        m_frameQueue.push(queued);
     }
     m_frameCv.notify_one();
 }
@@ -492,7 +502,8 @@ void DeckLinkCapture::ProcessFrame(IDeckLinkVideoInputFrame* videoFrame) {
 -----------------------------------copilot agent revisar si la nueva implementacion cumple con zero copy optimo-----------------
 */
 
-void DeckLinkCapture::ProcessFrame(IDeckLinkVideoInputFrame* videoFrame) {
+void DeckLinkCapture::ProcessFrame(const QueuedFrame& queuedFrame) {
+    IDeckLinkVideoInputFrame* videoFrame = queuedFrame.frame;
     if (!videoFrame || !m_channel.isActive) return;
 
     // Get the buffer interface
@@ -506,7 +517,14 @@ void DeckLinkCapture::ProcessFrame(IDeckLinkVideoInputFrame* videoFrame) {
         if (videoBuffer->StartAccess(bmdBufferAccessRead) == S_OK) {
             // Get the pointer (works with GetBytes now)
             if (SUCCEEDED(videoBuffer->GetBytes(&frameBuffer)) && frameBuffer) {
-                
+
+                // Medidor por evento: copia UYVY al anillo corto (pre-roll).
+                // Si no hay anillo enganchado el costo es cero.
+                if (m_measureRing) {
+                    m_measureRing->Push(frameBuffer, m_channel.bufferSize,
+                                        queuedFrame.arrivalEpochMs);
+                }
+
                 // TRUE ZERO-COPY PATH: Check if this is a mapped buffer from our allocator provider
                 void* devicePtr = m_allocatorProvider->GetDevicePointer(frameBuffer);
                 

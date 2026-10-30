@@ -374,6 +374,19 @@ std::optional<ChoreographyEvent> ChoreographyScript::ParseJsonEvent(const void* 
         Logger::Debug("ChoreographyScript: Parsed Timer(ms=" + std::to_string(ms) + ")");
         return ChoreographyEvent::Timer(ms);
     }
+    else if (typeLower == "measurepoint") {
+        // Medicion por evento (fase 1): no bloquea la linea de tiempo, el
+        // engine solo encola y sigue.
+        int camera = j.value("camera", j.value("cameraID", 1));
+        int punto = j.value("punto", j.value("point", 1));
+        int burstMs = j.value("burst_ms", 400);
+        int maxMs = j.value("max_ms", 2000);
+        Logger::Debug("ChoreographyScript: Parsed MeasurePoint(camera=" + std::to_string(camera) +
+                      ", punto=" + std::to_string(punto) +
+                      ", burst_ms=" + std::to_string(burstMs) +
+                      ", max_ms=" + std::to_string(maxMs) + ")");
+        return ChoreographyEvent::MeasurePoint(camera, punto, burstMs, maxMs);
+    }
     else if (typeLower == "ndislotchange") {
         int slot = j.value("slot", 0);
         int camera = j.value("camera", 1);
@@ -924,6 +937,12 @@ std::string ChoreographyScript::ToJsonString(const Script& script) {
         }
         else if (auto* p = std::get_if<TextParam>(&event.params)) {
             eventJson["text"] = p->text;
+        }
+        else if (auto* p = std::get_if<MeasurePointParams>(&event.params)) {
+            eventJson["camera"] = p->camera;
+            eventJson["punto"] = p->punto;
+            eventJson["burst_ms"] = p->burstMs;
+            eventJson["max_ms"] = p->maxMs;
         }
         
         if (!event.comment.empty()) {

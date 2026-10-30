@@ -11,6 +11,7 @@
 #include "../scene/SceneManager.h"
 #include "../control/VideoHubClient.h"
 #include "../verification/SphereVerifier.h"
+#include "../measure/MeasurePointCoordinator.h"
 #include "../utils/Logger.h"
 #include <sstream>
 #include <iomanip>
@@ -419,6 +420,25 @@ EventResult ChoreographyEngine::ExecuteEventInternal(const ChoreographyEvent& ev
     result.success = true;
     
     switch (event.type) {
+        case EventType::MeasurePoint: {
+            // Medicion por evento: NO se mide aca y NO se bloquea la linea de
+            // tiempo. Solo se encola (push con tope 8, descarte del mas viejo)
+            // y se sigue con el proximo evento. El hilo medidor hace el resto.
+            auto* params = std::get_if<MeasurePointParams>(&event.params);
+            if (params) {
+                Measure::MeasurePointCoordinator* coordinator = Measure::AttachedCoordinator();
+                if (coordinator) {
+                    // El guion es 1-indexed para camaras; el medidor 0-based.
+                    const int cameraIndex = (params->camera > 0) ? (params->camera - 1) : 0;
+                    coordinator->Enqueue(cameraIndex, params->punto, params->burstMs, params->maxMs);
+                } else {
+                    Logger::Warning("ChoreographyEngine: MeasurePoint sin medidor enganchado, "
+                                    "se ignora (punto=" + std::to_string(params->punto) + ")");
+                }
+            }
+            break;
+        }
+
         case EventType::Timer: {
             auto* params = std::get_if<TimerParams>(&event.params);
             if (params) {

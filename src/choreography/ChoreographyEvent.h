@@ -75,6 +75,10 @@ enum class EventType {
     ScriptStart,            // Start a vMix script by name
     ScriptStop,             // Stop a vMix script by name
 
+    // Medicion por evento (fase 1): punto de toque del guion. NO mide en la
+    // linea de tiempo: el engine solo encola y sigue (ver ChoreographyEngine).
+    MeasurePoint,
+
     // Meta events
     Comment,                // Comment (no-op, for documentation)
     Label                   // Label for jump targets (future use)
@@ -269,6 +273,24 @@ struct SphereVerificationParams {
 };
 
 /**
+ * Parameters for MeasurePoint (medicion por evento, fase 1)
+ *
+ * En cada punto de toque el medidor toma una rafaga corta de frames, infiere,
+ * resuelve el orden de las esferas y manda un solo paquete UDP.
+ */
+struct MeasurePointParams {
+    int camera;         // Camara a medir (1..12, 1-indexed como el resto del guion)
+    int punto;          // Numero de punto de medicion (1..4 en fase 1)
+    int burstMs;        // Rafaga corta de frames (default 400 ms)
+    int maxMs;          // Tope si no aparecen las 10 esferas (default 2000 ms)
+
+    MeasurePointParams() : camera(1), punto(1), burstMs(400), maxMs(2000) {}
+
+    MeasurePointParams(int cam, int p, int burst, int maxMs_)
+        : camera(cam), punto(p), burstMs(burst), maxMs(maxMs_) {}
+};
+
+/**
  * Union of all possible event parameters
  */
 using EventParams = std::variant<
@@ -287,7 +309,8 @@ using EventParams = std::variant<
     TextParam,
     SphereVerificationParams,
     PTZPresetParams,
-    ESP32CommandParams
+    ESP32CommandParams,
+    MeasurePointParams
 >;
 
 /**
@@ -457,6 +480,12 @@ struct ChoreographyEvent {
         return {EventType::ScriptStop, TextParam(scriptName)};
     }
     
+    // Medicion por evento (fase 1)
+    static ChoreographyEvent MeasurePoint(int camera, int punto,
+                                          int burstMs = 400, int maxMs = 2000) {
+        return {EventType::MeasurePoint, MeasurePointParams(camera, punto, burstMs, maxMs)};
+    }
+
     // Meta events
     static ChoreographyEvent Comment(const std::string& text) {
         ChoreographyEvent e{EventType::Comment, TextParam(text)};
@@ -507,6 +536,7 @@ struct ChoreographyEvent {
             case EventType::ESP32Command: return "ESP32Command";
             case EventType::ScriptStart: return "ScriptStart";
             case EventType::ScriptStop: return "ScriptStop";
+            case EventType::MeasurePoint: return "MeasurePoint";
             case EventType::Comment: return "Comment";
             case EventType::Label: return "Label";
             default: return "Unknown";
@@ -524,6 +554,7 @@ struct ChoreographyEvent {
             case EventType::SphereArrivalWait:
             case EventType::PTZPreset:
             case EventType::ESP32Command:
+            case EventType::MeasurePoint:   // medicion por evento: no depende de vMix
             case EventType::Comment:
             case EventType::Label:
                 return false;

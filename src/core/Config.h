@@ -18,6 +18,7 @@
 #include "../output/RankingPublisher.h"  // RankingPublisherConfig
 #include "../output/ArrivalEmitter.h"    // ArrivalEndpointConfig
 #include "../verification/ArrivalOrderStabilizer.h"  // ArrivalStabilizerConfig
+#include "../measure/AnimationPublisher.h" // AnimationPublisherConfig
 #include "../control/PTZController.h"    // PTZCameraConfig, PTZTrackingConfig
 
 /**
@@ -134,6 +135,10 @@ struct Config {
     
     // Choreography configuration
     ChoreographyConfig choreographyConfig;
+    
+    // Salida de animacion del medidor por evento (bloque "animation"):
+    // un datagrama UDP por punto de medicion resuelto.
+    AnimationPublisherConfig animationConfig;
     
     // PTZ cameras configuration
     PTZCamerasConfig ptzCamerasConfig;

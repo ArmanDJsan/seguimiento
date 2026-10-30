@@ -137,6 +137,8 @@
     <ClCompile Include="choreography\ChoreographyEngine.cpp" />
     <ClCompile Include="verification\SphereVerifier.cpp" />
     <ClCompile Include="verification\ArrivalOrderStabilizer.cpp" />
+    <ClCompile Include="measure\MeasurePointCoordinator.cpp" />
+    <ClCompile Include="measure\AnimationPublisher.cpp" />
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="capture\CudaColorConversion.cu">
@@ -186,6 +188,8 @@
     <ClInclude Include="choreography\ChoreographyEngine.h" />
     <ClInclude Include="verification\SphereVerifier.h" />
     <ClInclude Include="verification\ArrivalOrderStabilizer.h" />
+    <ClInclude Include="measure\MeasurePointCoordinator.h" />
+    <ClInclude Include="measure\AnimationPublisher.h" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="shaders\ColorConversion.hlsl">

@@ -47,6 +47,7 @@
 #include "../tracking/RouteMapper.h"
 #include "../scene/SceneManager.h"
 #include "../output/RankingPublisher.h"
+#include "../measure/MeasurePointCoordinator.h"
 #include "../redis/RedisWorker.h"
 #include "../telemetry/PerformanceMonitor.h"
 #include "../utils/Logger.h"
@@ -656,6 +657,18 @@ Config LoadConfig(const std::string& path) {
             }
         }
         
+        // Parse animation section (salida UDP del medidor por evento)
+        if (j.contains("animation") && j["animation"].is_object()) {
+            auto& an = j["animation"];
+            if (an.contains("enabled")) config.animationConfig.enabled = an["enabled"].get<bool>();
+            if (an.contains("host")) config.animationConfig.host = an["host"].get<std::string>();
+            if (an.contains("port")) config.animationConfig.port = an["port"].get<uint16_t>();
+            if (config.animationConfig.enabled) {
+                Logger::Info("Animation config: enabled, destino=" + config.animationConfig.host +
+                            ":" + std::to_string(config.animationConfig.port));
+            }
+        }
+        
         // Parse ptz_cameras section
         if (j.contains("ptz_cameras") && j["ptz_cameras"].is_object()) {
             auto& ptz = j["ptz_cameras"];
@@ -1042,6 +1055,28 @@ bool RunRunningMode() {
     }
     
     // ============================================================================
+    // Initialize medidor por evento (MeasurePoint) + salida UDP de animacion
+    // ============================================================================
+    // Se crea ANTES del ChoreographyEngine: el `case` del evento MeasurePoint
+    // solo hace Enqueue() y sigue, asi que necesita el medidor enganchado desde
+    // el primer evento. El hilo medidor es el que mide (nunca la coreografia).
+    std::unique_ptr<Measure::MeasurePointCoordinator> measureCoordinator;
+    if (config.animationConfig.enabled) {
+        Logger::Info("Initializing MeasurePointCoordinator...");
+        measureCoordinator = std::make_unique<Measure::MeasurePointCoordinator>();
+        if (measureCoordinator->Initialize(config.animationConfig, config.inferenceConfig)) {
+            Measure::AttachCoordinator(measureCoordinator.get());
+            Logger::Info("MeasurePointCoordinator attached to ChoreographyEngine");
+        } else {
+            Logger::Warning("MeasurePointCoordinator initialization failed - "
+                            "MeasurePoint events will be ignored");
+            measureCoordinator.reset();
+        }
+    } else {
+        Logger::Info("MeasurePointCoordinator: disabled in config (animation.enabled=false)");
+    }
+    
+    // ============================================================================
     // Initialize Choreography Engine
     // ============================================================================
     std::shared_ptr<Choreography::ChoreographyEngine> choreographyEngine;
@@ -1133,6 +1168,13 @@ bool RunRunningMode() {
         auto capture = std::make_unique<DeckLinkCapture>();
         const std::string channelName = "Channel_" + std::to_string(i + 1);
         if (capture->Initialize(kCaptureDeviceBase + i, channelName, i)) {
+            // Medidor por evento: el anillo corto lo llena el hilo de captura de
+            // esta camara (pre-roll del disparo). Sin medidor queda nullptr.
+            if (measureCoordinator) {
+                const VideoChannel& channelInfo = capture->GetChannel();
+                capture->SetMeasureRing(measureCoordinator->SetupCamera(
+                    channelInfo.channelID, channelInfo.width, channelInfo.height));
+            }
             capture->SetFrameReadyHandler([ndiManager, cameraSelector, 
                                           perfMonitor, &config, inferenceStream,
                                           inferenceEngine, positionMapper, ballTracker, 
@@ -1801,6 +1843,15 @@ bool RunRunningMode() {
         capture->Stop();
     }
     captureChannels.clear();
+    
+    // Medidor por evento: se apaga DESPUES de frenar la captura (los hilos de
+    // captura son los que llenan los anillos; el hilo medidor solo los lee).
+    if (measureCoordinator) {
+        Logger::Info("Stopping MeasurePointCoordinator...");
+        Measure::AttachCoordinator(nullptr);
+        measureCoordinator->Shutdown();
+        measureCoordinator.reset();
+    }
     
     if (ndiManager) {
         ndiManager->ReleaseAll();
