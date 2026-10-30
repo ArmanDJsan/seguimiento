@@ -164,7 +164,7 @@
       }
     },
     "radar_routing": {
-      "enabled": false,
+      "enabled": true,
       "RADAR_01": 8,
       "RADAR_02": 9,
       "RADAR_03": 10,
