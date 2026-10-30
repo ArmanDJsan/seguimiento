@@ -85,6 +85,71 @@ La coreografía puede cambiar dinámicamente qué cámara física está conectad
 | `ReplayLive` | Cambiar a live | - |
 | `ReplaySetSpeed` | Velocidad replay | `speed` (0-200%) |
 | `ReplaySelectLastEvent` | Seleccionar último evento | - |
+| `ReplayCamera` | Seleccionar cámara del canal de reproducción | `camera` (1-8), `channel` (`A` a `D`, por defecto `A`) |
+| `ReplayMarkInOut` | Crear evento con los últimos N segundos | `value` (segundos) |
+| `ReplayExportLastEvent` | Exportar el último evento a archivo | `value` (carpeta, opcional) |
+| `ReplayDeleteLastEvent` | Borrar el último evento del replay | - |
+| `WaitForExport` | Esperar a que el clip exportado termine de escribirse | `folder` (opcional), `timeout` (ms), `stable` (ms) |
+
+> **Nota sobre nombres de vMix:** vMix no tiene una función `ReplaySelectCamera`. El
+> número de cámara forma parte del nombre y depende del canal de reproducción
+> (`ReplayACamera4`, `ReplayBCamera4`, etc.). Por eso la coreografía usa `ReplayCamera`
+> con `camera` y `channel` como argumentos, y el motor construye el comando correcto.
+> También se aceptan como alias los nombres `ReplaySelectCamera4` y `ReplayCamera4`.
+
+> **Formato del export (MP4/AVI):** `ReplayExportLastEvent` solo acepta la carpeta
+> (`value`) y, opcionalmente, el canal; la API de vMix **no** tiene un parámetro de
+> formato o calidad. vMix exporta con la calidad elegida en **Replay → Export Clips**:
+> `vMix AVI`, `MP4 High Quality` o `MP4 Medium Quality`. Esa selección queda guardada
+> en el `replay*.xml` de la sesión como `<lastExportQuality>`.
+>
+> Los archivos `stream-*.avi` que están en la carpeta de la sesión de replay
+> (por ejemplo `D:\replay v1.1\stream-*.avi`) son las **grabaciones crudas** del
+> replay (vMix AVI), no los clips exportados. Para obtener MP4 hay que usar el export
+> con la calidad en `MP4 High Quality`. Si el export sale AVI, cambiar esa calidad
+> una vez en el diálogo de vMix; no se puede forzar desde la coreografía.
+
+Ejemplo de exportación multicámara:
+
+```json
+{ "type": "ReplayCamera", "camera": 4, "channel": "A" },
+{ "type": "ReplayMarkInOut", "value": 60 },
+{ "type": "ReplayExportLastEvent" }
+```
+
+> **Exportar varias cámaras: `WaitForExport` + `ReplayDeleteLastEvent`.**
+> `ReplayExportLastEvent` solo **inicia** la exportación: vMix codifica el clip en
+> segundo plano (un MP4 4K de 60 s tarda ~30-40 s) y **descarta** cualquier export
+> nuevo que llegue mientras el anterior sigue trabajando. Por eso, si se lanzan tres
+> exports separados por un `Timer` corto, solo se guarda el primero.
+>
+> `ReplayExportLastEvent` exporta siempre el evento **más reciente por tiempo**, no
+> el evento seleccionado. La secuencia correcta para varias cámaras es:
+>
+> 1. Crear todos los eventos `ReplayMarkInOut` seguidos, para que las ventanas de
+>    N segundos queden alineadas (mismo momento de la carrera).
+> 2. `ReplayExportLastEvent` (exporta el último = cámara creada al final).
+> 3. `WaitForExport` (espera a que el archivo aparezca y deje de crecer).
+> 4. `ReplayDeleteLastEvent` (quita ese evento, el anterior pasa a ser el último).
+> 5. Repetir 2-4 para las cámaras restantes.
+>
+> `WaitForExport` vigila la carpeta indicada: parte de una foto de los archivos
+> existentes, detecta el nuevo vídeo (`.mp4`, `.avi`, `.mov`, `.mkv`, `.mxf`) y
+> espera a que su tamaño no cambie durante `stable` ms (por defecto 5000) antes de
+> continuar. `timeout` (por defecto 300000 ms) evita quedarse colgado si el export
+> falla. Si se omite `folder`, se usa la carpeta del último `ReplayExportLastEvent`
+> que llevara `value`.
+>
+> Como el export se lanza sin `value`, vMix guarda el clip en su última carpeta de
+> exportación (la del diálogo **Replay → Export Clips**). El `folder` de
+> `WaitForExport` tiene que apuntar a esa misma carpeta; si se cambia la carpeta en
+> vMix, hay que actualizarla también en el JSON.
+
+> **Las ventanas de las cámaras no son exactamente iguales.** vMix procesa los
+> comandos de replay en serie y cada `ReplayMarkInOut` tarda unos segundos, así que
+> el evento de cada cámara cubre los N segundos contados desde el momento en que se
+> procesó ese comando (quedan separados ~5 s). Crear todos los eventos antes de
+> exportar minimiza la diferencia.
 
 ### Comandos Internos/Custom
 

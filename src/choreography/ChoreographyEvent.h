@@ -47,9 +47,14 @@ enum class EventType {
     ReplayLive,             // Switch replay to live
     ReplaySetSpeed,         // Set replay speed (percentage)
     ReplaySelectLastEvent,  // Select last replay event
-    
+    ReplayCamera,           // Select camera angle for a playback channel
+    ReplayMarkInOut,        // Create event using N previous seconds
+    ReplayExportLastEvent,  // Export last event as a separate video file
+    ReplayDeleteLastEvent,  // Delete last replay event
+
     // Internal/Custom
     Timer,                  // Wait for specified milliseconds
+    WaitForExport,          // Wait until the exported clip has been written
     NDISlotChange,          // Change camera on NDI slot via VideoHub
     
     // Scene control
@@ -126,6 +131,73 @@ struct ReplaySpeedParams {
     
     ReplaySpeedParams() : percentage(100) {}
     explicit ReplaySpeedParams(int pct) : percentage(pct) {}
+};
+
+/**
+ * Parameters for Replay camera selection.
+ *
+ * vMix has no "ReplaySelectCamera" function: the camera number is part of the
+ * command name and depends on the playback channel, e.g. ReplayACamera4 or
+ * ReplayBCamera4. In the choreography script the camera is an argument so the
+ * engine can build the correct command.
+ */
+struct ReplayCameraParams {
+    int cameraNumber;    // 1-8
+    std::string channel; // "A", "B", "C" or "D"
+
+    ReplayCameraParams() : cameraNumber(1), channel("A") {}
+    ReplayCameraParams(int camera, const std::string& ch)
+        : cameraNumber(camera), channel(ch) {}
+};
+
+/**
+ * Parameters for ReplayMarkInOut.
+ *
+ * seconds is the number of previous seconds to use for the event, matching the
+ * vMix Value parameter: FUNCTION ReplayMarkInOut Value=<seconds>
+ */
+struct ReplayMarkInOutParams {
+    int seconds;
+
+    ReplayMarkInOutParams() : seconds(0) {}
+    explicit ReplayMarkInOutParams(int s) : seconds(s) {}
+};
+
+/**
+ * Parameters for ReplayExportLastEvent.
+ *
+ * folder is optional; when empty vMix uses the export folder configured in the
+ * Replay Session Folder.
+ */
+struct ReplayExportParams {
+    std::string folder;
+
+    ReplayExportParams() = default;
+    explicit ReplayExportParams(const std::string& f) : folder(f) {}
+};
+
+/**
+ * Parameters for WaitForExport.
+ *
+ * vMix encodes exported clips asynchronously: ReplayExportLastEvent only starts
+ * the job, and it takes tens of seconds for a 60 s 4K clip. If another export
+ * is requested meanwhile, vMix ignores it. WaitForExport blocks the choreography
+ * until the clip file in the watched folder has been written completely.
+ *
+ * folder    Directory to watch. When empty, the folder of the last
+ *           ReplayExportLastEvent in the script is used.
+ * timeoutMs Maximum wait; 0 means the default (300000 ms = 5 minutes).
+ * stableMs  The file must keep the same size for this long to be considered
+ *           complete; 0 means the default (3000 ms).
+ */
+struct WaitForExportParams {
+    std::string folder;
+    int timeoutMs;
+    int stableMs;
+
+    WaitForExportParams() : timeoutMs(0), stableMs(0) {}
+    WaitForExportParams(const std::string& f, int timeout = 0, int stable = 0)
+        : folder(f), timeoutMs(timeout), stableMs(stable) {}
 };
 
 /**
@@ -206,6 +278,10 @@ using EventParams = std::variant<
     OverlayParams,
     TimerParams,
     ReplaySpeedParams,
+    ReplayCameraParams,
+    ReplayMarkInOutParams,
+    ReplayExportParams,
+    WaitForExportParams,
     NDISlotParams,
     SceneSwitchParams,
     TextParam,
@@ -314,7 +390,28 @@ struct ChoreographyEvent {
     static ChoreographyEvent ReplaySelectLastEvent() {
         return {EventType::ReplaySelectLastEvent};
     }
-    
+
+    static ChoreographyEvent ReplayCamera(int cameraNumber, const std::string& channel = "A") {
+        return {EventType::ReplayCamera, ReplayCameraParams(cameraNumber, channel)};
+    }
+
+    static ChoreographyEvent ReplayMarkInOut(int seconds) {
+        return {EventType::ReplayMarkInOut, ReplayMarkInOutParams(seconds)};
+    }
+
+    static ChoreographyEvent ReplayExportLastEvent(const std::string& folder = "") {
+        return {EventType::ReplayExportLastEvent, ReplayExportParams(folder)};
+    }
+
+    static ChoreographyEvent ReplayDeleteLastEvent() {
+        return {EventType::ReplayDeleteLastEvent};
+    }
+
+    static ChoreographyEvent WaitForExport(const std::string& folder = "",
+                                           int timeoutMs = 0, int stableMs = 0) {
+        return {EventType::WaitForExport, WaitForExportParams(folder, timeoutMs, stableMs)};
+    }
+
     // Internal/Custom
     static ChoreographyEvent Timer(int milliseconds) {
         return {EventType::Timer, TimerParams(milliseconds)};
@@ -395,6 +492,11 @@ struct ChoreographyEvent {
             case EventType::ReplayLive: return "ReplayLive";
             case EventType::ReplaySetSpeed: return "ReplaySetSpeed";
             case EventType::ReplaySelectLastEvent: return "ReplaySelectLastEvent";
+            case EventType::ReplayCamera: return "ReplayCamera";
+            case EventType::ReplayMarkInOut: return "ReplayMarkInOut";
+            case EventType::ReplayExportLastEvent: return "ReplayExportLastEvent";
+            case EventType::ReplayDeleteLastEvent: return "ReplayDeleteLastEvent";
+            case EventType::WaitForExport: return "WaitForExport";
             case EventType::Timer: return "Timer";
             case EventType::NDISlotChange: return "NDISlotChange";
             case EventType::SceneSwitch: return "SceneSwitch";
@@ -414,6 +516,7 @@ struct ChoreographyEvent {
     bool RequiresVMix() const {
         switch (type) {
             case EventType::Timer:
+            case EventType::WaitForExport:
             case EventType::NDISlotChange:
             case EventType::SceneSwitch:
             case EventType::SpherePresenceCheck:

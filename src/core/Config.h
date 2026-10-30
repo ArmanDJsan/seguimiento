@@ -16,6 +16,8 @@
 #include "../tracking/PositionMapper.h"  // TrackBounds
 #include "../tracking/BallTracker.h"     // BallTrackerConfig
 #include "../output/RankingPublisher.h"  // RankingPublisherConfig
+#include "../output/ArrivalEmitter.h"    // ArrivalEndpointConfig
+#include "../verification/ArrivalOrderStabilizer.h"  // ArrivalStabilizerConfig
 #include "../control/PTZController.h"    // PTZCameraConfig, PTZTrackingConfig
 
 /**
@@ -111,7 +113,15 @@ struct Config {
     
     // Inference engine configuration
     InferenceEngineConfig inferenceConfig;
-    
+
+    // Dedicated "llegada" (arrival) inference engine — second engine, does not touch inferenceConfig.
+    // Used by menu option 11 to determine arrival order from the finish-line camera.
+    InferenceEngineConfig llegadaInferenceConfig;
+
+    // Arrival order confirmation (menu option 11): stabilization criteria + emission endpoint.
+    ArrivalStabilizerConfig arrivalStabilizerConfig;
+    ArrivalEndpointConfig arrivalEndpointConfig;
+
     // Position mapper configuration
     std::string calibrationFile;
     TrackBounds trackBounds;
@@ -164,5 +174,22 @@ struct Config {
         , ndiEnabled(false)
         , calibrationFile("config/calibration.json")
         , ptzAutoTrackingEnabled(true)
-    {}
+    {
+        // Defaults for the dedicated arrival (llegada) engine.
+        // Trained at 1088x1920 (native TensorRT input), so skipResize=false resizes the
+        // 1080p camera frame up to 1088. Batch 1 (static engine). Lower confidence (0.3)
+        // to keep the dark sphere (bola_8) and avoid noise (validation FPs ~0.02-0.03).
+        llegadaInferenceConfig.modelPath = "models/llegada_best.engine";
+        llegadaInferenceConfig.batchSize = 1;
+        llegadaInferenceConfig.inputWidth = 1920;
+        llegadaInferenceConfig.inputHeight = 1088;
+        llegadaInferenceConfig.confidenceThreshold = 0.3f;
+        llegadaInferenceConfig.nmsThreshold = 0.4f;
+        llegadaInferenceConfig.useFP16 = true;
+        llegadaInferenceConfig.numClasses = 10;
+        llegadaInferenceConfig.skipResize = false;
+        llegadaInferenceConfig.maxDetections = 300;
+        llegadaInferenceConfig.debugYoloEnabled = false;
+        llegadaInferenceConfig.debugYoloInterval = 300;
+    }
 };

@@ -77,8 +77,10 @@ public:
     DeckLinkCapture();
     ~DeckLinkCapture();
     
-    // Initialize capture from specific DeckLink device
-    bool Initialize(int deviceIndex, const std::string& channelName);
+    // Initialize capture from specific DeckLink device.
+    // logicalChannelId decouples the per-channel index (NDI senders, per-channel
+    // arrays) from the physical device index. Defaults to deviceIndex.
+    bool Initialize(int deviceIndex, const std::string& channelName, int logicalChannelId = -1);
     
     // Start/Stop capture with C++20 thread safety
     bool Start();

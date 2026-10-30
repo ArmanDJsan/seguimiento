@@ -121,6 +121,13 @@
     "enabled": false,
     "description": "NDI output is disabled - vMix captures directly from VideoHub"
   },
+  "training_capture": {
+    "videohub_input": 13,
+    "videohub_output": 1,
+    "decklink_device": 6,
+    "ndi_name": "VIB_Training",
+    "description": "Opcion 10 (Captura para entrenamiento). videohub_input/output son puertos FISICOS 1-based (13 = puerto fisico 13). decklink_device es el numero 'device #N' que aparece en el log (1-based, #6 = DeckLink 8K Pro Mini (2) 2)."
+  },
   "inference_engine": {
     "model_path": "models/best.engine",
     "batch_size": 4,
@@ -135,6 +142,28 @@
     "debug_yolo_enabled": false,
     "debug_yolo_interval": 300,
     "description": "TensorRT engine for ball detection - Using 1920x1080 (full HD) for better small object detection. Optimized: maxDetections=300 (reduced from 8400), confidence=0.7 (increased from 0.6)"
+  },
+  "inference_engine_llegada": {
+    "model_path": "models/llegada_best.engine",
+    "batch_size": 1,
+    "precision": "FP16",
+    "input_width": 1920,
+    "input_height": 1088,
+    "nms_threshold": 0.4,
+    "confidence_threshold": 0.3,
+    "num_classes": 10,
+    "skip_resize": false,
+    "max_detections": 300,
+    "debug_yolo_enabled": false,
+    "debug_yolo_interval": 300,
+    "description": "TensorRT engine dedicado para la zona de llegada (esferas detenidas). Entrenado a 1088x1920; skip_resize=false redimensiona la camara 1080p a 1088."
+  },
+  "arrival_order": {
+    "stable_frames": 10,
+    "min_spheres": 8,
+    "endpoint_enabled": true,
+    "endpoint_url": "",
+    "description": "Confirmacion del orden de llegada (opcion 11): N frames consecutivos con el mismo orden y >= min_spheres esferas para confirmar y emitir. La emision es un stub (loguea el JSON)."
   },
   "position_mapper": {
     "calibration_file": "config/calibration.json",

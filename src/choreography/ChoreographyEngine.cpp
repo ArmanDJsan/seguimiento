@@ -14,8 +14,61 @@
 #include "../utils/Logger.h"
 #include <sstream>
 #include <iomanip>
+#include <cctype>
+#include <filesystem>
+#include <map>
+#include <vector>
+#include <cstdint>
+#include <cwctype>
 
 namespace Choreography {
+
+namespace {
+
+// Script strings are UTF-8, but on Windows std::filesystem::path needs UTF-16
+// to handle accents and other non-ASCII characters in folder names.
+// (windows.h comes from VMixController.h, which is included above.)
+std::wstring Utf8ToWide(const std::string& str) {
+    if (str.empty()) {
+        return std::wstring();
+    }
+    const int length = MultiByteToWideChar(CP_UTF8, 0, str.c_str(),
+                                           static_cast<int>(str.size()), nullptr, 0);
+    if (length <= 0) {
+        return std::wstring();
+    }
+    std::wstring wide(static_cast<size_t>(length), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, str.c_str(), static_cast<int>(str.size()),
+                        wide.data(), length);
+    return wide;
+}
+
+bool IsVideoFile(const std::filesystem::path& path) {
+    std::wstring ext = path.extension().wstring();
+    for (auto& ch : ext) {
+        ch = static_cast<wchar_t>(std::towlower(ch));
+    }
+    return ext == L".mp4" || ext == L".avi" || ext == L".mov" ||
+           ext == L".mkv" || ext == L".mxf";
+}
+
+std::string WideToUtf8(const std::wstring& wstr) {
+    if (wstr.empty()) {
+        return std::string();
+    }
+    const int length = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(),
+                                           static_cast<int>(wstr.size()),
+                                           nullptr, 0, nullptr, nullptr);
+    if (length <= 0) {
+        return std::string();
+    }
+    std::string utf8(static_cast<size_t>(length), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), static_cast<int>(wstr.size()),
+                        utf8.data(), length, nullptr, nullptr);
+    return utf8;
+}
+
+} // anonymous namespace
 
 ChoreographyEngine::ChoreographyEngine(VMixController* vmixController, SceneManager* sceneManager)
     : m_vmixController(vmixController)
@@ -378,6 +431,14 @@ EventResult ChoreographyEngine::ExecuteEventInternal(const ChoreographyEvent& ev
         case EventType::Label:
             // No-op events
             break;
+
+        case EventType::WaitForExport: {
+            auto* params = std::get_if<WaitForExportParams>(&event.params);
+            if (params) {
+                result.success = ExecuteWaitForExport(*params, result.errorMessage);
+            }
+            break;
+        }
         
         case EventType::NDISlotChange: {
             auto* params = std::get_if<NDISlotParams>(&event.params);
@@ -464,6 +525,16 @@ EventResult ChoreographyEngine::ExecuteEventInternal(const ChoreographyEvent& ev
         
         default: {
             // vMix commands
+            // Remember the folder of the last export so a following WaitForExport
+            // without an explicit folder knows where to look.
+            if (event.type == EventType::ReplayExportLastEvent) {
+                if (auto* params = std::get_if<ReplayExportParams>(&event.params)) {
+                    if (!params->folder.empty()) {
+                        m_lastExportFolder = params->folder;
+                    }
+                }
+            }
+
             std::string command = BuildVMixCommand(event);
             if (!command.empty()) {
                 result.success = SendVMixCommand(command);
@@ -619,7 +690,62 @@ std::string ChoreographyEngine::BuildVMixCommand(const ChoreographyEvent& event)
         case EventType::ReplaySelectLastEvent:
             cmd << "ReplaySelectLastEvent";
             break;
-        
+
+        case EventType::ReplayCamera: {
+            auto* params = std::get_if<ReplayCameraParams>(&event.params);
+            if (params) {
+                if (params->cameraNumber < 1 || params->cameraNumber > 8) {
+                    Logger::Error("ChoreographyEngine: ReplayCamera camera out of range (1-8): " +
+                                  std::to_string(params->cameraNumber));
+                    return "";
+                }
+                const std::string channel = params->channel.empty() ? "A" : params->channel;
+                const char channelLetter = static_cast<char>(
+                    std::toupper(static_cast<unsigned char>(channel[0])));
+                if (channelLetter < 'A' || channelLetter > 'D') {
+                    Logger::Error("ChoreographyEngine: ReplayCamera invalid channel '" +
+                                  channel + "' (expected A, B, C or D)");
+                    return "";
+                }
+                cmd << "Replay" << channelLetter << "Camera" << params->cameraNumber;
+                Logger::Debug("ChoreographyEngine: BuildVMixCommand Replay" +
+                              std::string(1, channelLetter) + "Camera" +
+                              std::to_string(params->cameraNumber));
+            }
+            break;
+        }
+
+        case EventType::ReplayMarkInOut: {
+            auto* params = std::get_if<ReplayMarkInOutParams>(&event.params);
+            if (params) {
+                cmd << "ReplayMarkInOut";
+                if (params->seconds > 0) {
+                    cmd << " Value=" << params->seconds;
+                }
+                Logger::Debug("ChoreographyEngine: BuildVMixCommand ReplayMarkInOut (seconds=" +
+                              std::to_string(params->seconds) + ")");
+            }
+            break;
+        }
+
+        case EventType::ReplayExportLastEvent: {
+            auto* params = std::get_if<ReplayExportParams>(&event.params);
+            if (params) {
+                cmd << "ReplayExportLastEvent";
+                if (!params->folder.empty()) {
+                    cmd << " Value=" << params->folder;
+                }
+                Logger::Debug("ChoreographyEngine: BuildVMixCommand ReplayExportLastEvent" +
+                              (params->folder.empty() ? std::string()
+                                                      : " (folder=" + params->folder + ")"));
+            }
+            break;
+        }
+
+        case EventType::ReplayDeleteLastEvent:
+            cmd << "ReplayDeleteLastEvent";
+            break;
+
         case EventType::ScriptStart: {
             auto* params = std::get_if<TextParam>(&event.params);
             if (params) {
@@ -661,6 +787,130 @@ bool ChoreographyEngine::SendVMixCommand(const std::string& command) {
                      command.substr(0, command.find('\r')));
     }
     return success;
+}
+
+bool ChoreographyEngine::ExecuteWaitForExport(const WaitForExportParams& params,
+                                              std::string& errorMessage) {
+    // vMix encodes exports asynchronously and ignores a new export while the
+    // previous one is still running, so the choreography has to wait for the
+    // clip file here instead of relying on a fixed Timer.
+    const std::string folder = params.folder.empty() ? m_lastExportFolder : params.folder;
+    if (folder.empty()) {
+        errorMessage = "WaitForExport needs a folder (set 'folder' or give 'value' "
+                       "to the preceding ReplayExportLastEvent)";
+        Logger::Error("ChoreographyEngine: " + errorMessage);
+        return false;
+    }
+
+    const int timeoutMs = params.timeoutMs > 0 ? params.timeoutMs : 300000;
+    const int stableMs = params.stableMs > 0 ? params.stableMs : 5000;
+
+    std::error_code ec;
+    const std::filesystem::path folderPath(Utf8ToWide(folder));
+    if (!std::filesystem::is_directory(folderPath, ec)) {
+        errorMessage = "Export folder not found: " + folder;
+        Logger::Error("ChoreographyEngine: " + errorMessage);
+        return false;
+    }
+
+    // Snapshot of the clips already there, so only the file produced by the
+    // export that has just been requested is taken into account.
+    std::map<std::wstring, std::uintmax_t> baseline;
+    for (const auto& entry : std::filesystem::directory_iterator(folderPath, ec)) {
+        if (!entry.is_regular_file(ec) || !IsVideoFile(entry.path())) {
+            ec.clear();
+            continue;
+        }
+        baseline[entry.path().filename().wstring()] = entry.file_size(ec);
+        ec.clear();
+    }
+
+    Logger::Info("ChoreographyEngine: WaitForExport watching '" + folder +
+                 "' (timeout=" + std::to_string(timeoutMs) + "ms, stable=" +
+                 std::to_string(stableMs) + "ms)");
+
+    struct CandidateState {
+        std::uintmax_t size;
+        std::chrono::steady_clock::time_point lastChange;
+    };
+
+    std::map<std::wstring, CandidateState> candidates;
+    const auto startTime = std::chrono::steady_clock::now();
+    const auto pollInterval = std::chrono::milliseconds(500);
+    auto lastProgressLog = startTime;
+
+    while (true) {
+        if (m_stopRequested || m_skipRequested) {
+            errorMessage = "WaitForExport interrupted";
+            Logger::Warning("ChoreographyEngine: WaitForExport interrupted (" +
+                            std::string(m_skipRequested ? "skip" : "stop") + ")");
+            return false;
+        }
+
+        // Look for new or still-growing video files
+        for (const auto& entry : std::filesystem::directory_iterator(folderPath, ec)) {
+            if (!entry.is_regular_file(ec) || !IsVideoFile(entry.path())) {
+                ec.clear();
+                continue;
+            }
+            const std::wstring name = entry.path().filename().wstring();
+            const std::uintmax_t size = entry.file_size(ec);
+            if (ec || size == 0) {
+                ec.clear();
+                continue;
+            }
+
+            auto baseIt = baseline.find(name);
+            if (baseIt != baseline.end() && baseIt->second == size) {
+                continue;  // Untouched file from before the export
+            }
+
+            const auto now = std::chrono::steady_clock::now();
+            auto it = candidates.find(name);
+            if (it == candidates.end()) {
+                candidates[name] = CandidateState{size, now};
+                Logger::Debug("ChoreographyEngine: WaitForExport detected new file '" +
+                              WideToUtf8(name) + "' (" + std::to_string(size) + " bytes)");
+            } else if (it->second.size != size) {
+                it->second.size = size;
+                it->second.lastChange = now;
+            }
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        for (const auto& [name, state] : candidates) {
+            const auto unchangedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                now - state.lastChange).count();
+            if (unchangedMs >= stableMs) {
+                Logger::Info("ChoreographyEngine: WaitForExport complete - '" +
+                             WideToUtf8(name) + "' (" + std::to_string(state.size) +
+                             " bytes, unchanged for " + std::to_string(unchangedMs) + "ms)");
+                return true;
+            }
+        }
+
+        const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - startTime).count();
+        if (elapsedMs >= timeoutMs) {
+            errorMessage = "Timed out after " + std::to_string(elapsedMs) +
+                           "ms waiting for the export in " + folder;
+            Logger::Error("ChoreographyEngine: " + errorMessage);
+            return false;
+        }
+
+        // Periodic progress log so long 4K exports do not look stuck
+        if (std::chrono::duration_cast<std::chrono::seconds>(now - lastProgressLog).count() >= 10) {
+            std::string detail = candidates.empty()
+                ? std::string("no file yet")
+                : ("watching " + WideToUtf8(candidates.begin()->first) + " (" +
+                   std::to_string(candidates.begin()->second.size) + " bytes)");
+            Logger::Debug("ChoreographyEngine: WaitForExport " +
+                          std::to_string(elapsedMs / 1000) + "s - " + detail);
+            lastProgressLog = now;
+        }
+
+        std::this_thread::sleep_for(pollInterval);
+    }
 }
 
 bool ChoreographyEngine::ExecuteNDISlotChange(int slot, int cameraID) {

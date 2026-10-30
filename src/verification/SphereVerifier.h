@@ -26,8 +26,9 @@
 #include <mutex>
 #include <atomic>
 #include <cstdint>
-#include <mutex>        
-#include <functional>  
+#include <condition_variable>
+#include <functional>
+#include <cuda_runtime.h>  
 
 // Forward declarations
 class VideoHubClient;
@@ -177,9 +178,33 @@ public:
      * Set camera frame callback for direct frame access
      * Used internally to capture frames from specific camera
      */
-    void SetFrameCallback(std::function<void(int cameraID, void* cudaBuffer, 
+    void SetFrameCallback(std::function<void(int cameraID, void* cudaBuffer,
                                              unsigned int width, unsigned int height)> callback);
-    
+
+    /**
+     * Set whether real DeckLink frame capture is available
+     * When true, CaptureAndDetect will use ProcessFrameUYVY on real frames
+     * instead of generating stub data
+     */
+    void SetRealCaptureAvailable(bool available);
+    void SetDetectionCallback(std::function<void(const std::vector<BallDetection>&)> callback);
+
+    /**
+     * Save the verification result image with sphere positions drawn as boxes.
+     * Uses the last captured frame. Each position gets a numbered box regardless of model class.
+     */
+    void SaveResultImage(const std::vector<SpherePosition>& positions, const std::string& label);
+
+    /**
+     * Push a frame from the DeckLink capture callback into the verifier.
+     * Thread-safe — can be called from the capture thread.
+     * @param cameraID Source camera identifier
+     * @param cudaUYVYBuffer CUDA device pointer to UYVY frame
+     * @param width Frame width in pixels
+     * @param height Frame height in pixels
+     */
+    void PushFrame(int cameraID, void* cudaUYVYBuffer, unsigned int width, unsigned int height);
+
     /**
      * Check if verifier is ready (has required dependencies)
      */
@@ -227,6 +252,8 @@ private:
     
     // Frame capture state
     std::function<void(int, void*, unsigned int, unsigned int)> m_frameCallback;
+    // Detection callback for live preview (NDI boxes)
+    std::function<void(const std::vector<BallDetection>&)> m_detectionCallback;
     
     // Checkpoint event callback
     CheckpointEventCallback m_checkpointCallback;
@@ -250,6 +277,30 @@ private:
     
     // Stub mode flag for when InferenceEngine is in stub mode
     bool m_stubMode;
+
+    // Real frame capture support
+    std::atomic<bool> m_realCaptureAvailable{false};
+    cudaStream_t m_inferenceStream{};
+
+    // Last captured frame for result image saving
+    std::mutex m_savedFrameMutex;
+    void* m_savedFrameBuffer{nullptr};
+    unsigned int m_savedFrameWidth{0};
+    unsigned int m_savedFrameHeight{0};
+    std::mutex m_frameMutex;
+    std::condition_variable m_frameCV;
+    void* m_pendingFrameBuffer{nullptr};
+    unsigned int m_pendingFrameWidth{0};
+    unsigned int m_pendingFrameHeight{0};
+    int m_pendingFrameCamera{-1};
+    bool m_pendingFrameReady{false};
+
+    /**
+     * Wait for a new real frame to arrive (blocking with timeout)
+     * @param timeoutMs Maximum wait time in milliseconds
+     * @return true if a frame arrived within timeout
+     */
+    bool WaitForFrame(int timeoutMs);
 };
 
 } // namespace Verification

@@ -1,0 +1,2560 @@
+{
+  "generado": "2026-10-23T11:53:56",
+  "imagenes_dir": "C:\\vs\\proyectos\\seguimientoYolo7LMDS\\training\\cvat_images",
+  "modelos": [
+    {
+      "modelo": "modelo_1920x1088.engine",
+      "ruta": "C:\\vs\\proyectos\\seguimientoYolo7LMDS\\src\\bin\\Release\\models\\modelo_1920x1088.engine",
+      "confianza_min": 0.6,
+      "nms_iou": 0.4
+    },
+    {
+      "modelo": "llegada_best.engine",
+      "ruta": "C:\\vs\\proyectos\\seguimientoYolo7LMDS\\src\\bin\\Release\\models\\llegada_best.engine",
+      "confianza_min": 0.3,
+      "nms_iou": 0.4
+    }
+  ],
+  "resumen": {
+    "modelo_1920x1088.engine": 70,
+    "llegada_best.engine": 81
+  },
+  "resultados": [
+    {
+      "modelo": "modelo_1920x1088.engine",
+      "imagen": "img (1).png",
+      "resultados": [
+        {
+          "orden": 1,
+          "clase_id": 3,
+          "clase": "bola_3",
+          "confianza": 0.9336,
+          "bbox_xyxy": [
+            355.0,
+            398.5,
+            459.0,
+            506.0
+          ],
+          "centro_xy": [
+            407.0,
+            452.3
+          ]
+        },
+        {
+          "orden": 2,
+          "clase_id": 1,
+          "clase": "bola_1",
+          "confianza": 0.9385,
+          "bbox_xyxy": [
+            435.0,
+            426.8,
+            528.0,
+            534.5
+          ],
+          "centro_xy": [
+            481.5,
+            480.7
+          ]
+        },
+        {
+          "orden": 3,
+          "clase_id": 2,
+          "clase": "bola_2",
+          "confianza": 0.9136,
+          "bbox_xyxy": [
+            686.0,
+            441.2,
+            785.5,
+            553.9
+          ],
+          "centro_xy": [
+            735.8,
+            497.6
+          ]
+        },
+        {
+          "orden": 4,
+          "clase_id": 1,
+          "clase": "bola_1",
+          "confianza": 0.793,
+          "bbox_xyxy": [
+            777.0,
+            451.2,
+            875.5,
+            552.9
+          ],
+          "centro_xy": [
+            826.2,
+            502.0
+          ]
+        },
+        {
+          "orden": 5,
+          "clase_id": 3,
+          "clase": "bola_3",
+          "confianza": 0.7168,
+          "bbox_xyxy": [
+            866.5,
+            445.0,
+            966.0,
+            557.9
+          ],
+          "centro_xy": [
+            916.2,
+            501.4
+          ]
+        },
+        {
+          "orden": 6,
+          "clase_id": 5,
+          "clase": "bola_5",
+          "confianza": 0.731,
+          "bbox_xyxy": [
+            1140.0,
+            480.7,
+            1257.0,
+            596.6
+          ],
+          "centro_xy": [
+            1198.5,
+            538.6
+          ]
+        }
+      ]
+    },
+    {
+      "modelo": "modelo_1920x1088.engine",
+      "imagen": "img (10).png",
+      "resultados": [
+        {
+          "orden": 1,
+          "clase_id": 3,
+          "clase": "bola_3",
+          "confianza": 0.7505,
+          "bbox_xyxy": [
+            440.5,
+            415.2,
+            524.0,
+            518.2
+          ],
+          "centro_xy": [
+            482.2,
+            466.7
+          ]
+        },
+        {
+          "orden": 2,
+          "clase_id": 9,
+          "clase": "bola_9",
+          "confianza": 0.6494,
+          "bbox_xyxy": [
+            607.0,
+            439.7,
+            703.0,
+            541.0
+          ],
+          "centro_xy": [
+            655.0,
+            490.4
+          ]
+        },
+        {
+          "orden": 3,
+          "clase_id": 1,
+          "clase": "bola_1",
+          "confianza": 0.9468,
+          "bbox_xyxy": [
+            692.5,
+            428.3,
+            802.0,
+            540.0
+          ],
+          "centro_xy": [
+            747.2,
+            484.2
+          ]
+        },
+        {
+          "orden": 4,
+          "clase_id": 0,
+          "clase": "bola_0",
+          "confianza": 0.6372,
+          "bbox_xyxy": [
+            773.0,
+            450.2,
+            877.0,
+            556.9
+          ],
+          "centro_xy": [
+            825.0,
+            503.5
+          ]
+        },
+        {
+          "orden": 5,
+          "clase_id": 4,
+          "clase": "bola_4",
+          "confianza": 0.8481,
+          "bbox_xyxy": [
+            866.0,
+            455.6,
+            961.5,
+            562.3
+          ],
+          "centro_xy": [
+            913.8,
+            509.0
+          ]
+        },
+        {
+          "orden": 6,
+          "clase_id": 8,
+          "clase": "bola_8",
+          "confianza": 0.8843,
+          "bbox_xyxy": [
+            952.0,
+            342.5,
+            989.0,
+            375.2
+          ],
+          "centro_xy": [
+            970.5,
+            358.8
+          ]
+        },
+        {
+          "orden": 7,
+          "clase_id": 5,
+          "clase": "bola_5",
+          "confianza": 0.7056,
+          "bbox_xyxy": [
+            954.0,
+            466.0,
+            1059.0,
+            578.7
+          ],
+          "centro_xy": [
+            1006.5,
+            522.4
+          ]
+        },
+        {
+          "orden": 8,
+          "clase_id": 2,
+          "clase": "bola_2",
+          "confianza": 0.9385,
+          "bbox_xyxy": [
+            1048.0,
+            461.8,
+            1146.0,
+            574.7
+          ],
+          "centro_xy": [
+            1097.0,
+            518.3
+          ]
+        }
+      ]
+    },
+    {
+      "modelo": "modelo_1920x1088.engine",
+      "imagen": "img (2).png",
+      "resultados": [
+        {
+          "orden": 1,
+          "clase_id": 4,
+          "clase": "bola_4",
+          "confianza": 0.7881,
+          "bbox_xyxy": [
+            353.2,
+            398.8,
+            448.0,
+            504.3
+          ],
+          "centro_xy": [
+            400.6,
+            451.5
+          ]
+        },
+        {
+          "orden": 2,
+          "clase_id": 2,
+          "clase": "bola_2",
+          "confianza": 0.9487,
+          "bbox_xyxy": [
+            435.8,
+            406.2,
+            534.5,
+            516.2
+          ],
+          "centro_xy": [
+            485.1,
+            461.2
+          ]
+        },
+        {
+          "orden": 3,
+          "clase_id": 1,
+          "clase": "bola_1",
+          "confianza": 0.9185,
+          "bbox_xyxy": [
+            521.5,
+            431.6,
+            618.0,
+            538.5
+          ],
+          "centro_xy": [
+            569.8,
+            485.0
+          ]
+        },
+        {
+          "orden": 4,
+          "clase_id": 5,
+          "clase": "bola_5",
+          "confianza": 0.7476,
+          "bbox_xyxy": [
+            781.0,
+            451.7,
+            883.5,
+            563.3
+          ],
+          "centro_xy": [
+            832.2,
+            507.5
+          ]
+        },
+        {
+          "orden": 5,
+          "clase_id": 9,
+          "clase": "bola_9",
+          "confianza": 0.6738,
+          "bbox_xyxy": [
+            873.5,
+            459.3,
+            973.0,
+            580.7
+          ],
+          "centro_xy": [
+            923.2,
+            520.0
+          ]
+        },
+        {
+          "orden": 6,
+          "clase_id": 8,
+          "clase": "bola_8",
+          "confianza": 0.9131,
+          "bbox_xyxy": [
+            952.0,
+            343.0,
+            989.0,
+            376.0
+          ],
+          "centro_xy": [
+            970.5,
+            359.5
+          ]
+        },
+        {
+          "orden": 7,
+          "clase_id": 3,
+          "clase": "bola_3",
+          "confianza": 0.9019,
+          "bbox_xyxy": [
+            958.5,
+            455.1,
+            1057.0,
+            563.3
+          ],
+          "centro_xy": [
+            1007.8,
+            509.2
+          ]
+        },
+        {
+          "orden": 8,
+          "clase_id": 3,
+          "clase": "bola_3",
+          "confianza": 0.7744,
+          "bbox_xyxy": [
+            1044.0,
+            463.8,
+            1158.0,
+            582.2
+          ],
+          "centro_xy": [
+            1101.0,
+            523.0
+          ]
+        }
+      ]
+    },
+    {
+      "modelo": "modelo_1920x1088.engine",
+      "imagen": "img (3).png",
+      "resultados": [
+        {
+          "orden": 1,
+          "clase_id": 1,
+          "clase": "bola_1",
+          "confianza": 0.9409,
+          "bbox_xyxy": [
+            524.5,
+            431.3,
+            618.0,
+            541.0
+          ],
+          "centro_xy": [
+            571.2,
+            486.1
+          ]
+        },
+        {
+          "orden": 2,
+          "clase_id": 3,
+          "clase": "bola_3",
+          "confianza": 0.9487,
+          "bbox_xyxy": [
+            607.5,
+            423.1,
+            708.0,
+            528.1
+          ],
+          "centro_xy": [
+            657.8,
+            475.6
+          ]
+        },
+        {
+          "orden": 3,
+          "clase_id": 2,
+          "clase": "bola_2",
+          "confianza": 0.9302,
+          "bbox_xyxy": [
+            957.0,
+            463.3,
+            1055.0,
+            575.2
+          ],
+          "centro_xy": [
+            1006.0,
+            519.3
+          ]
+        },
+        {
+          "orden": 4,
+          "clase_id": 1,
+          "clase": "bola_1",
+          "confianza": 0.9419,
+          "bbox_xyxy": [
+            1051.0,
+            471.8,
+            1156.0,
+            571.3
+          ],
+          "centro_xy": [
+            1103.5,
+            521.5
+          ]
+        }
+      ]
+    },
+    {
+      "modelo": "modelo_1920x1088.engine",
+      "imagen": "img (4).png",
+      "resultados": [
+        {
+          "orden": 1,
+          "clase_id": 1,
+          "clase": "bola_1",
+          "confianza": 0.8989,
+          "bbox_xyxy": [
+            355.8,
+            396.8,
+            455.0,
+            505.0
+          ],
+          "centro_xy": [
+            405.4,
+            450.9
+          ]
+        },
+        {
+          "orden": 2,
+          "clase_id": 3,
+          "clase": "bola_3",
+          "confianza": 0.6133,
+          "bbox_xyxy": [
+            435.5,
+            424.1,
+            535.0,
+            532.6
+          ],
+          "centro_xy": [
+            485.2,
+            478.3
+          ]
+        },
+        {
+          "orden": 3,
+          "clase_id": 5,
+          "clase": "bola_5",
+          "confianza": 0.6226,
+          "bbox_xyxy": [
+            603.5,
+            420.9,
+            710.5,
+            532.1
+          ],
+          "centro_xy": [
+            657.0,
+            476.5
+          ]
+        },
+        {
+          "orden": 4,
+          "clase_id": 2,
+          "clase": "bola_2",
+          "confianza": 0.9287,
+          "bbox_xyxy": [
+            688.0,
+            442.7,
+            784.0,
+            552.9
+          ],
+          "centro_xy": [
+            736.0,
+            497.8
+          ]
+        },
+        {
+          "orden": 5,
+          "clase_id": 1,
+          "clase": "bola_1",
+          "confianza": 0.7812,
+          "bbox_xyxy": [
+            780.5,
+            450.9,
+            879.5,
+            551.4
+          ],
+          "centro_xy": [
+            830.0,
+            501.2
+          ]
+        },
+        {
+          "orden": 6,
+          "clase_id": 3,
+          "clase": "bola_3",
+          "confianza": 0.9399,
+          "bbox_xyxy": [
+            956.0,
+            455.1,
+            1059.0,
+            558.9
+          ],
+          "centro_xy": [
+            1007.5,
+            507.0
+          ]
+        },
+        {
+          "orden": 7,
+          "clase_id": 4,
+          "clase": "bola_4",
+          "confianza": 0.6909,
+          "bbox_xyxy": [
+            1045.0,
+            472.5,
+            1144.0,
+            569.3
+          ],
+          "centro_xy": [
+            1094.5,
+            520.9
+          ]
+        }
+      ]
+    },
+    {
+      "modelo": "modelo_1920x1088.engine",
+      "imagen": "img (5).png",
+      "resultados": [
+        {
+          "orden": 1,
+          "clase_id": 1,
+          "clase": "bola_1",
+          "confianza": 0.9565,
+          "bbox_xyxy": [
+            354.5,
+            397.6,
+            449.5,
+            507.7
+          ],
+          "centro_xy": [
+            402.0,
+            452.6
+          ]
+        },
+        {
+          "orden": 2,
+          "clase_id": 5,
+          "clase": "bola_5",
+          "confianza": 0.6895,
+          "bbox_xyxy": [
+            434.0,
+            405.7,
+            536.5,
+            510.2
+          ],
+          "centro_xy": [
+            485.2,
+            458.0
+          ]
+        },
+        {
+          "orden": 3,
+          "clase_id": 1,
+          "clase": "bola_1",
+          "confianza": 0.937,
+          "bbox_xyxy": [
+            517.0,
+            431.8,
+            614.0,
+            542.0
+          ],
+          "centro_xy": [
+            565.5,
+            486.9
+          ]
+        },
+        {
+          "orden": 4,
+          "clase_id": 3,
+          "clase": "bola_3",
+          "confianza": 0.9253,
+          "bbox_xyxy": [
+            688.5,
+            430.3,
+            788.0,
+            533.1
+          ],
+          "centro_xy": [
+            738.2,
+            481.7
+          ]
+        },
+        {
+          "orden": 5,
+          "clase_id": 2,
+          "clase": "bola_2",
+          "confianza": 0.7744,
+          "bbox_xyxy": [
+            776.0,
+            450.9,
+            870.5,
+            552.9
+          ],
+          "centro_xy": [
+            823.2,
+            501.9
+          ]
+        },
+        {
+          "orden": 6,
+          "clase_id": 8,
+          "clase": "bola_8",
+          "confianza": 0.6958,
+          "bbox_xyxy": [
+            893.0,
+            526.6,
+            944.0,
+            557.9
+          ],
+          "centro_xy": [
+            918.5,
+            542.2
+          ]
+        },
+        {
+          "orden": 7,
+          "clase_id": 8,
+          "clase": "bola_8",
+          "confianza": 0.7026,
+          "bbox_xyxy": [
+            951.5,
+            342.7,
+            989.0,
+            375.5
+          ],
+          "centro_xy": [
+            970.2,
+            359.1
+          ]
+        },
+        {
+          "orden": 8,
+          "clase_id": 2,
+          "clase": "bola_2",
+          "confianza": 0.9424,
+          "bbox_xyxy": [
+            956.0,
+            453.1,
+            1055.0,
+            565.3
+          ],
+          "centro_xy": [
+            1005.5,
+            509.2
+          ]
+        },
+        {
+          "orden": 9,
+          "clase_id": 0,
+          "clase": "bola_0",
+          "confianza": 0.6318,
+          "bbox_xyxy": [
+            1193.0,
+            476.5,
+            1306.0,
+            591.1
+          ],
+          "centro_xy": [
+            1249.5,
+            533.8
+          ]
+        }
+      ]
+    },
+    {
+      "modelo": "modelo_1920x1088.engine",
+      "imagen": "img (6).png",
+      "resultados": [
+        {
+          "orden": 1,
+          "clase_id": 4,
+          "clase": "bola_4",
+          "confianza": 0.6426,
+          "bbox_xyxy": [
+            436.8,
+            427.1,
+            521.0,
+            530.1
+          ],
+          "centro_xy": [
+            478.9,
+            478.6
+          ]
+        },
+        {
+          "orden": 2,
+          "clase_id": 5,
+          "clase": "bola_5",
+          "confianza": 0.7056,
+          "bbox_xyxy": [
+            519.0,
+            415.9,
+            615.0,
+            529.1
+          ],
+          "centro_xy": [
+            567.0,
+            472.5
+          ]
+        },
+        {
+          "orden": 3,
+          "clase_id": 1,
+          "clase": "bola_1",
+          "confianza": 0.9268,
+          "bbox_xyxy": [
+            604.5,
+            420.9,
+            713.0,
+            529.1
+          ],
+          "centro_xy": [
+            658.8,
+            475.0
+          ]
+        },
+        {
+          "orden": 4,
+          "clase_id": 1,
+          "clase": "bola_1",
+          "confianza": 0.8364,
+          "bbox_xyxy": [
+            692.0,
+            445.2,
+            797.5,
+            559.9
+          ],
+          "centro_xy": [
+            744.8,
+            502.5
+          ]
+        },
+        {
+          "orden": 5,
+          "clase_id": 8,
+          "clase": "bola_8",
+          "confianza": 0.8057,
+          "bbox_xyxy": [
+            952.5,
+            342.5,
+            989.5,
+            375.2
+          ],
+          "centro_xy": [
+            971.0,
+            358.8
+          ]
+        },
+        {
+          "orden": 6,
+          "clase_id": 2,
+          "clase": "bola_2",
+          "confianza": 0.936,
+          "bbox_xyxy": [
+            958.5,
+            453.1,
+            1054.0,
+            566.8
+          ],
+          "centro_xy": [
+            1006.2,
+            510.0
+          ]
+        },
+        {
+          "orden": 7,
+          "clase_id": 8,
+          "clase": "bola_8",
+          "confianza": 0.7788,
+          "bbox_xyxy": [
+            1052.0,
+            468.0,
+            1136.0,
+            561.8
+          ],
+          "centro_xy": [
+            1094.0,
+            514.9
+          ]
+        },
+        {
+          "orden": 8,
+          "clase_id": 3,
+          "clase": "bola_3",
+          "confianza": 0.7881,
+          "bbox_xyxy": [
+            1138.0,
+            478.0,
+            1251.0,
+            588.6
+          ],
+          "centro_xy": [
+            1194.5,
+            533.3
+          ]
+        }
+      ]
+    },
+    {
+      "modelo": "modelo_1920x1088.engine",
+      "imagen": "img (7).png",
+      "resultados": [
+        {
+          "orden": 1,
+          "clase_id": 5,
+          "clase": "bola_5",
+          "confianza": 0.6582,
+          "bbox_xyxy": [
+            438.2,
+            411.5,
+            537.0,
+            522.1
+          ],
+          "centro_xy": [
+            487.6,
+            466.8
+          ]
+        },
+        {
+          "orden": 2,
+          "clase_id": 1,
+          "clase": "bola_1",
+          "confianza": 0.875,
+          "bbox_xyxy": [
+            520.5,
+            412.2,
+            630.0,
+            530.1
+          ],
+          "centro_xy": [
+            575.2,
+            471.1
+          ]
+        },
+        {
+          "orden": 3,
+          "clase_id": 1,
+          "clase": "bola_1",
+          "confianza": 0.853,
+          "bbox_xyxy": [
+            605.0,
+            439.2,
+            709.0,
+            552.4
+          ],
+          "centro_xy": [
+            657.0,
+            495.8
+          ]
+        },
+        {
+          "orden": 4,
+          "clase_id": 2,
+          "clase": "bola_2",
+          "confianza": 0.728,
+          "bbox_xyxy": [
+            778.5,
+            447.2,
+            867.0,
+            561.3
+          ],
+          "centro_xy": [
+            822.8,
+            504.3
+          ]
+        },
+        {
+          "orden": 5,
+          "clase_id": 8,
+          "clase": "bola_8",
+          "confianza": 0.8389,
+          "bbox_xyxy": [
+            869.5,
+            443.5,
+            956.5,
+            548.9
+          ],
+          "centro_xy": [
+            913.0,
+            496.2
+          ]
+        },
+        {
+          "orden": 6,
+          "clase_id": 8,
+          "clase": "bola_8",
+          "confianza": 0.8032,
+          "bbox_xyxy": [
+            951.5,
+            342.5,
+            989.0,
+            375.5
+          ],
+          "centro_xy": [
+            970.2,
+            359.0
+          ]
+        },
+        {
+          "orden": 7,
+          "clase_id": 3,
+          "clase": "bola_3",
+          "confianza": 0.9619,
+          "bbox_xyxy": [
+            958.5,
+            466.3,
+            1054.0,
+            548.4
+          ],
+          "centro_xy": [
+            1006.2,
+            507.4
+          ]
+        },
+        {
+          "orden": 8,
+          "clase_id": 2,
+          "clase": "bola_2",
+          "confianza": 0.9268,
+          "bbox_xyxy": [
+            1047.0,
+            468.0,
+            1148.0,
+            579.2
+          ],
+          "centro_xy": [
+            1097.5,
+            523.6
+          ]
+        }
+      ]
+    },
+    {
+      "modelo": "modelo_1920x1088.engine",
+      "imagen": "img (8).png",
+      "resultados": [
+        {
+          "orden": 1,
+          "clase_id": 9,
+          "clase": "bola_9",
+          "confianza": 0.7231,
+          "bbox_xyxy": [
+            435.8,
+            425.6,
+            537.0,
+            537.5
+          ],
+          "centro_xy": [
+            486.4,
+            481.6
+          ]
+        },
+        {
+          "orden": 2,
+          "clase_id": 3,
+          "clase": "bola_3",
+          "confianza": 0.9189,
+          "bbox_xyxy": [
+            690.5,
+            445.0,
+            782.5,
+            516.7
+          ],
+          "centro_xy": [
+            736.5,
+            480.8
+          ]
+        },
+        {
+          "orden": 3,
+          "clase_id": 2,
+          "clase": "bola_2",
+          "confianza": 0.9399,
+          "bbox_xyxy": [
+            778.0,
+            436.8,
+            880.0,
+            546.5
+          ],
+          "centro_xy": [
+            829.0,
+            491.6
+          ]
+        },
+        {
+          "orden": 4,
+          "clase_id": 4,
+          "clase": "bola_4",
+          "confianza": 0.813,
+          "bbox_xyxy": [
+            871.5,
+            456.4,
+            966.0,
+            539.0
+          ],
+          "centro_xy": [
+            918.8,
+            497.7
+          ]
+        },
+        {
+          "orden": 5,
+          "clase_id": 8,
+          "clase": "bola_8",
+          "confianza": 0.8408,
+          "bbox_xyxy": [
+            951.5,
+            342.5,
+            989.0,
+            375.5
+          ],
+          "centro_xy": [
+            970.2,
+            359.0
+          ]
+        },
+        {
+          "orden": 6,
+          "clase_id": 5,
+          "clase": "bola_5",
+          "confianza": 0.6978,
+          "bbox_xyxy": [
+            1049.0,
+            462.6,
+            1159.0,
+            571.8
+          ],
+          "centro_xy": [
+            1104.0,
+            517.2
+          ]
+        }
+      ]
+    },
+    {
+      "modelo": "modelo_1920x1088.engine",
+      "imagen": "img (9).png",
+      "resultados": [
+        {
+          "orden": 1,
+          "clase_id": 8,
+          "clase": "bola_8",
+          "confianza": 0.6206,
+          "bbox_xyxy": [
+            441.8,
+            406.7,
+            528.5,
+            498.6
+          ],
+          "centro_xy": [
+            485.1,
+            452.6
+          ]
+        },
+        {
+          "orden": 2,
+          "clase_id": 1,
+          "clase": "bola_1",
+          "confianza": 0.918,
+          "bbox_xyxy": [
+            694.5,
+            430.6,
+            797.5,
+            540.0
+          ],
+          "centro_xy": [
+            746.0,
+            485.3
+          ]
+        },
+        {
+          "orden": 3,
+          "clase_id": 2,
+          "clase": "bola_2",
+          "confianza": 0.9175,
+          "bbox_xyxy": [
+            787.0,
+            439.7,
+            886.0,
+            552.4
+          ],
+          "centro_xy": [
+            836.5,
+            496.1
+          ]
+        },
+        {
+          "orden": 4,
+          "clase_id": 8,
+          "clase": "bola_8",
+          "confianza": 0.8081,
+          "bbox_xyxy": [
+            952.0,
+            342.5,
+            989.0,
+            375.5
+          ],
+          "centro_xy": [
+            970.5,
+            359.0
+          ]
+        },
+        {
+          "orden": 5,
+          "clase_id": 4,
+          "clase": "bola_4",
+          "confianza": 0.6895,
+          "bbox_xyxy": [
+            1054.0,
+            469.8,
+            1144.0,
+            580.7
+          ],
+          "centro_xy": [
+            1099.0,
+            525.2
+          ]
+        },
+        {
+          "orden": 6,
+          "clase_id": 5,
+          "clase": "bola_5",
+          "confianza": 0.6655,
+          "bbox_xyxy": [
+            1144.0,
+            473.5,
+            1259.0,
+            589.1
+          ],
+          "centro_xy": [
+            1201.5,
+            531.3
+          ]
+        }
+      ]
+    },
+    {
+      "modelo": "llegada_best.engine",
+      "imagen": "img (1).png",
+      "resultados": [
+        {
+          "orden": 1,
+          "clase_id": 7,
+          "clase": "bola_7",
+          "confianza": 0.5342,
+          "bbox_xyxy": [
+            352.0,
+            401.0,
+            438.8,
+            521.6
+          ],
+          "centro_xy": [
+            395.4,
+            461.3
+          ]
+        },
+        {
+          "orden": 2,
+          "clase_id": 9,
+          "clase": "bola_9",
+          "confianza": 0.4988,
+          "bbox_xyxy": [
+            432.8,
+            422.1,
+            527.0,
+            532.6
+          ],
+          "centro_xy": [
+            479.9,
+            477.3
+          ]
+        },
+        {
+          "orden": 3,
+          "clase_id": 2,
+          "clase": "bola_2",
+          "confianza": 0.769,
+          "bbox_xyxy": [
+            598.5,
+            436.0,
+            694.0,
+            546.9
+          ],
+          "centro_xy": [
+            646.2,
+            491.5
+          ]
+        },
+        {
+          "orden": 4,
+          "clase_id": 2,
+          "clase": "bola_2",
+          "confianza": 0.8843,
+          "bbox_xyxy": [
+            688.0,
+            439.7,
+            777.5,
+            555.9
+          ],
+          "centro_xy": [
+            732.8,
+            497.8
+          ]
+        },
+        {
+          "orden": 5,
+          "clase_id": 9,
+          "clase": "bola_9",
+          "confianza": 0.8828,
+          "bbox_xyxy": [
+            773.5,
+            452.2,
+            869.0,
+            560.8
+          ],
+          "centro_xy": [
+            821.2,
+            506.5
+          ]
+        },
+        {
+          "orden": 6,
+          "clase_id": 3,
+          "clase": "bola_3",
+          "confianza": 0.9014,
+          "bbox_xyxy": [
+            865.0,
+            446.9,
+            961.0,
+            561.3
+          ],
+          "centro_xy": [
+            913.0,
+            504.1
+          ]
+        },
+        {
+          "orden": 7,
+          "clase_id": 4,
+          "clase": "bola_4",
+          "confianza": 0.8442,
+          "bbox_xyxy": [
+            955.5,
+            458.4,
+            1050.0,
+            574.7
+          ],
+          "centro_xy": [
+            1002.8,
+            516.5
+          ]
+        },
+        {
+          "orden": 8,
+          "clase_id": 6,
+          "clase": "bola_6",
+          "confianza": 0.8892,
+          "bbox_xyxy": [
+            1045.0,
+            473.7,
+            1144.0,
+            585.2
+          ],
+          "centro_xy": [
+            1094.5,
+            529.5
+          ]
+        },
+        {
+          "orden": 9,
+          "clase_id": 5,
+          "clase": "bola_5",
+          "confianza": 0.9346,
+          "bbox_xyxy": [
+            1141.0,
+            477.5,
+            1258.0,
+            594.6
+          ],
+          "centro_xy": [
+            1199.5,
+            536.0
+          ]
+        }
+      ]
+    },
+    {
+      "modelo": "llegada_best.engine",
+      "imagen": "img (10).png",
+      "resultados": [
+        {
+          "orden": 1,
+          "clase_id": 3,
+          "clase": "bola_3",
+          "confianza": 0.8638,
+          "bbox_xyxy": [
+            352.2,
+            407.2,
+            442.0,
+            521.6
+          ],
+          "centro_xy": [
+            397.1,
+            464.4
+          ]
+        },
+        {
+          "orden": 2,
+          "clase_id": 7,
+          "clase": "bola_7",
+          "confianza": 0.834,
+          "bbox_xyxy": [
+            433.2,
+            414.7,
+            522.0,
+            529.6
+          ],
+          "centro_xy": [
+            477.6,
+            472.1
+          ]
+        },
+        {
+          "orden": 3,
+          "clase_id": 6,
+          "clase": "bola_6",
+          "confianza": 0.9019,
+          "bbox_xyxy": [
+            519.0,
+            417.7,
+            613.5,
+            531.6
+          ],
+          "centro_xy": [
+            566.2,
+            474.6
+          ]
+        },
+        {
+          "orden": 4,
+          "clase_id": 9,
+          "clase": "bola_9",
+          "confianza": 0.8809,
+          "bbox_xyxy": [
+            605.5,
+            434.8,
+            698.0,
+            546.5
+          ],
+          "centro_xy": [
+            651.8,
+            490.6
+          ]
+        },
+        {
+          "orden": 5,
+          "clase_id": 9,
+          "clase": "bola_9",
+          "confianza": 0.5508,
+          "bbox_xyxy": [
+            691.5,
+            429.6,
+            783.5,
+            545.5
+          ],
+          "centro_xy": [
+            737.5,
+            487.5
+          ]
+        },
+        {
+          "orden": 6,
+          "clase_id": 0,
+          "clase": "bola_0",
+          "confianza": 0.8569,
+          "bbox_xyxy": [
+            772.0,
+            451.9,
+            868.5,
+            558.9
+          ],
+          "centro_xy": [
+            820.2,
+            505.4
+          ]
+        },
+        {
+          "orden": 7,
+          "clase_id": 4,
+          "clase": "bola_4",
+          "confianza": 0.6719,
+          "bbox_xyxy": [
+            865.0,
+            458.1,
+            958.0,
+            567.8
+          ],
+          "centro_xy": [
+            911.5,
+            513.0
+          ]
+        },
+        {
+          "orden": 8,
+          "clase_id": 5,
+          "clase": "bola_5",
+          "confianza": 0.9136,
+          "bbox_xyxy": [
+            954.5,
+            466.5,
+            1052.0,
+            577.7
+          ],
+          "centro_xy": [
+            1003.2,
+            522.1
+          ]
+        },
+        {
+          "orden": 9,
+          "clase_id": 2,
+          "clase": "bola_2",
+          "confianza": 0.9067,
+          "bbox_xyxy": [
+            1046.0,
+            462.6,
+            1144.0,
+            582.2
+          ],
+          "centro_xy": [
+            1095.0,
+            522.4
+          ]
+        }
+      ]
+    },
+    {
+      "modelo": "llegada_best.engine",
+      "imagen": "img (2).png",
+      "resultados": [
+        {
+          "orden": 1,
+          "clase_id": 2,
+          "clase": "bola_2",
+          "confianza": 0.3152,
+          "bbox_xyxy": [
+            354.0,
+            395.1,
+            442.2,
+            521.1
+          ],
+          "centro_xy": [
+            398.1,
+            458.1
+          ]
+        },
+        {
+          "orden": 2,
+          "clase_id": 2,
+          "clase": "bola_2",
+          "confianza": 0.9019,
+          "bbox_xyxy": [
+            435.5,
+            409.2,
+            526.5,
+            530.6
+          ],
+          "centro_xy": [
+            481.0,
+            469.9
+          ]
+        },
+        {
+          "orden": 3,
+          "clase_id": 9,
+          "clase": "bola_9",
+          "confianza": 0.522,
+          "bbox_xyxy": [
+            517.5,
+            429.8,
+            614.0,
+            541.0
+          ],
+          "centro_xy": [
+            565.8,
+            485.4
+          ]
+        },
+        {
+          "orden": 4,
+          "clase_id": 6,
+          "clase": "bola_6",
+          "confianza": 0.9072,
+          "bbox_xyxy": [
+            690.0,
+            432.8,
+            786.0,
+            545.5
+          ],
+          "centro_xy": [
+            738.0,
+            489.1
+          ]
+        },
+        {
+          "orden": 5,
+          "clase_id": 5,
+          "clase": "bola_5",
+          "confianza": 0.9028,
+          "bbox_xyxy": [
+            781.5,
+            449.7,
+            877.5,
+            562.8
+          ],
+          "centro_xy": [
+            829.5,
+            506.2
+          ]
+        },
+        {
+          "orden": 6,
+          "clase_id": 1,
+          "clase": "bola_1",
+          "confianza": 0.8804,
+          "bbox_xyxy": [
+            869.5,
+            458.9,
+            964.0,
+            570.3
+          ],
+          "centro_xy": [
+            916.8,
+            514.6
+          ]
+        },
+        {
+          "orden": 7,
+          "clase_id": 7,
+          "clase": "bola_7",
+          "confianza": 0.9146,
+          "bbox_xyxy": [
+            958.5,
+            457.1,
+            1050.0,
+            569.3
+          ],
+          "centro_xy": [
+            1004.2,
+            513.2
+          ]
+        },
+        {
+          "orden": 8,
+          "clase_id": 3,
+          "clase": "bola_3",
+          "confianza": 0.916,
+          "bbox_xyxy": [
+            1044.0,
+            468.0,
+            1146.0,
+            583.7
+          ],
+          "centro_xy": [
+            1095.0,
+            525.9
+          ]
+        },
+        {
+          "orden": 9,
+          "clase_id": 0,
+          "clase": "bola_0",
+          "confianza": 0.937,
+          "bbox_xyxy": [
+            1141.0,
+            472.5,
+            1261.0,
+            593.6
+          ],
+          "centro_xy": [
+            1201.0,
+            533.1
+          ]
+        }
+      ]
+    },
+    {
+      "modelo": "llegada_best.engine",
+      "imagen": "img (3).png",
+      "resultados": [
+        {
+          "orden": 1,
+          "clase_id": 1,
+          "clase": "bola_1",
+          "confianza": 0.8853,
+          "bbox_xyxy": [
+            522.0,
+            429.6,
+            611.5,
+            540.0
+          ],
+          "centro_xy": [
+            566.8,
+            484.8
+          ]
+        },
+        {
+          "orden": 2,
+          "clase_id": 7,
+          "clase": "bola_7",
+          "confianza": 0.3247,
+          "bbox_xyxy": [
+            605.5,
+            426.1,
+            692.5,
+            541.5
+          ],
+          "centro_xy": [
+            649.0,
+            483.8
+          ]
+        },
+        {
+          "orden": 3,
+          "clase_id": 3,
+          "clase": "bola_3",
+          "confianza": 0.917,
+          "bbox_xyxy": [
+            688.0,
+            442.7,
+            783.5,
+            553.9
+          ],
+          "centro_xy": [
+            735.8,
+            498.3
+          ]
+        },
+        {
+          "orden": 4,
+          "clase_id": 0,
+          "clase": "bola_0",
+          "confianza": 0.3586,
+          "bbox_xyxy": [
+            774.0,
+            440.0,
+            867.0,
+            551.4
+          ],
+          "centro_xy": [
+            820.5,
+            495.7
+          ]
+        },
+        {
+          "orden": 5,
+          "clase_id": 5,
+          "clase": "bola_5",
+          "confianza": 0.832,
+          "bbox_xyxy": [
+            865.5,
+            448.2,
+            961.5,
+            560.3
+          ],
+          "centro_xy": [
+            913.5,
+            504.3
+          ]
+        },
+        {
+          "orden": 6,
+          "clase_id": 2,
+          "clase": "bola_2",
+          "confianza": 0.9302,
+          "bbox_xyxy": [
+            956.0,
+            467.5,
+            1050.0,
+            576.7
+          ],
+          "centro_xy": [
+            1003.0,
+            522.1
+          ]
+        },
+        {
+          "orden": 7,
+          "clase_id": 9,
+          "clase": "bola_9",
+          "confianza": 0.897,
+          "bbox_xyxy": [
+            1045.0,
+            472.7,
+            1144.0,
+            586.2
+          ],
+          "centro_xy": [
+            1094.5,
+            529.5
+          ]
+        },
+        {
+          "orden": 8,
+          "clase_id": 6,
+          "clase": "bola_6",
+          "confianza": 0.9053,
+          "bbox_xyxy": [
+            1141.0,
+            473.0,
+            1261.0,
+            592.6
+          ],
+          "centro_xy": [
+            1201.0,
+            532.8
+          ]
+        }
+      ]
+    },
+    {
+      "modelo": "llegada_best.engine",
+      "imagen": "img (4).png",
+      "resultados": [
+        {
+          "orden": 1,
+          "clase_id": 3,
+          "clase": "bola_3",
+          "confianza": 0.9062,
+          "bbox_xyxy": [
+            429.5,
+            426.8,
+            519.5,
+            532.1
+          ],
+          "centro_xy": [
+            474.5,
+            479.4
+          ]
+        },
+        {
+          "orden": 2,
+          "clase_id": 0,
+          "clase": "bola_0",
+          "confianza": 0.9067,
+          "bbox_xyxy": [
+            515.0,
+            432.3,
+            607.0,
+            538.5
+          ],
+          "centro_xy": [
+            561.0,
+            485.4
+          ]
+        },
+        {
+          "orden": 3,
+          "clase_id": 5,
+          "clase": "bola_5",
+          "confianza": 0.7397,
+          "bbox_xyxy": [
+            603.5,
+            425.3,
+            693.0,
+            538.0
+          ],
+          "centro_xy": [
+            648.2,
+            481.7
+          ]
+        },
+        {
+          "orden": 4,
+          "clase_id": 2,
+          "clase": "bola_2",
+          "confianza": 0.915,
+          "bbox_xyxy": [
+            686.5,
+            443.7,
+            778.5,
+            555.4
+          ],
+          "centro_xy": [
+            732.5,
+            499.5
+          ]
+        },
+        {
+          "orden": 5,
+          "clase_id": 9,
+          "clase": "bola_9",
+          "confianza": 0.8501,
+          "bbox_xyxy": [
+            772.5,
+            452.2,
+            869.0,
+            560.8
+          ],
+          "centro_xy": [
+            820.8,
+            506.5
+          ]
+        },
+        {
+          "orden": 6,
+          "clase_id": 6,
+          "clase": "bola_6",
+          "confianza": 0.9146,
+          "bbox_xyxy": [
+            864.0,
+            451.7,
+            960.0,
+            565.3
+          ],
+          "centro_xy": [
+            912.0,
+            508.5
+          ]
+        },
+        {
+          "orden": 7,
+          "clase_id": 7,
+          "clase": "bola_7",
+          "confianza": 0.9092,
+          "bbox_xyxy": [
+            954.0,
+            455.4,
+            1051.0,
+            570.3
+          ],
+          "centro_xy": [
+            1002.5,
+            512.8
+          ]
+        }
+      ]
+    },
+    {
+      "modelo": "llegada_best.engine",
+      "imagen": "img (5).png",
+      "resultados": [
+        {
+          "orden": 1,
+          "clase_id": 1,
+          "clase": "bola_1",
+          "confianza": 0.8252,
+          "bbox_xyxy": [
+            352.5,
+            399.8,
+            436.5,
+            514.2
+          ],
+          "centro_xy": [
+            394.5,
+            457.0
+          ]
+        },
+        {
+          "orden": 2,
+          "clase_id": 5,
+          "clase": "bola_5",
+          "confianza": 0.5664,
+          "bbox_xyxy": [
+            433.2,
+            406.2,
+            536.0,
+            526.1
+          ],
+          "centro_xy": [
+            484.6,
+            466.2
+          ]
+        },
+        {
+          "orden": 3,
+          "clase_id": 9,
+          "clase": "bola_9",
+          "confianza": 0.8384,
+          "bbox_xyxy": [
+            514.0,
+            429.8,
+            607.5,
+            541.0
+          ],
+          "centro_xy": [
+            560.8,
+            485.4
+          ]
+        },
+        {
+          "orden": 4,
+          "clase_id": 6,
+          "clase": "bola_6",
+          "confianza": 0.9043,
+          "bbox_xyxy": [
+            600.5,
+            438.0,
+            693.5,
+            546.0
+          ],
+          "centro_xy": [
+            647.0,
+            492.0
+          ]
+        },
+        {
+          "orden": 5,
+          "clase_id": 7,
+          "clase": "bola_7",
+          "confianza": 0.897,
+          "bbox_xyxy": [
+            686.5,
+            431.6,
+            780.0,
+            546.0
+          ],
+          "centro_xy": [
+            733.2,
+            488.8
+          ]
+        },
+        {
+          "orden": 6,
+          "clase_id": 2,
+          "clase": "bola_2",
+          "confianza": 0.9287,
+          "bbox_xyxy": [
+            953.5,
+            455.9,
+            1051.0,
+            571.3
+          ],
+          "centro_xy": [
+            1002.2,
+            513.6
+          ]
+        },
+        {
+          "orden": 7,
+          "clase_id": 3,
+          "clase": "bola_3",
+          "confianza": 0.9058,
+          "bbox_xyxy": [
+            1046.0,
+            469.8,
+            1165.0,
+            586.7
+          ],
+          "centro_xy": [
+            1105.5,
+            528.2
+          ]
+        }
+      ]
+    },
+    {
+      "modelo": "llegada_best.engine",
+      "imagen": "img (6).png",
+      "resultados": [
+        {
+          "orden": 1,
+          "clase_id": 3,
+          "clase": "bola_3",
+          "confianza": 0.6484,
+          "bbox_xyxy": [
+            350.2,
+            399.5,
+            440.0,
+            522.1
+          ],
+          "centro_xy": [
+            395.1,
+            460.8
+          ]
+        },
+        {
+          "orden": 2,
+          "clase_id": 5,
+          "clase": "bola_5",
+          "confianza": 0.8477,
+          "bbox_xyxy": [
+            517.5,
+            419.9,
+            609.5,
+            530.1
+          ],
+          "centro_xy": [
+            563.5,
+            475.0
+          ]
+        },
+        {
+          "orden": 3,
+          "clase_id": 9,
+          "clase": "bola_9",
+          "confianza": 0.7944,
+          "bbox_xyxy": [
+            603.5,
+            419.6,
+            703.5,
+            538.5
+          ],
+          "centro_xy": [
+            653.5,
+            479.1
+          ]
+        },
+        {
+          "orden": 4,
+          "clase_id": 1,
+          "clase": "bola_1",
+          "confianza": 0.7969,
+          "bbox_xyxy": [
+            692.0,
+            441.7,
+            782.5,
+            555.4
+          ],
+          "centro_xy": [
+            737.2,
+            498.6
+          ]
+        },
+        {
+          "orden": 5,
+          "clase_id": 0,
+          "clase": "bola_0",
+          "confianza": 0.6279,
+          "bbox_xyxy": [
+            772.0,
+            440.2,
+            867.0,
+            553.4
+          ],
+          "centro_xy": [
+            819.5,
+            496.8
+          ]
+        },
+        {
+          "orden": 6,
+          "clase_id": 6,
+          "clase": "bola_6",
+          "confianza": 0.9111,
+          "bbox_xyxy": [
+            863.5,
+            456.9,
+            963.0,
+            566.8
+          ],
+          "centro_xy": [
+            913.2,
+            511.8
+          ]
+        },
+        {
+          "orden": 7,
+          "clase_id": 2,
+          "clase": "bola_2",
+          "confianza": 0.936,
+          "bbox_xyxy": [
+            956.0,
+            451.2,
+            1055.0,
+            571.3
+          ],
+          "centro_xy": [
+            1005.5,
+            511.2
+          ]
+        },
+        {
+          "orden": 8,
+          "clase_id": 7,
+          "clase": "bola_7",
+          "confianza": 0.9077,
+          "bbox_xyxy": [
+            1139.0,
+            475.0,
+            1258.0,
+            594.1
+          ],
+          "centro_xy": [
+            1198.5,
+            534.5
+          ]
+        }
+      ]
+    },
+    {
+      "modelo": "llegada_best.engine",
+      "imagen": "img (7).png",
+      "resultados": [
+        {
+          "orden": 1,
+          "clase_id": 3,
+          "clase": "bola_3",
+          "confianza": 0.814,
+          "bbox_xyxy": [
+            350.2,
+            404.8,
+            441.0,
+            521.6
+          ],
+          "centro_xy": [
+            395.6,
+            463.2
+          ]
+        },
+        {
+          "orden": 2,
+          "clase_id": 5,
+          "clase": "bola_5",
+          "confianza": 0.8838,
+          "bbox_xyxy": [
+            435.0,
+            413.2,
+            524.5,
+            526.6
+          ],
+          "centro_xy": [
+            479.8,
+            469.9
+          ]
+        },
+        {
+          "orden": 3,
+          "clase_id": 9,
+          "clase": "bola_9",
+          "confianza": 0.7412,
+          "bbox_xyxy": [
+            520.0,
+            419.4,
+            612.5,
+            530.1
+          ],
+          "centro_xy": [
+            566.2,
+            474.7
+          ]
+        },
+        {
+          "orden": 4,
+          "clase_id": 1,
+          "clase": "bola_1",
+          "confianza": 0.8921,
+          "bbox_xyxy": [
+            604.0,
+            437.3,
+            696.5,
+            546.5
+          ],
+          "centro_xy": [
+            650.2,
+            491.9
+          ]
+        },
+        {
+          "orden": 5,
+          "clase_id": 6,
+          "clase": "bola_6",
+          "confianza": 0.3481,
+          "bbox_xyxy": [
+            774.0,
+            447.2,
+            876.0,
+            561.3
+          ],
+          "centro_xy": [
+            825.0,
+            504.3
+          ]
+        },
+        {
+          "orden": 6,
+          "clase_id": 7,
+          "clase": "bola_7",
+          "confianza": 0.9136,
+          "bbox_xyxy": [
+            953.5,
+            468.5,
+            1049.0,
+            576.7
+          ],
+          "centro_xy": [
+            1001.2,
+            522.6
+          ]
+        },
+        {
+          "orden": 7,
+          "clase_id": 2,
+          "clase": "bola_2",
+          "confianza": 0.9287,
+          "bbox_xyxy": [
+            1044.0,
+            465.3,
+            1153.0,
+            586.2
+          ],
+          "centro_xy": [
+            1098.5,
+            525.7
+          ]
+        }
+      ]
+    },
+    {
+      "modelo": "llegada_best.engine",
+      "imagen": "img (8).png",
+      "resultados": [
+        {
+          "orden": 1,
+          "clase_id": 3,
+          "clase": "bola_3",
+          "confianza": 0.8418,
+          "bbox_xyxy": [
+            347.8,
+            399.5,
+            443.5,
+            523.1
+          ],
+          "centro_xy": [
+            395.6,
+            461.3
+          ]
+        },
+        {
+          "orden": 2,
+          "clase_id": 1,
+          "clase": "bola_1",
+          "confianza": 0.8242,
+          "bbox_xyxy": [
+            434.0,
+            420.4,
+            522.0,
+            532.1
+          ],
+          "centro_xy": [
+            478.0,
+            476.2
+          ]
+        },
+        {
+          "orden": 3,
+          "clase_id": 0,
+          "clase": "bola_0",
+          "confianza": 0.3171,
+          "bbox_xyxy": [
+            515.0,
+            414.4,
+            613.5,
+            530.1
+          ],
+          "centro_xy": [
+            564.2,
+            472.3
+          ]
+        },
+        {
+          "orden": 4,
+          "clase_id": 7,
+          "clase": "bola_7",
+          "confianza": 0.9287,
+          "bbox_xyxy": [
+            687.0,
+            444.5,
+            780.5,
+            554.4
+          ],
+          "centro_xy": [
+            733.8,
+            499.4
+          ]
+        },
+        {
+          "orden": 5,
+          "clase_id": 2,
+          "clase": "bola_2",
+          "confianza": 0.9292,
+          "bbox_xyxy": [
+            775.5,
+            432.0,
+            889.5,
+            556.4
+          ],
+          "centro_xy": [
+            832.5,
+            494.2
+          ]
+        },
+        {
+          "orden": 6,
+          "clase_id": 6,
+          "clase": "bola_6",
+          "confianza": 0.8862,
+          "bbox_xyxy": [
+            952.0,
+            463.8,
+            1051.0,
+            575.7
+          ],
+          "centro_xy": [
+            1001.5,
+            519.8
+          ]
+        },
+        {
+          "orden": 7,
+          "clase_id": 5,
+          "clase": "bola_5",
+          "confianza": 0.9097,
+          "bbox_xyxy": [
+            1045.0,
+            466.0,
+            1143.0,
+            579.2
+          ],
+          "centro_xy": [
+            1094.0,
+            522.6
+          ]
+        },
+        {
+          "orden": 8,
+          "clase_id": 9,
+          "clase": "bola_9",
+          "confianza": 0.9209,
+          "bbox_xyxy": [
+            1140.0,
+            472.3,
+            1258.0,
+            592.6
+          ],
+          "centro_xy": [
+            1199.0,
+            532.4
+          ]
+        }
+      ]
+    },
+    {
+      "modelo": "llegada_best.engine",
+      "imagen": "img (9).png",
+      "resultados": [
+        {
+          "orden": 1,
+          "clase_id": 3,
+          "clase": "bola_3",
+          "confianza": 0.8652,
+          "bbox_xyxy": [
+            351.0,
+            400.5,
+            449.5,
+            522.1
+          ],
+          "centro_xy": [
+            400.2,
+            461.3
+          ]
+        },
+        {
+          "orden": 2,
+          "clase_id": 7,
+          "clase": "bola_7",
+          "confianza": 0.9146,
+          "bbox_xyxy": [
+            520.0,
+            434.8,
+            610.5,
+            541.0
+          ],
+          "centro_xy": [
+            565.2,
+            487.9
+          ]
+        },
+        {
+          "orden": 3,
+          "clase_id": 6,
+          "clase": "bola_6",
+          "confianza": 0.8926,
+          "bbox_xyxy": [
+            606.5,
+            437.3,
+            700.5,
+            546.9
+          ],
+          "centro_xy": [
+            653.5,
+            492.1
+          ]
+        },
+        {
+          "orden": 4,
+          "clase_id": 9,
+          "clase": "bola_9",
+          "confianza": 0.855,
+          "bbox_xyxy": [
+            692.0,
+            431.8,
+            786.0,
+            545.5
+          ],
+          "centro_xy": [
+            739.0,
+            488.6
+          ]
+        },
+        {
+          "orden": 5,
+          "clase_id": 2,
+          "clase": "bola_2",
+          "confianza": 0.9106,
+          "bbox_xyxy": [
+            780.0,
+            439.7,
+            875.5,
+            554.4
+          ],
+          "centro_xy": [
+            827.8,
+            497.1
+          ]
+        },
+        {
+          "orden": 6,
+          "clase_id": 1,
+          "clase": "bola_1",
+          "confianza": 0.8423,
+          "bbox_xyxy": [
+            869.5,
+            458.9,
+            966.5,
+            569.8
+          ],
+          "centro_xy": [
+            918.0,
+            514.3
+          ]
+        },
+        {
+          "orden": 7,
+          "clase_id": 0,
+          "clase": "bola_0",
+          "confianza": 0.8452,
+          "bbox_xyxy": [
+            957.0,
+            458.1,
+            1053.0,
+            571.8
+          ],
+          "centro_xy": [
+            1005.0,
+            514.9
+          ]
+        },
+        {
+          "orden": 8,
+          "clase_id": 4,
+          "clase": "bola_4",
+          "confianza": 0.647,
+          "bbox_xyxy": [
+            1048.0,
+            473.5,
+            1144.0,
+            585.7
+          ],
+          "centro_xy": [
+            1096.0,
+            529.6
+          ]
+        },
+        {
+          "orden": 9,
+          "clase_id": 5,
+          "clase": "bola_5",
+          "confianza": 0.9141,
+          "bbox_xyxy": [
+            1142.0,
+            471.3,
+            1260.0,
+            591.1
+          ],
+          "centro_xy": [
+            1201.0,
+            531.2
+          ]
+        }
+      ]
+    }
+  ]
+}

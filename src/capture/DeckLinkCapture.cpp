@@ -116,11 +116,13 @@ DeckLinkCapture::~DeckLinkCapture() {
     }
 }
 
-bool DeckLinkCapture::Initialize(int deviceIndex, const std::string& channelName) {
+bool DeckLinkCapture::Initialize(int deviceIndex, const std::string& channelName, int logicalChannelId) {
     Logger::Info("Initializing DeckLink capture for device " + std::to_string(deviceIndex));
-    
+
     m_channel.channelName = channelName;
-    m_channel.channelID = deviceIndex;
+    // Channel ID indexes NDI senders and per-channel arrays, so it must stay in
+    // 0..kMaxNDIChannels-1 even when capturing from a non-zero device index.
+    m_channel.channelID = (logicalChannelId >= 0) ? logicalChannelId : deviceIndex;
     
     // Calculate buffer size for 4K YUV 4:2:2 (2 bytes per pixel)
     m_channel.bufferSize = m_channel.width * m_channel.height * 2;

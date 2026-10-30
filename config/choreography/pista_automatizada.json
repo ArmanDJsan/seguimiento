@@ -1,0 +1,14 @@
+{
+  "name": "Pista Automatizada - Verificacion Salida",
+  "description": "Fase 1: Verificar presencia de esferas en la salida usando PTZ preset 1 (vista amplia)",
+  "version": "0.1",
+  "author": "VIB Automation",
+  "events": [
+    { "type": "Comment", "text": "=== FASE 0: PTZ a closeup salida (preset 2) ===" },
+    { "type": "PTZPreset", "camera": 4, "preset": 2 },
+    { "type": "Timer", "ms": 3000 },
+
+    { "type": "Comment", "text": "=== FASE 1: Verificar presencia de esferas en salida ===" },
+    { "type": "SpherePresenceCheck", "cameraID": 29, "expectedSpheres": 10, "timeoutMs": 15000 }
+  ]
+}

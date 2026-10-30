@@ -60,6 +60,8 @@
 #include "../control/PTZController.h"
 #include "../choreography/ChoreographyEngine.h"
 #include "../verification/SphereVerifier.h"
+#include "../verification/ArrivalOrderStabilizer.h"
+#include "../output/ArrivalEmitter.h"
 #include "../ui/UserMenu.h"
 #include "../diagnostics/StressTester.h"
 #include "Config.h"
@@ -83,6 +85,9 @@ constexpr int kMaxNDIChannels = 4;  // Reduced to 4 PTZ cameras for radar detect
 constexpr unsigned int kDefaultCaptureWidth = 1920;  // 1080p capture (signal from PTZ)
 constexpr unsigned int kDefaultCaptureHeight = 1080;
 constexpr int kVideoHubPrimaryOutput = 0;
+// Cards A and B (devices 0-7) are owned by vMix. The PTZ tracking feeds arrive on
+// card C (devices 8-11), so capture starts at device 8 instead of device 0.
+constexpr int kCaptureDeviceBase = 8;
 
 namespace {
 std::unordered_map<std::string, int> BuildInputLookup() {
@@ -97,6 +102,7 @@ std::unordered_map<std::string, int> BuildInputLookup() {
     lookup["RADAR_02"] = 13;
     lookup["RADAR_03"] = 14;
     lookup["RADAR_04"] = 15;
+    lookup["CAM_29"] = 28;   // PTZ camera on physical input 29 (0-based index 28)
     return lookup;
 }
 
@@ -528,7 +534,70 @@ Config LoadConfig(const std::string& path) {
                             std::to_string(config.inferenceConfig.debugYoloInterval) + " frames)");
             }
         }
-        
+
+        // Parse inference_engine_llegada section (dedicated arrival engine)
+        if (j.contains("inference_engine_llegada") && j["inference_engine_llegada"].is_object()) {
+            auto& ie = j["inference_engine_llegada"];
+            if (ie.contains("model_path") && ie["model_path"].is_string()) {
+                config.llegadaInferenceConfig.modelPath = ie["model_path"].get<std::string>();
+            }
+            if (ie.contains("batch_size") && ie["batch_size"].is_number()) {
+                config.llegadaInferenceConfig.batchSize = ie["batch_size"].get<int>();
+            }
+            if (ie.contains("input_width") && ie["input_width"].is_number()) {
+                config.llegadaInferenceConfig.inputWidth = ie["input_width"].get<int>();
+            }
+            if (ie.contains("input_height") && ie["input_height"].is_number()) {
+                config.llegadaInferenceConfig.inputHeight = ie["input_height"].get<int>();
+            }
+            if (ie.contains("confidence_threshold") && ie["confidence_threshold"].is_number()) {
+                config.llegadaInferenceConfig.confidenceThreshold = ie["confidence_threshold"].get<float>();
+            }
+            if (ie.contains("nms_threshold") && ie["nms_threshold"].is_number()) {
+                config.llegadaInferenceConfig.nmsThreshold = ie["nms_threshold"].get<float>();
+            }
+            if (ie.contains("num_classes") && ie["num_classes"].is_number()) {
+                config.llegadaInferenceConfig.numClasses = ie["num_classes"].get<int>();
+            }
+            if (ie.contains("skip_resize") && ie["skip_resize"].is_boolean()) {
+                config.llegadaInferenceConfig.skipResize = ie["skip_resize"].get<bool>();
+            }
+            if (ie.contains("max_detections") && ie["max_detections"].is_number()) {
+                config.llegadaInferenceConfig.maxDetections = ie["max_detections"].get<int>();
+            }
+            if (ie.contains("debug_yolo_enabled") && ie["debug_yolo_enabled"].is_boolean()) {
+                config.llegadaInferenceConfig.debugYoloEnabled = ie["debug_yolo_enabled"].get<bool>();
+            }
+            if (ie.contains("debug_yolo_interval") && ie["debug_yolo_interval"].is_number()) {
+                config.llegadaInferenceConfig.debugYoloInterval = ie["debug_yolo_interval"].get<int>();
+            }
+            Logger::Info("InferenceEngine llegada config: " + config.llegadaInferenceConfig.modelPath +
+                        " " + std::to_string(config.llegadaInferenceConfig.inputWidth) + "x" +
+                        std::to_string(config.llegadaInferenceConfig.inputHeight) +
+                        " conf=" + std::to_string(config.llegadaInferenceConfig.confidenceThreshold) +
+                        " skip_resize=" + (config.llegadaInferenceConfig.skipResize ? "true" : "false"));
+        }
+
+        // Parse arrival_order section (arrival order stabilization + confirmation endpoint)
+        if (j.contains("arrival_order") && j["arrival_order"].is_object()) {
+            auto& ao = j["arrival_order"];
+            if (ao.contains("stable_frames") && ao["stable_frames"].is_number()) {
+                config.arrivalStabilizerConfig.stableFrames = ao["stable_frames"].get<int>();
+            }
+            if (ao.contains("min_spheres") && ao["min_spheres"].is_number()) {
+                config.arrivalStabilizerConfig.minSpheres = ao["min_spheres"].get<int>();
+            }
+            if (ao.contains("endpoint_enabled") && ao["endpoint_enabled"].is_boolean()) {
+                config.arrivalEndpointConfig.enabled = ao["endpoint_enabled"].get<bool>();
+            }
+            if (ao.contains("endpoint_url") && ao["endpoint_url"].is_string()) {
+                config.arrivalEndpointConfig.endpointUrl = ao["endpoint_url"].get<std::string>();
+            }
+            Logger::Info("Arrival order config: stable_frames=" + std::to_string(config.arrivalStabilizerConfig.stableFrames) +
+                        " min_spheres=" + std::to_string(config.arrivalStabilizerConfig.minSpheres) +
+                        " endpoint_enabled=" + (config.arrivalEndpointConfig.enabled ? "true" : "false"));
+        }
+
         // Parse position_mapper section
         config.calibrationFile = "config/calibration.json";
         if (j.contains("position_mapper") && j["position_mapper"].is_object()) {
@@ -1058,11 +1127,12 @@ bool RunRunningMode() {
     int numDevices = DeckLinkCapture::EnumerateDevices();
     Logger::Info("Found " + std::to_string(numDevices) + " DeckLink devices");
     
-    const int channelsToInit = (std::min)(numDevices, kMaxNDIChannels);
+    const int availableDevices = (std::max)(0, numDevices - kCaptureDeviceBase);
+    const int channelsToInit = (std::min)(availableDevices, kMaxNDIChannels);
     for (int i = 0; i < channelsToInit; i++) {
         auto capture = std::make_unique<DeckLinkCapture>();
         const std::string channelName = "Channel_" + std::to_string(i + 1);
-        if (capture->Initialize(i, channelName)) {
+        if (capture->Initialize(kCaptureDeviceBase + i, channelName, i)) {
             capture->SetFrameReadyHandler([ndiManager, cameraSelector, 
                                           perfMonitor, &config, inferenceStream,
                                           inferenceEngine, positionMapper, ballTracker, 
@@ -2400,6 +2470,988 @@ bool RunVMixUTCChoreography() {
     return true;
 }
 
+bool RunAutomatedTrackMode() {
+    Logger::Info("=== INICIANDO MODO PISTA AUTOMATIZADA (FASE 1: VERIFICACION SALIDA) ===");
+
+    // Load configuration
+    Config config = LoadConfig("config.json");
+
+    // Connect VideoHub
+    auto inputLookup = BuildInputLookup();
+    VideoHubClient videoHub(config.videohubIp, config.videohubPort, inputLookup);
+    if (!videoHub.Connect()) {
+        Logger::Error("[PISTA AUTO] No se pudo conectar con VideoHub");
+        std::cout << "\n  ERROR: No se pudo conectar con VideoHub (" << config.videohubIp << ")\n";
+        std::cout << "  Presione ENTER para continuar...";
+        std::cin.get();
+        return false;
+    }
+    Logger::Info("[PISTA AUTO] VideoHub conectado a " + config.videohubIp);
+
+    // Route PTZ camera: physical input 29 -> physical output 13
+    // VideoHub protocol uses 0-based indices: input 29 = index 28, output 13 = index 12
+    constexpr int kPTZVideoHubInputIdx = 28;   // Physical input 29 (0-based)
+    constexpr int kPTZVideoHubOutputIdx = 12;  // Physical output 13 (0-based)
+
+    if (!videoHub.RouteInputToOutput(kPTZVideoHubOutputIdx, kPTZVideoHubInputIdx)) {
+        Logger::Warning("[PISTA AUTO] No se pudo rutear input 29 -> output 13 (no critico en stub)");
+    } else {
+        Logger::Info("[PISTA AUTO] VideoHub: input 29 -> output 13 OK");
+    }
+
+    // Initialize InferenceEngine (stub mode OK for Phase 1)
+    Logger::Info("[PISTA AUTO] Inicializando InferenceEngine...");
+    auto inferenceEngine = std::make_shared<InferenceEngine>();
+    inferenceEngine->Initialize(config.inferenceConfig);
+
+    if (inferenceEngine->IsStubMode()) {
+        Logger::Warning("[PISTA AUTO] InferenceEngine en modo STUB - usando detecciones simuladas");
+        std::cout << "\n  ADVERTENCIA: InferenceEngine en modo STUB (detecciones simuladas)\n";
+        std::cout << "  La verificacion usara datos falsos para probar el flujo.\n";
+    } else {
+        Logger::Info("[PISTA AUTO] InferenceEngine inicializado con TensorRT");
+    }
+
+    // Initialize PTZ Controller (single camera: index 0 = PTZ_START)
+    std::shared_ptr<PTZ::PTZController> ptzController;
+    bool ptzAvailable = false;
+    if (config.ptzCamerasConfig.enabled && !config.ptzCamerasConfig.cameras.empty()) {
+        ptzController = std::make_shared<PTZ::PTZController>();
+        if (!ptzController->Initialize(config.ptzCamerasConfig.cameras, config.ptzTrackingConfig)) {
+            Logger::Warning("[PISTA AUTO] PTZController no se pudo inicializar");
+        } else {
+            ptzAvailable = true;
+            Logger::Info("[PISTA AUTO] PTZController inicializado - " +
+                        std::to_string(config.ptzCamerasConfig.cameras.size()) + " camara(s)");
+        }
+    } else {
+        Logger::Warning("[PISTA AUTO] No hay camaras PTZ configuradas en config.json");
+    }
+
+    // Initialize SphereVerifier
+    Logger::Info("[PISTA AUTO] Creando SphereVerifier...");
+    Verification::SphereVerifier sphereVerifier(&videoHub, inferenceEngine.get());
+
+    if (!sphereVerifier.IsReady()) {
+        Logger::Error("[PISTA AUTO] SphereVerifier no esta listo: " + sphereVerifier.GetLastError());
+        std::cout << "\n  ERROR: SphereVerifier no esta listo\n";
+        std::cout << "  " << sphereVerifier.GetLastError() << "\n";
+        std::cout << "  Presione ENTER para continuar...";
+        std::cin.get();
+        return false;
+    }
+    Logger::Info("[PISTA AUTO] SphereVerifier listo");
+
+    // Read DeckLink device index from config (default 0)
+    int decklinkDeviceIndex = 0;
+    try {
+        std::ifstream configFile("config.json");
+        if (configFile.is_open()) {
+            json j;
+            configFile >> j;
+            if (j.contains("automated_track") && j["automated_track"].contains("decklink_device_index")) {
+                decklinkDeviceIndex = j["automated_track"]["decklink_device_index"].get<int>();
+            }
+        }
+    } catch (...) {}
+    Logger::Info("[PISTA AUTO] DeckLink device index from config: " + std::to_string(decklinkDeviceIndex));
+
+    // Initialize NDI for live video preview (UYVY raw, no conversion needed)
+    NDIManager ndiManager;
+    bool ndiAvailable = false;
+    if (ndiManager.Initialize()) {
+        if (ndiManager.CreateSender(0, "VIB_Pista_Auto", 1920, 1080, true)) {
+            ndiAvailable = true;
+            Logger::Info("[PISTA AUTO] NDI sender creado: VIB_Pista_Auto (1920x1080@30 UYVY)");
+        }
+    } else {
+        Logger::Warning("[PISTA AUTO] NDI no disponible");
+    }
+
+    // Initialize DeckLink capture for real frames (single channel)
+    std::unique_ptr<DeckLinkCapture> deckLinkCapture;
+    bool realCaptureAvailable = false;
+    int numDevices = DeckLinkCapture::EnumerateDevices();
+    Logger::Info("[PISTA AUTO] DeckLink devices found: " + std::to_string(numDevices));
+
+    if (numDevices > 0 && decklinkDeviceIndex < numDevices) {
+        deckLinkCapture = std::make_unique<DeckLinkCapture>();
+        if (deckLinkCapture->Initialize(decklinkDeviceIndex, "PistaAuto_CAM29")) {
+            deckLinkCapture->SetFrameReadyHandler(
+                [&sphereVerifier, &ndiManager, ndiAvailable]
+                (const VideoChannel& channel, cudaStream_t stream) {
+                    sphereVerifier.PushFrame(channel.channelID, channel.cudaYUVBuffer,
+                                            channel.width, channel.height);
+                    if (ndiAvailable) {
+                        ndiManager.SendUYVYFrame(0, channel.cudaYUVBuffer,
+                                                 channel.width, channel.height, stream);
+                    }
+                }
+            );
+            if (deckLinkCapture->Start()) {
+                realCaptureAvailable = true;
+                Logger::Info("[PISTA AUTO] DeckLink capture INICIADO - frames reales YOLO");
+            } else {
+                Logger::Warning("[PISTA AUTO] DeckLink capture Start() fallo");
+            }
+        } else {
+            Logger::Warning("[PISTA AUTO] DeckLink device 0 no disponible");
+        }
+    } else {
+        Logger::Warning("[PISTA AUTO] No se encontraron dispositivos DeckLink");
+    }
+
+    sphereVerifier.SetRealCaptureAvailable(realCaptureAvailable);
+
+    // Create ChoreographyEngine (no VMix, no SceneManager for Phase 1)
+    Choreography::ChoreographyEngine engine(nullptr, nullptr);
+    engine.SetContinueOnError(false);  // Stop on first error - critico para verificacion
+    engine.SetVMixRequired(false);
+
+    // Wire controllers
+    if (ptzAvailable) {
+        engine.SetPTZController(ptzController.get());
+        Logger::Info("[PISTA AUTO] PTZController conectado al engine");
+    } else {
+        Logger::Warning("[PISTA AUTO] PTZController NO disponible - eventos PTZ seran saltados");
+    }
+    engine.SetSphereVerifier(&sphereVerifier);
+    Logger::Info("[PISTA AUTO] SphereVerifier conectado al engine");
+
+    // Set up callbacks
+    engine.SetStateCallback([](Choreography::EngineState state) {
+        std::string stateStr;
+        switch (state) {
+            case Choreography::EngineState::Idle: stateStr = "Idle"; break;
+            case Choreography::EngineState::Ready: stateStr = "Ready"; break;
+            case Choreography::EngineState::Running: stateStr = "Running"; break;
+            case Choreography::EngineState::Paused: stateStr = "Paused"; break;
+            case Choreography::EngineState::Stopping: stateStr = "Stopping"; break;
+            case Choreography::EngineState::Error: stateStr = "Error"; break;
+        }
+        Logger::Info("[PISTA AUTO] State: " + stateStr);
+    });
+
+    engine.SetEventStartCallback([](size_t index, const Choreography::ChoreographyEvent& event) {
+        Logger::Info("[PISTA AUTO] Event " + std::to_string(index + 1) + ": " + event.GetTypeName());
+    });
+
+    engine.SetEventCompleteCallback([](const Choreography::EventResult& result) {
+        if (!result.success) {
+            Logger::Warning("[PISTA AUTO] Event " + std::to_string(result.eventIndex + 1) +
+                           " FALLIDO: " + result.errorMessage);
+        } else {
+            Logger::Info("[PISTA AUTO] Event " + std::to_string(result.eventIndex + 1) + " OK");
+        }
+    });
+
+    engine.SetErrorCallback([](const std::string& error) {
+        Logger::Error("[PISTA AUTO] Error: " + error);
+    });
+
+    // Load choreography script
+    std::string scriptPath = config.choreographyConfig.scriptPath;
+    if (scriptPath.empty() || scriptPath == "config/choreography/inicio_carrera.json") {
+        // Override with automated track script
+        scriptPath = "config/choreography/pista_automatizada.json";
+    }
+    Logger::Info("[PISTA AUTO] Cargando script: " + scriptPath);
+
+    if (!engine.Load(scriptPath)) {
+        Logger::Error("[PISTA AUTO] No se pudo cargar el script: " + engine.GetLastError());
+        std::cout << "\n  ERROR: No se pudo cargar el script de coreografia.\n";
+        std::cout << "  Ruta: " << scriptPath << "\n";
+        std::cout << "  " << engine.GetLastError() << "\n";
+        std::cout << "  Presione ENTER para continuar...";
+        std::cin.get();
+        return false;
+    }
+
+    // Show summary
+    std::cout << "\n";
+    std::cout << "  +--------------------------------------------------------------------+\n";
+    std::cout << "  |              MODO PISTA AUTOMATIZADA - FASE 1                      |\n";
+    std::cout << "  +--------------------------------------------------------------------+\n";
+    std::cout << "  |                                                                    |\n";
+    std::cout << "  |   Camara:    Input 29 -> Output 13 (VideoHub)                      |\n";
+    std::cout << "  |   PTZ:       " << (ptzAvailable ? "CONECTADO" : "NO DISPONIBLE") << "                                              |\n";
+    std::cout << "  |   Preset:    1 (vista amplia de todo el tramo)                     |\n";
+    std::cout << "  |   Esferas:   10 esperadas en la salida                             |\n";
+    std::cout << "  |   Timeout:   15 segundos                                           |\n";
+    std::cout << "  |   Inferencia:" << (inferenceEngine->IsStubMode() ? " STUB (simulada)" : " TensorRT") << "                                    |\n";
+    std::cout << "  |   Captura:  " << (realCaptureAvailable ? "DECKLINK (frames reales)" : "STUB (datos simulados)") << "                      |\n";
+    std::cout << "  |   NDI Live: " << (ndiAvailable ? "VIB_Pista_Auto (video crudo)" : "NO DISPONIBLE") << "                         |\n";
+    std::cout << "  |                                                                    |\n";
+    std::cout << "  |   Secuencia:                                                       |\n";
+    std::cout << "  |     1. PTZ -> Preset 1 (vista amplia)                              |\n";
+    std::cout << "  |     2. Verificar presencia de 10 esferas en salida                 |\n";
+    std::cout << "  |                                                                    |\n";
+    std::cout << "  +--------------------------------------------------------------------+\n";
+    std::cout << "\n  Presione ENTER para iniciar...";
+    std::cin.get();
+
+    // Start execution
+    Logger::Info("[PISTA AUTO] Iniciando ejecucion...");
+    if (!engine.Start()) {
+        Logger::Error("[PISTA AUTO] No se pudo iniciar: " + engine.GetLastError());
+        std::cout << "\n  ERROR al iniciar: " << engine.GetLastError() << "\n";
+        std::cout << "  Presione ENTER para continuar...";
+        std::cin.get();
+        return false;
+    }
+
+    // Wait for engine thread to actually start running (race condition fix)
+    int waitTicks = 0;
+    while (!engine.IsRunning() && engine.GetState() != Choreography::EngineState::Error) {
+        if (++waitTicks > 100) {  // 5 second timeout (100 * 50ms)
+            Logger::Error("[PISTA AUTO] Engine no arranco despues de 5 segundos");
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    Logger::Info("[PISTA AUTO] Engine en ejecucion - estado=" +
+                std::to_string(static_cast<int>(engine.GetState())));
+
+    // Monitor loop
+    std::cout << "\n  Ejecutando secuencia de verificacion...\n\n";
+    bool aborted = false;
+    while (engine.IsRunning()) {
+        auto status = engine.GetStatus();
+        std::cout << "\r  Progreso: evento " << (status.currentEventIndex + 1)
+                  << "/" << status.totalEvents
+                  << " (" << status.currentEventType << ")"
+                  << " - " << (status.elapsedTime.count() / 1000) << "s   " << std::flush;
+
+        // ESC to abort
+        if (GetAsyncKeyState(VK_ESCAPE) & 0x8000) {
+            Logger::Info("[PISTA AUTO] ESC presionado - abortando...");
+            aborted = true;
+            engine.Stop();
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
+
+    std::cout << "\n\n";
+
+    // Report result
+    if (aborted) {
+        Logger::Info("[PISTA AUTO] Verificacion cancelada por el usuario");
+        std::cout << "  Verificacion cancelada por el usuario.\n";
+    } else {
+        auto finalState = engine.GetState();
+        int errorCount = engine.GetStatus().errorCount;
+        if (finalState == Choreography::EngineState::Error || errorCount > 0) {
+            Logger::Warning("[PISTA AUTO] Verificacion finalizada CON ERRORES (errores=" +
+                           std::to_string(errorCount) + ")");
+            std::cout << "  +--------------------------------------------------------------------+\n";
+            std::cout << "  |              *** VERIFICACION FALLIDA ***                          |\n";
+            std::cout << "  +--------------------------------------------------------------------+\n";
+            std::cout << "  |  Errores: " << errorCount << "                                                       |\n";
+            std::cout << "  |  Revise los logs para ver cual evento fallo.                       |\n";
+            std::cout << "  |  Verifique que:                                                    |\n";
+            std::cout << "  |  - Las 10 esferas esten visibles en la salida                     |\n";
+            std::cout << "  |  - La camara PTZ este encendida y en preset 1                      |\n";
+            std::cout << "  |  - El VideoHub este enrutando input 29 -> output 13                |\n";
+            std::cout << "  +--------------------------------------------------------------------+\n";
+        } else {
+            Logger::Info("[PISTA AUTO] Verificacion COMPLETADA EXITOSAMENTE");
+            std::cout << "  +--------------------------------------------------------------------+\n";
+            std::cout << "  |              *** VERIFICACION EXITOSA ***                          |\n";
+            std::cout << "  +--------------------------------------------------------------------+\n";
+            std::cout << "  |  10 esferas detectadas correctamente en la salida.                 |\n";
+            std::cout << "  |  La pista esta lista para la carrera.                              |\n";
+            std::cout << "  +--------------------------------------------------------------------+\n";
+        }
+    }
+
+    std::cout << "\n  Presione ENTER para continuar...";
+    std::cin.get();
+
+    // Stop DeckLink capture if active
+    if (deckLinkCapture) {
+        deckLinkCapture->Stop();
+        Logger::Info("[PISTA AUTO] DeckLink capture detenido");
+    }
+
+    // Release NDI sender
+    if (ndiAvailable) {
+        ndiManager.ReleaseSender(0);
+        Logger::Info("[PISTA AUTO] NDI sender liberado");
+    }
+
+    Logger::Info("[PISTA AUTO] Modo Pista Automatizada (Fase 1) finalizado");
+    return true;
+}
+
+// Bitmap font 3x5 for digits 0-9
+static const int FONT_LIVE[10][5][3] = {
+    {{1,1,1},{1,0,1},{1,0,1},{1,0,1},{1,1,1}}, // 0
+    {{0,1,0},{1,1,0},{0,1,0},{0,1,0},{1,1,1}}, // 1
+    {{1,1,1},{0,0,1},{1,1,1},{1,0,0},{1,1,1}}, // 2
+    {{1,1,1},{0,0,1},{1,1,1},{0,0,1},{1,1,1}}, // 3
+    {{1,0,1},{1,0,1},{1,1,1},{0,0,1},{0,0,1}}, // 4
+    {{1,1,1},{1,0,0},{1,1,1},{0,0,1},{1,1,1}}, // 5
+    {{1,1,1},{1,0,0},{1,1,1},{1,0,1},{1,1,1}}, // 6
+    {{1,1,1},{0,0,1},{0,1,0},{1,0,0},{1,0,0}}, // 7
+    {{1,1,1},{1,0,1},{1,1,1},{1,0,1},{1,1,1}}, // 8
+    {{1,1,1},{1,0,1},{1,1,1},{0,0,1},{1,1,1}}, // 9
+};
+
+static void drawDigitLive(unsigned char* buf, int W, int digit, int cx, int cy, int scale,
+                          unsigned char r, unsigned char g, unsigned char b) {
+    if (digit < 0 || digit > 9) return;
+    for (int row = 0; row < 5; row++) {
+        for (int col = 0; col < 3; col++) {
+            if (!FONT_LIVE[digit][row][col]) continue;
+            for (int sy = 0; sy < scale; sy++) {
+                for (int sx = 0; sx < scale; sx++) {
+                    int px = cx + col * scale + sx;
+                    int py = cy + row * scale + sy;
+                    if (px >= 0 && px < W && py >= 0 && py < 1080) {
+                        int o = (py * W + px) * 4;
+                        buf[o]=b; buf[o+1]=g; buf[o+2]=r; buf[o+3]=255;
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Get pixel color for sphere border (with stripes for special spheres)
+static void getSphereColor(int ballID, int px, int py, unsigned char& r, unsigned char& g, unsigned char& b) {
+    // 0=blanco, 1=amarillo, 2=azul, 3=rojo, 4=morado, 5=naranja, 6=verde, 7=vinotinto, 8=negro, 9=amarillo-blanco
+    const int colors[10][3] = {
+        {255,255,255}, {255,255,0}, {0,0,255}, {255,0,0}, {128,0,128},
+        {255,165,0}, {0,255,0}, {128,0,0}, {80,80,80}, {255,255,224}
+    };
+    int idx = (ballID >= 0 && ballID < 10) ? ballID : (ballID % 10);
+    r = colors[idx][0]; g = colors[idx][1]; b = colors[idx][2];
+
+    if (ballID == 9) { // amarillo-blanco stripes
+        if ((px + py) % 2 == 0) { r=255; g=255; b=0; } else { r=255; g=255; b=255; }
+    }
+    if (ballID == 4) { // morado-blanco stripes
+        if ((px + py) % 2 == 0) { r=128; g=0; b=128; } else { r=255; g=255; b=255; }
+    }
+    if (ballID == 8) { // negro with white dots
+        if ((px + py) % 3 == 0) { r=255; g=255; b=255; } else { r=80; g=80; b=80; }
+    }
+}
+
+bool RunLivePreview() {
+    Logger::Info("=== LIVE PREVIEW - PRUEBA DE DETECCION YOLO EN VIVO ===");
+
+    Config config = LoadConfig("config.json");
+    auto inputLookup = BuildInputLookup();
+    VideoHubClient videoHub(config.videohubIp, config.videohubPort, inputLookup);
+    if (!videoHub.Connect()) {
+        Logger::Error("[LIVE] No se pudo conectar con VideoHub");
+        std::cout << "\n  ERROR: VideoHub no disponible\n";
+        std::cin.get();
+        return false;
+    }
+    videoHub.RouteInputToOutput(12, 28); // input 29 -> output 13
+    Logger::Info("[LIVE] VideoHub: input 29 -> output 13 OK");
+
+    auto inferenceEngine = std::make_shared<InferenceEngine>();
+    inferenceEngine->Initialize(config.inferenceConfig);
+    Logger::Info("[LIVE] InferenceEngine: " + std::string(inferenceEngine->IsStubMode() ? "STUB" : "TensorRT"));
+
+    int decklinkDeviceIndex = 8;
+    int numDevices = DeckLinkCapture::EnumerateDevices();
+    Logger::Info("[LIVE] DeckLink devices: " + std::to_string(numDevices));
+
+    // NDI: two senders - raw video + boxes
+    NDIManager ndiManager;
+    bool ndiRaw = ndiManager.Initialize() && ndiManager.CreateSender(0, "VIB_Pista_Raw", 1920, 1080, true);
+    bool ndiBox = ndiManager.CreateSender(1, "VIB_Pista_Boxes", 1920, 1080, false);
+    if (ndiRaw) Logger::Info("[LIVE] NDI raw: VIB_Pista_Raw");
+    if (ndiBox) Logger::Info("[LIVE] NDI boxes: VIB_Pista_Boxes");
+
+    // Pre-allocate buffers for BGRA conversion and box drawing
+    const int W = 1920, H = 1080;
+    std::vector<unsigned char> uyvyBuf(W * H * 2);
+    std::vector<unsigned char> bgraCpuBuf(W * H * 4);
+    void* bgraGpuBuf = nullptr;
+    cudaMalloc(&bgraGpuBuf, W * H * 4);
+    cudaStream_t infStream;
+    cudaStreamCreate(&infStream);
+
+    std::unique_ptr<DeckLinkCapture> deckLinkCapture;
+    if (numDevices > 0 && decklinkDeviceIndex < numDevices) {
+        deckLinkCapture = std::make_unique<DeckLinkCapture>();
+        if (!deckLinkCapture->Initialize(decklinkDeviceIndex, "LivePreview")) {
+            Logger::Error("[LIVE] DeckLink init fallo"); return false;
+        }
+    } else { Logger::Error("[LIVE] No DeckLink"); return false; }
+
+    // Shared state
+    std::mutex detMutex, uyvyMutex;
+    std::vector<BallDetection> latestDets;
+    void* latestUYVY = nullptr;
+    std::atomic<int> frameCount{0};
+    std::atomic<bool> running{true};
+
+    deckLinkCapture->SetFrameReadyHandler(
+        [&](const VideoChannel& channel, cudaStream_t stream) {
+            int fc = frameCount.fetch_add(1);
+            // Always send raw UYVY via NDI at 30fps
+            if (ndiRaw) ndiManager.SendUYVYFrame(0, channel.cudaYUVBuffer, channel.width, channel.height, stream);
+            // Track latest frame pointer
+            latestUYVY = channel.cudaYUVBuffer;
+        }
+    );
+
+    if (!deckLinkCapture->Start()) {
+        Logger::Error("[LIVE] Capture start fallo"); return false;
+    }
+
+    std::cout << "\n  +--------------------------------------------------------------------+\n";
+    std::cout << "  |           LIVE PREVIEW - DETECCIONES YOLO EN VIVO                  |\n";
+    std::cout << "  +--------------------------------------------------------------------+\n";
+    std::cout << "  |  NDI Raw:  VIB_Pista_Raw (video limpio 30fps)                     |\n";
+    std::cout << "  |  NDI Box:  VIB_Pista_Boxes (video + cajas ~5fps)                  |\n";
+    std::cout << "  |  Consola:  detecciones en vivo                                    |\n";
+    std::cout << "  |  ESC para salir                                                   |\n";
+    std::cout << "  +--------------------------------------------------------------------+\n\n";
+
+    auto lastBox = std::chrono::steady_clock::now();
+    auto lastPrint = std::chrono::steady_clock::now();
+    while (running.load()) {
+        if (GetAsyncKeyState(VK_ESCAPE) & 0x8000) { running.store(false); break; }
+
+        auto now = std::chrono::steady_clock::now();
+        bool doBoxes = ndiBox && latestUYVY &&
+            std::chrono::duration_cast<std::chrono::milliseconds>(now - lastBox).count() >= 200;
+        bool doPrint = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastPrint).count() >= 1000;
+
+        if (doBoxes || doPrint) {
+            // Download UYVY from GPU to CPU (shared for boxes + detection print)
+            void* uyvyPtr = latestUYVY;
+            if (uyvyPtr) {
+                cudaMemcpy(uyvyBuf.data(), uyvyPtr, W * H * 2, cudaMemcpyDeviceToHost);
+            }
+
+            if (doBoxes && uyvyPtr) {
+                lastBox = now;
+                // CPU UYVY->BGRA conversion (ITU-R BT.601)
+                for (int i = 0; i < W * H / 2; i++) {
+                    int idx = i * 4;
+                    int u = uyvyBuf[idx+0], y0 = uyvyBuf[idx+1], v = uyvyBuf[idx+2], y1 = uyvyBuf[idx+3];
+                    auto conv = [](int y, int u, int v) -> std::tuple<int,int,int> {
+                        int c=y-16, d=u-128, e=v-128;
+                        int r=(298*c+409*e+128)>>8, g=(298*c-100*d-208*e+128)>>8, b=(298*c+516*d+128)>>8;
+                        auto cl = [](int x){ return (x<0)?0:(x>255)?255:x; };
+                        return {cl(r), cl(g), cl(b)};
+                    };
+                    auto [r0,g0,b0] = conv(y0,u,v);
+                    auto [r1,g1,b1] = conv(y1,u,v);
+                    // Write BGRA: pixel 0
+                    int o0 = (i*2)*4;     bgraCpuBuf[o0]=b0; bgraCpuBuf[o0+1]=g0; bgraCpuBuf[o0+2]=r0; bgraCpuBuf[o0+3]=255;
+                    // Write BGRA: pixel 1
+                    int o1 = (i*2+1)*4;   bgraCpuBuf[o1]=b1; bgraCpuBuf[o1+1]=g1; bgraCpuBuf[o1+2]=r1; bgraCpuBuf[o1+3]=255;
+                }
+
+                // Draw colored boxes with numbers on BGRA buffer
+                std::vector<BallDetection> dets;
+                { std::lock_guard<std::mutex> lock(detMutex); dets = latestDets; }
+                for (const auto& d : dets) {
+                    int cx=(int)(d.x*W), cy=(int)(d.y*H);
+                    int bw=(int)(d.width*W), bh=(int)(d.height*H);
+                    int x1=std::max(0,cx-bw/2), y1=std::max(0,cy-bh/2);
+                    int x2=std::min(W-1,cx+bw/2), y2=std::min(H-1,cy+bh/2);
+                    int id=d.ballID;
+                    const int B=3;
+                    // Draw border with sphere-specific color
+                    for (int x=x1; x<=x2; x++) {
+                        for (int t=0; t<B&&y1+t<=y2; t++) {
+                            unsigned char cr,cg,cb; getSphereColor(id,x,y1+t,cr,cg,cb);
+                            int o=((y1+t)*W+x)*4; bgraCpuBuf[o]=cb; bgraCpuBuf[o+1]=cg; bgraCpuBuf[o+2]=cr;
+                        }
+                        for (int t=0; t<B&&y2-t>=y1; t++) {
+                            unsigned char cr,cg,cb; getSphereColor(id,x,y2-t,cr,cg,cb);
+                            int o=((y2-t)*W+x)*4; bgraCpuBuf[o]=cb; bgraCpuBuf[o+1]=cg; bgraCpuBuf[o+2]=cr;
+                        }
+                    }
+                    for (int y=y1; y<=y2; y++) {
+                        for (int t=0; t<B&&x1+t<=x2; t++) {
+                            unsigned char cr,cg,cb; getSphereColor(id,x1+t,y,cr,cg,cb);
+                            int o=(y*W+x1+t)*4; bgraCpuBuf[o]=cb; bgraCpuBuf[o+1]=cg; bgraCpuBuf[o+2]=cr;
+                        }
+                        for (int t=0; t<B&&x2-t>=x1; t++) {
+                            unsigned char cr,cg,cb; getSphereColor(id,x2-t,y,cr,cg,cb);
+                            int o=(y*W+x2-t)*4; bgraCpuBuf[o]=cb; bgraCpuBuf[o+1]=cg; bgraCpuBuf[o+2]=cr;
+                        }
+                    }
+                    // Draw number in center (red for yellow/cream spheres, white for others)
+                    int scale=std::max(2, std::min(bw,bh)/20);
+                    int tw=3*scale, th=5*scale;
+                    if (id == 1 || id == 9)
+                        drawDigitLive(bgraCpuBuf.data(), W, id, cx-tw/2, cy-th/2, scale, 255,0,0);
+                    else
+                        drawDigitLive(bgraCpuBuf.data(), W, id, cx-tw/2, cy-th/2, scale, 255,255,255);
+                }
+
+                // Send BGRA buffer via NDI (uses CPU buffer — correct byte order BGRA)
+                cudaMemcpy(bgraGpuBuf, bgraCpuBuf.data(), W * H * 4, cudaMemcpyHostToDevice);
+                ndiManager.SendBGRAFrame(1, bgraGpuBuf, W, H, 0);
+            }
+
+            if (doPrint && uyvyPtr && inferenceEngine && !inferenceEngine->IsStubMode()) {
+                lastPrint = now;
+                // YOLO runs directly on GPU buffer (no CPU download needed for inference)
+                auto dets = inferenceEngine->ProcessFrameUYVY(
+                    uyvyPtr, 0, W, H, infStream, nullptr);
+                { std::lock_guard<std::mutex> lock(detMutex); latestDets = dets; }
+                std::cout << "\r  [" << frameCount.load() << " frames] ";
+                if (dets.empty()) {
+                    std::cout << "Sin detecciones                    " << std::flush;
+                } else {
+                    std::cout << dets.size() << " detecciones: ";
+                    for (size_t i = 0; i < std::min(dets.size(), (size_t)8); i++)
+                        std::cout << "B" << dets[i].ballID << "(" << std::fixed << std::setprecision(2) << dets[i].confidence << ") ";
+                    if (dets.size() > 8) std::cout << "...";
+                    std::cout << "   " << std::flush;
+                }
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+
+    std::cout << "\n\n  Live preview finalizado. Presione ENTER...";
+    std::cin.get();
+    deckLinkCapture->Stop();
+    cudaStreamDestroy(infStream);
+    if (bgraGpuBuf) cudaFree(bgraGpuBuf);
+    if (ndiRaw) ndiManager.ReleaseSender(0);
+    if (ndiBox) ndiManager.ReleaseSender(1);
+    Logger::Info("[LIVE] Finalizado");
+    return true;
+}
+
+// Arrival order: spheres sorted by x-position (left -> right). Invert to
+// kArrivalLeftToRight=false if the physical track runs the other direction.
+static constexpr bool kArrivalLeftToRight = false;
+
+bool RunArrivalOrderTest() {
+    Logger::Info("=== TEST ORDEN DE LLEGADA - DETECCION CONTINUA (MOTOR DEDICADO) ===");
+
+    Config config = LoadConfig("config.json");
+    auto inputLookup = BuildInputLookup();
+    VideoHubClient videoHub(config.videohubIp, config.videohubPort, inputLookup);
+    if (!videoHub.Connect()) {
+        Logger::Error("[LLEGADA] No se pudo conectar con VideoHub");
+        std::cout << "\n  ERROR: VideoHub no disponible\n";
+        std::cin.get();
+        return false;
+    }
+    videoHub.RouteInputToOutput(12, 28); // input 29 -> output 13 (camara de meta)
+    Logger::Info("[LLEGADA] VideoHub: input 29 -> output 13 OK");
+
+    // Dedicated arrival engine (second engine, does not touch the main one)
+    auto inferenceEngine = std::make_shared<InferenceEngine>();
+    inferenceEngine->Initialize(config.llegadaInferenceConfig);
+    Logger::Info("[LLEGADA] InferenceEngine: " + std::string(inferenceEngine->IsStubMode() ? "STUB" : "TensorRT")
+                 + " (" + config.llegadaInferenceConfig.modelPath + ")");
+
+    int decklinkDeviceIndex = 8;
+    int numDevices = DeckLinkCapture::EnumerateDevices();
+    Logger::Info("[LLEGADA] DeckLink devices: " + std::to_string(numDevices));
+
+    // NDI: two senders - raw video + boxes
+    NDIManager ndiManager;
+    bool ndiRaw = ndiManager.Initialize() && ndiManager.CreateSender(0, "VIB_Llegada_Raw", 1920, 1080, true);
+    bool ndiBox = ndiManager.CreateSender(1, "VIB_Llegada_Boxes", 1920, 1080, false);
+    if (ndiRaw) Logger::Info("[LLEGADA] NDI raw: VIB_Llegada_Raw");
+    if (ndiBox) Logger::Info("[LLEGADA] NDI boxes: VIB_Llegada_Boxes");
+
+    // Pre-allocate buffers for BGRA conversion and box drawing
+    const int W = 1920, H = 1080;
+    std::vector<unsigned char> uyvyBuf(W * H * 2);
+    std::vector<unsigned char> bgraCpuBuf(W * H * 4);
+    void* bgraGpuBuf = nullptr;
+    cudaMalloc(&bgraGpuBuf, W * H * 4);
+    cudaStream_t infStream;
+    cudaStreamCreate(&infStream);
+
+    std::unique_ptr<DeckLinkCapture> deckLinkCapture;
+    if (numDevices > 0 && decklinkDeviceIndex < numDevices) {
+        deckLinkCapture = std::make_unique<DeckLinkCapture>();
+        if (!deckLinkCapture->Initialize(decklinkDeviceIndex, "ArrivalOrderTest")) {
+            Logger::Error("[LLEGADA] DeckLink init fallo"); return false;
+        }
+    } else { Logger::Error("[LLEGADA] No DeckLink"); return false; }
+
+    // Shared state
+    std::mutex detMutex, uyvyMutex;
+    std::vector<BallDetection> latestDets;
+    std::vector<int> latestOrder;   // ball IDs sorted by x (arrival order)
+    void* latestUYVY = nullptr;
+    std::atomic<int> frameCount{0};
+    std::atomic<bool> running{true};
+
+    // Estabilización + emisión del orden de llegada
+    ArrivalOrderStabilizer stabilizer(config.arrivalStabilizerConfig);
+    ArrivalEmitter emitter(config.arrivalEndpointConfig);
+
+    deckLinkCapture->SetFrameReadyHandler(
+        [&](const VideoChannel& channel, cudaStream_t stream) {
+            int fc = frameCount.fetch_add(1);
+            if (ndiRaw) ndiManager.SendUYVYFrame(0, channel.cudaYUVBuffer, channel.width, channel.height, stream);
+            latestUYVY = channel.cudaYUVBuffer;
+        }
+    );
+
+    if (!deckLinkCapture->Start()) {
+        Logger::Error("[LLEGADA] Capture start fallo"); return false;
+    }
+
+    std::cout << "\n  +--------------------------------------------------------------------+\n";
+    std::cout << "  |           TEST ORDEN DE LLEGADA - DETECCION CONTINUA               |\n";
+    std::cout << "  +--------------------------------------------------------------------+\n";
+    std::cout << "  |  NDI Raw:  VIB_Llegada_Raw (video limpio 30fps)                   |\n";
+    std::cout << "  |  NDI Box:  VIB_Llegada_Boxes (video + cajas + orden ~5fps)        |\n";
+    std::cout << "  |  Consola:  orden + confirmacion por estabilidad                   |\n";
+    std::cout << "  |  R: re-armar confirmacion    ESC: salir                          |\n";
+    std::cout << "  +--------------------------------------------------------------------+\n\n";
+
+    auto lastBox = std::chrono::steady_clock::now();
+    auto lastPrint = std::chrono::steady_clock::now();
+    while (running.load()) {
+        if (GetAsyncKeyState(VK_ESCAPE) & 0x8000) { running.store(false); break; }
+
+        auto now = std::chrono::steady_clock::now();
+        bool doBoxes = ndiBox && latestUYVY &&
+            std::chrono::duration_cast<std::chrono::milliseconds>(now - lastBox).count() >= 200;
+        bool doPrint = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastPrint).count() >= 1000;
+
+        if (doBoxes || doPrint) {
+            void* uyvyPtr = latestUYVY;
+            if (uyvyPtr) {
+                cudaMemcpy(uyvyBuf.data(), uyvyPtr, W * H * 2, cudaMemcpyDeviceToHost);
+            }
+
+            if (doBoxes && uyvyPtr) {
+                lastBox = now;
+                // CPU UYVY->BGRA conversion (ITU-R BT.601)
+                for (int i = 0; i < W * H / 2; i++) {
+                    int idx = i * 4;
+                    int u = uyvyBuf[idx+0], y0 = uyvyBuf[idx+1], v = uyvyBuf[idx+2], y1 = uyvyBuf[idx+3];
+                    auto conv = [](int y, int u, int v) -> std::tuple<int,int,int> {
+                        int c=y-16, d=u-128, e=v-128;
+                        int r=(298*c+409*e+128)>>8, g=(298*c-100*d-208*e+128)>>8, b=(298*c+516*d+128)>>8;
+                        auto cl = [](int x){ return (x<0)?0:(x>255)?255:x; };
+                        return {cl(r), cl(g), cl(b)};
+                    };
+                    auto [r0,g0,b0] = conv(y0,u,v);
+                    auto [r1,g1,b1] = conv(y1,u,v);
+                    int o0 = (i*2)*4;     bgraCpuBuf[o0]=b0; bgraCpuBuf[o0+1]=g0; bgraCpuBuf[o0+2]=r0; bgraCpuBuf[o0+3]=255;
+                    int o1 = (i*2+1)*4;   bgraCpuBuf[o1]=b1; bgraCpuBuf[o1+1]=g1; bgraCpuBuf[o1+2]=r1; bgraCpuBuf[o1+3]=255;
+                }
+
+                // Draw colored boxes with numbers on BGRA buffer
+                std::vector<BallDetection> dets;
+                { std::lock_guard<std::mutex> lock(detMutex); dets = latestDets; }
+                for (const auto& d : dets) {
+                    int cx=(int)(d.x*W), cy=(int)(d.y*H);
+                    int bw=(int)(d.width*W), bh=(int)(d.height*H);
+                    int x1=std::max(0,cx-bw/2), y1=std::max(0,cy-bh/2);
+                    int x2=std::min(W-1,cx+bw/2), y2=std::min(H-1,cy+bh/2);
+                    int id=d.ballID;
+                    const int B=3;
+                    for (int x=x1; x<=x2; x++) {
+                        for (int t=0; t<B&&y1+t<=y2; t++) {
+                            unsigned char cr,cg,cb; getSphereColor(id,x,y1+t,cr,cg,cb);
+                            int o=((y1+t)*W+x)*4; bgraCpuBuf[o]=cb; bgraCpuBuf[o+1]=cg; bgraCpuBuf[o+2]=cr;
+                        }
+                        for (int t=0; t<B&&y2-t>=y1; t++) {
+                            unsigned char cr,cg,cb; getSphereColor(id,x,y2-t,cr,cg,cb);
+                            int o=((y2-t)*W+x)*4; bgraCpuBuf[o]=cb; bgraCpuBuf[o+1]=cg; bgraCpuBuf[o+2]=cr;
+                        }
+                    }
+                    for (int y=y1; y<=y2; y++) {
+                        for (int t=0; t<B&&x1+t<=x2; t++) {
+                            unsigned char cr,cg,cb; getSphereColor(id,x1+t,y,cr,cg,cb);
+                            int o=(y*W+x1+t)*4; bgraCpuBuf[o]=cb; bgraCpuBuf[o+1]=cg; bgraCpuBuf[o+2]=cr;
+                        }
+                        for (int t=0; t<B&&x2-t>=x1; t++) {
+                            unsigned char cr,cg,cb; getSphereColor(id,x2-t,y,cr,cg,cb);
+                            int o=(y*W+x2-t)*4; bgraCpuBuf[o]=cb; bgraCpuBuf[o+1]=cg; bgraCpuBuf[o+2]=cr;
+                        }
+                    }
+                    int scale=std::max(2, std::min(bw,bh)/20);
+                    int tw=3*scale, th=5*scale;
+                    if (id == 1 || id == 9)
+                        drawDigitLive(bgraCpuBuf.data(), W, id, cx-tw/2, cy-th/2, scale, 255,0,0);
+                    else
+                        drawDigitLive(bgraCpuBuf.data(), W, id, cx-tw/2, cy-th/2, scale, 255,255,255);
+                }
+
+                // Draw arrival-order sequence (left -> right) at the top-left corner
+                std::vector<int> order;
+                { std::lock_guard<std::mutex> lock(detMutex); order = latestOrder; }
+                int oScale = 12;   // números del orden más grandes para legibilidad en NDI
+                int oX = 24, oY = 24;
+                for (size_t i = 0; i < order.size(); i++) {
+                    int id = order[i];
+                    unsigned char cr,cg,cb; getSphereColor(id, 0, 0, cr, cg, cb);
+                    // Barra inferior del color de la esfera (correlaciona dígito -> color)
+                    for (int x = 0; x < 3*oScale; x++) {
+                        int px = oX + x;
+                        for (int t = 0; t < 4; t++) {
+                            int py = oY + 5*oScale + 4 + t;
+                            int o = (py*W + px)*4; bgraCpuBuf[o]=cb; bgraCpuBuf[o+1]=cg; bgraCpuBuf[o+2]=cr; bgraCpuBuf[o+3]=255;
+                        }
+                    }
+                    // Número del orden en azul
+                    drawDigitLive(bgraCpuBuf.data(), W, id, oX, oY, oScale, 0, 0, 255);
+                    oX += 3*oScale + 10;
+                }
+
+                // Send BGRA buffer via NDI (uses CPU buffer — correct byte order BGRA)
+                cudaMemcpy(bgraGpuBuf, bgraCpuBuf.data(), W * H * 4, cudaMemcpyHostToDevice);
+                ndiManager.SendBGRAFrame(1, bgraGpuBuf, W, H, 0);
+            }
+
+            if (doPrint && uyvyPtr && inferenceEngine && !inferenceEngine->IsStubMode()) {
+                lastPrint = now;
+                auto dets = inferenceEngine->ProcessFrameUYVY(
+                    uyvyPtr, 0, W, H, infStream, nullptr);
+                { std::lock_guard<std::mutex> lock(detMutex); latestDets = dets; }
+
+                // Sort by x to compute arrival order (left -> right)
+                std::vector<BallDetection> sorted = dets;
+                std::sort(sorted.begin(), sorted.end(), [](const BallDetection& a, const BallDetection& b) {
+                    return kArrivalLeftToRight ? (a.x < b.x) : (a.x > b.x);
+                });
+                std::vector<int> order;
+                order.reserve(sorted.size());
+                for (const auto& d : sorted) order.push_back(d.ballID);
+                { std::lock_guard<std::mutex> lock(detMutex); latestOrder = order; }
+
+                // Formatea el orden como "[a,b,c]" para logueo.
+                auto fmtOrder = [](const std::vector<int>& o) {
+                    std::string s = "[";
+                    for (size_t i = 0; i < o.size(); i++) {
+                        if (i) s += ",";
+                        s += std::to_string(o[i]);
+                    }
+                    return s + "]";
+                };
+
+                // Tecla R: re-armar la confirmación (para testear sin salir de la opción)
+                if (GetAsyncKeyState('R') & 0x8000) {
+                    static auto lastResetKey = std::chrono::steady_clock::now();
+                    auto nowR = std::chrono::steady_clock::now();
+                    if (std::chrono::duration_cast<std::chrono::milliseconds>(nowR - lastResetKey).count() >= 1000) {
+                        lastResetKey = nowR;
+                        stabilizer.Reset();
+                        emitter.Reset();
+                        std::cout << "\n  [reset] confirmación re-armada\n" << std::flush;
+                        Logger::Info("[LLEGADA] confirmacion re-armada (tecla R)");
+                    }
+                }
+
+                // Confirmación del orden: emitir solo cuando se estabiliza
+                if (!stabilizer.IsConfirmed() && stabilizer.AddOrder(order)) {
+                    std::cout << "\n  === ORDEN CONFIRMADO ===\n";
+                    Logger::Info("[LLEGADA] === ORDEN CONFIRMADO === orden=" + fmtOrder(stabilizer.GetConfirmedOrder()));
+                    emitter.EmitConfirmedOrder(stabilizer.GetConfirmedOrder());
+                }
+
+                std::cout << "\r  [" << frameCount.load() << " frames] ";
+                if (order.empty()) {
+                    std::cout << "Sin detecciones                          " << std::flush;
+                } else {
+                    std::cout << "ORDEN: ";
+                    for (size_t i = 0; i < order.size(); i++) {
+                        std::cout << "bola_" << order[i];
+                        if (i + 1 < order.size()) std::cout << ", ";
+                    }
+                    std::cout << "   [estable " << stabilizer.GetProgress() << "/"
+                              << stabilizer.GetStableFrames() << "]"
+                              << (stabilizer.IsConfirmed() ? " CONFIRMADO" : "");
+                    int reject = stabilizer.GetLastReject();
+                    if (reject == 2) std::cout << "  [ID duplicado: descartado]";
+                    else if (reject == 1) std::cout << "  [pocas esferas]";
+                    std::cout << std::flush;
+                }
+
+                // Auditoría por frame (1 Hz): estado del estabilizador y rechazos.
+                {
+                    std::string state = "[LLEGADA] frame=" + std::to_string(frameCount.load())
+                        + " n=" + std::to_string(order.size())
+                        + " orden=" + fmtOrder(order)
+                        + " estable=" + std::to_string(stabilizer.GetProgress()) + "/" + std::to_string(stabilizer.GetStableFrames());
+                    if (stabilizer.IsConfirmed()) state += " CONFIRMADO";
+                    int r = stabilizer.GetLastReject();
+                    if (r == 2) state += " [ID duplicado: descartado]";
+                    else if (r == 1) state += " [pocas esferas]";
+                    Logger::Info(state);
+                }
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+
+    std::cout << "\n\n  Test de orden de llegada finalizado. Presione ENTER...";
+    std::cin.get();
+    deckLinkCapture->Stop();
+    cudaStreamDestroy(infStream);
+    if (bgraGpuBuf) cudaFree(bgraGpuBuf);
+    if (ndiRaw) ndiManager.ReleaseSender(0);
+    if (ndiBox) ndiManager.ReleaseSender(1);
+    Logger::Info("[LLEGADA] Finalizado");
+    return true;
+}
+
+bool RunTrainingCapture() {
+    Logger::Info("=== CAPTURA PARA ENTRENAMIENTO ===");
+
+    Config config = LoadConfig("config.json");
+
+    // Parametros de la opcion 10 leidos de config.json (seccion "training_capture").
+    // videohub_input/output son puertos FISICOS 1-based (13 = puerto fisico 13).
+    // decklink_device es el numero "device #N" que aparece en el log (1-based).
+    int videohubInputPort = 13;
+    int videohubOutputPort = 1;
+    int decklinkDeviceNumber = 6;
+    std::string ndiName = "VIB_Training";
+    try {
+        std::ifstream configFile("config.json");
+        if (configFile.is_open()) {
+            json j;
+            configFile >> j;
+            if (j.contains("training_capture") && j["training_capture"].is_object()) {
+                auto& cap = j["training_capture"];
+                if (cap.contains("videohub_input") && cap["videohub_input"].is_number()) {
+                    videohubInputPort = cap["videohub_input"].get<int>();
+                }
+                if (cap.contains("videohub_output") && cap["videohub_output"].is_number()) {
+                    videohubOutputPort = cap["videohub_output"].get<int>();
+                }
+                if (cap.contains("decklink_device") && cap["decklink_device"].is_number()) {
+                    decklinkDeviceNumber = cap["decklink_device"].get<int>();
+                }
+                if (cap.contains("ndi_name") && cap["ndi_name"].is_string()) {
+                    ndiName = cap["ndi_name"].get<std::string>();
+                }
+            }
+        }
+    } catch (const std::exception& e) {
+        Logger::Warning("[CAPTURE] training_capture invalido en config.json: " + std::string(e.what()));
+    }
+
+    if (videohubInputPort < 1) videohubInputPort = 1;
+    if (videohubOutputPort < 1) videohubOutputPort = 1;
+    if (decklinkDeviceNumber < 1) decklinkDeviceNumber = 1;
+
+    Logger::Info("[CAPTURE] Config: VideoHub input " + std::to_string(videohubInputPort) +
+                 " -> output " + std::to_string(videohubOutputPort) +
+                 ", DeckLink device #" + std::to_string(decklinkDeviceNumber) +
+                 ", NDI " + ndiName);
+
+    auto inputLookup = BuildInputLookup();
+    VideoHubClient videoHub(config.videohubIp, config.videohubPort, inputLookup);
+    if (!videoHub.Connect()) {
+        Logger::Error("[CAPTURE] VideoHub no disponible");
+        std::cout << "\n  ERROR: VideoHub no disponible\n";
+        std::cin.get();
+        return false;
+    }
+    if (!videoHub.RouteInputToOutput(videohubOutputPort - 1, videohubInputPort - 1)) {
+        Logger::Warning("[CAPTURE] No se pudo rutear VideoHub input " +
+                        std::to_string(videohubInputPort) + " -> output " +
+                        std::to_string(videohubOutputPort));
+    } else {
+        Logger::Info("[CAPTURE] VideoHub: input " + std::to_string(videohubInputPort) +
+                     " -> output " + std::to_string(videohubOutputPort) + " OK");
+    }
+
+    // DeckLink protocol index is 0-based; config uses the 1-based "device #N" from the log.
+    int decklinkDeviceIndex = decklinkDeviceNumber - 1;
+    int numDevices = DeckLinkCapture::EnumerateDevices();
+    Logger::Info("[CAPTURE] DeckLink devices: " + std::to_string(numDevices));
+
+    NDIManager ndiManager;
+    bool ndiOk = ndiManager.Initialize() && ndiManager.CreateSender(0, ndiName, 1920, 1080, true);
+    if (ndiOk) Logger::Info("[CAPTURE] NDI: " + ndiName);
+
+    std::unique_ptr<DeckLinkCapture> deckLinkCapture;
+    if (numDevices > 0 && decklinkDeviceIndex < numDevices) {
+        deckLinkCapture = std::make_unique<DeckLinkCapture>();
+        if (!deckLinkCapture->Initialize(decklinkDeviceIndex, "TrainingCapture")) {
+            Logger::Error("[CAPTURE] DeckLink init fallo"); return false;
+        }
+    } else {
+        Logger::Error("[CAPTURE] DeckLink device #" + std::to_string(decklinkDeviceNumber) +
+                      " no existe (dispositivos encontrados: " + std::to_string(numDevices) + ")");
+        return false;
+    }
+
+    // Track latest frame
+    std::atomic<void*> latestFrame{nullptr};
+    std::atomic<bool> running{true};
+
+    deckLinkCapture->SetFrameReadyHandler(
+        [&](const VideoChannel& channel, cudaStream_t stream) {
+            if (ndiOk) ndiManager.SendUYVYFrame(0, channel.cudaYUVBuffer, channel.width, channel.height, stream);
+            latestFrame.store(channel.cudaYUVBuffer);
+        }
+    );
+
+    if (!deckLinkCapture->Start()) {
+        Logger::Error("[CAPTURE] Capture start fallo"); return false;
+    }
+
+    // Create output folder
+    system("mkdir training_frames 2>nul");
+
+    std::cout << "\n  +--------------------------------------------------------------------+\n";
+    std::cout << "  |           CAPTURA PARA ENTRENAMIENTO (SIN DETECCION)               |\n";
+    std::cout << "  +--------------------------------------------------------------------+\n";
+    std::cout << "  |  VideoHub: input " << videohubInputPort << " -> output " << videohubOutputPort << "\n";
+    std::cout << "  |  DeckLink: device #" << decklinkDeviceNumber << "\n";
+    std::cout << "  |  NDI: " << ndiName << " (video continuo)\n";
+    std::cout << "  |  ESPACIO: guardar frame actual (training_frames/cap_XXXX.ppm)      |\n";
+    std::cout << "  |  ESC: salir                                                       |\n";
+    std::cout << "  +--------------------------------------------------------------------+\n\n";
+
+    int captureCount = 0;
+    bool spaceWasDown = false;
+
+    while (running.load()) {
+        if (GetAsyncKeyState(VK_ESCAPE) & 0x8000) { running.store(false); break; }
+
+        bool spaceDown = (GetAsyncKeyState(VK_SPACE) & 0x8000) != 0;
+        if (spaceDown && !spaceWasDown) {
+            // Save current frame
+            void* frame = latestFrame.load();
+            if (frame) {
+                std::ostringstream name;
+                name << "training_frames/cap_" << std::setw(4) << std::setfill('0') << captureCount << ".ppm";
+                if (FrameSaver::SaveYUVFrameAsPPM(frame, 1920, 1080, name.str())) {
+                    std::cout << "  [SAVED] " << name.str() << "\n";
+                    captureCount++;
+                }
+            }
+        }
+        spaceWasDown = spaceDown;
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    }
+
+    std::cout << "\n  Total capturas guardadas: " << captureCount << "\n";
+    std::cout << "  Presione ENTER...";
+    std::cin.get();
+
+    deckLinkCapture->Stop();
+    if (ndiOk) ndiManager.ReleaseSender(0);
+    Logger::Info("[CAPTURE] Finalizado - " + std::to_string(captureCount) + " frames");
+    return true;
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {
@@ -2466,10 +3518,28 @@ int main(int argc, char* argv[]) {
                     }
                     // Vuelve al menú
                     break;
-                    
+
+                case MenuOption::AUTOMATED_TRACK:
+                    if (!RunAutomatedTrackMode()) {
+                        Logger::Warning("Modo Pista Automatizada finalizó con advertencias");
+                    }
+                    break;
+
+                case MenuOption::LIVE_PREVIEW:
+                    RunLivePreview();
+                    break;
+
+                case MenuOption::TRAINING_CAPTURE:
+                    RunTrainingCapture();
+                    break;
+
+                case MenuOption::ARRIVAL_TEST:
+                    RunArrivalOrderTest();
+                    break;
+
                 case MenuOption::INVALID:
                 default:
-                    std::cout << "\n  Opcion invalida. Por favor seleccione 1-7.\n";
+                    std::cout << "\n  Opcion invalida. Por favor seleccione 1-11.\n";
                     std::this_thread::sleep_for(std::chrono::seconds(1));
                     break;
             }

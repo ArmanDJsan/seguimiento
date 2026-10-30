@@ -24,6 +24,10 @@ enum class MenuOption {
     RADAR_TEST_MODE = 5,        // Test de inferencia con Radar 1 (cámara 13)
     SPHERE_VERIFIER_TEST = 6,   // Test usando SphereVerifier (reemplazo de opción 5)
     VMIX_UTC_CHOREOGRAPHY = 7,  // Ejecutar coreografía vMix UTC (solo vMix TCP)
+    AUTOMATED_TRACK = 8,        // Modo Pista Automatizada (1 cámara PTZ, verifica esferas)
+    LIVE_PREVIEW = 9,           // Vista previa en vivo con detecciones YOLO
+    TRAINING_CAPTURE = 10,      // Captura de frames para entrenamiento (NDI + guardar por tecla)
+    ARRIVAL_TEST = 11,          // Test de orden de llegada en vivo (motor dedicado)
     INVALID = -1
 };
 

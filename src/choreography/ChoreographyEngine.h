@@ -296,19 +296,24 @@ private:
     // Configuration
     bool m_continueOnError;
     bool m_vmixRequired;
-    
+
+    // Last folder requested by ReplayExportLastEvent; WaitForExport uses it when
+    // the event does not specify one.
+    std::string m_lastExportFolder;
+
     // Internal methods
     void ExecutionThreadFunc();
     EventResult ExecuteEventInternal(const ChoreographyEvent& event);
     void SetState(EngineState state);
     void SetError(const std::string& error);
-    
+
     // Event execution helpers
     bool SendVMixCommand(const std::string& command);
     std::string BuildVMixCommand(const ChoreographyEvent& event);
     bool ExecuteNDISlotChange(int slot, int cameraID);
     bool ExecuteSceneSwitch(int configIndex);
     bool ExecuteSphereVerification(const ChoreographyEvent& event, EventResult& result);
+    bool ExecuteWaitForExport(const WaitForExportParams& params, std::string& errorMessage);
     
     // High-resolution timer
     void PreciseSleep(std::chrono::milliseconds duration);
