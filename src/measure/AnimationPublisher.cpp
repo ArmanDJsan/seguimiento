@@ -1,14 +1,12 @@
 /**
  * AnimationPublisher.cpp
  *
- * Implementacion del publisher UDP de puntos de medicion.
- * Un solo sendto() por punto (ver AnimationPublisher.h para el contrato).
+ * Implementacion del publisher UDP por punto de medicion (contrato TD).
  */
 
 #include "AnimationPublisher.h"
 #include "../utils/Logger.h"
 #include <ws2tcpip.h>
-#include <sstream>
 
 #pragma comment(lib, "Ws2_32.lib")
 
@@ -80,7 +78,8 @@ bool AnimationPublisher::Initialize() {
 
     m_initialized = true;
     Logger::Info("AnimationPublisher: inicializado, destino=" + m_config.host +
-                 ":" + std::to_string(m_config.port) + " (UDP, 1 datagrama por punto)");
+                 ":" + std::to_string(m_config.port) +
+                 " (UDP, 1 datagrama por punto de medicion)");
     return true;
 }
 
@@ -100,7 +99,8 @@ void AnimationPublisher::Shutdown() {
     if (m_initialized) {
         Logger::Info("AnimationPublisher: shutdown. Enviados: " +
                      std::to_string(m_publishCount.load()) + ", Fallidos: " +
-                     std::to_string(m_failCount.load()));
+                     std::to_string(m_failCount.load()) + ", seq=" +
+                     std::to_string(m_state.seq));
     }
     m_initialized = false;
 }
@@ -119,15 +119,20 @@ bool AnimationPublisher::PublishMeasurePoint(int punto, int64_t frameEpochMs,
         return false;
     }
 
-    const std::string payload = BuildPayload(punto, frameEpochMs, posiciones);
+    // El punto ya viene resuelto: se actualiza el mapa de puestos y se emite
+    // SIEMPRE (una vez por punto), sin dedupe.
+    m_state.Update(posiciones);
+    m_state.seq += 1;
+
+    const std::string payload = m_state.BuildPayload();
 
     // Un solo datagrama por punto: nunca se parte el JSON en dos envios.
-    int sent = sendto(m_socket,
-                      payload.c_str(),
-                      static_cast<int>(payload.size()),
-                      0,
-                      reinterpret_cast<const sockaddr*>(&m_target),
-                      sizeof(m_target));
+    const int sent = sendto(m_socket,
+                            payload.c_str(),
+                            static_cast<int>(payload.size()),
+                            0,
+                            reinterpret_cast<const sockaddr*>(&m_target),
+                            sizeof(m_target));
 
     if (sent == SOCKET_ERROR) {
         SetLastError("sendto failed: " + std::to_string(WSAGetLastError()));
@@ -144,29 +149,19 @@ bool AnimationPublisher::PublishMeasurePoint(int punto, int64_t frameEpochMs,
 
     m_publishCount++;
     Logger::Info("AnimationPublisher: punto=" + std::to_string(punto) +
-                 " t=" + std::to_string(frameEpochMs) + " -> " + payload);
+                 " t=" + std::to_string(frameEpochMs) +
+                 " seq=" + std::to_string(m_state.seq) + " -> " + payload);
     return true;
+}
+
+std::string AnimationPublisher::BuildCurrentPayload() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_state.BuildPayload();
 }
 
 std::string AnimationPublisher::GetLastError() const {
     std::lock_guard<std::mutex> lock(m_mutex);
     return m_lastError;
-}
-
-std::string AnimationPublisher::BuildPayload(int punto, int64_t frameEpochMs,
-                                             const std::vector<int>& posiciones) {
-    std::ostringstream oss;
-    oss << "{\"punto\":" << punto
-        << ",\"t\":" << frameEpochMs
-        << ",\"posiciones\":[";
-    for (size_t i = 0; i < posiciones.size(); ++i) {
-        if (i > 0) {
-            oss << ",";
-        }
-        oss << posiciones[i];
-    }
-    oss << "]}";
-    return oss.str();
 }
 
 void AnimationPublisher::SetLastError(const std::string& error) {

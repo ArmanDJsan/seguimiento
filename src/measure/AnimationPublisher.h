@@ -1,21 +1,21 @@
 /**
  * AnimationPublisher.h
  *
- * Publicacion UDP de un punto de medicion resuelto hacia el receptor de
- * animacion (el receptor solo dibuja: no interpreta coordenadas).
+ * Publicacion UDP de UN punto de medicion resuelto hacia TouchDesigner.
  *
- * Un datagrama por punto, sin estado de conexion:
- *   {"punto":3,"t":1793300042100,"posiciones":[3,7,1,9,4,2,10,5,8,6]}
+ * El disparo es la coreografia: cada evento `MeasurePoint` encola un trabajo y
+ * el hilo medidor manda **un solo datagrama** cuando resuelve ese punto.
  *
- * - `posiciones` = ORDEN de las esferas (1er lugar primero), NO coordenadas.
- * - `t`          = epoch ms del FRAME que resolvio el punto (sellado en
- *                  DeckLinkCapture::OnFrameArrived), no la hora del envio.
+ * Payload (contrato fijo, ver RankingPayload.h):
+ *   {"type":"ranking","seq":N,"canicas":[{"id":0,"puesto":3},...]}
  *
- * El identificador de cada esfera es provisorio (orden por x); el ID real por
- * carril llega despues con la barrera IR.
+ * Reglas:
+ *  - Un datagrama por punto de medicion (no hay cadencia continua).
+ *  - `seq` incrementa una vez por datagrama emitido.
+ *  - `id` de TouchDesigner: ballID 10 -> 0, resto igual.
+ *  - El array siempre tiene 10 canicas.
  *
- * Thread safety: PublishMeasurePoint es seguro desde cualquier hilo (mutex
- * propio del socket). El llamador normal es el hilo medidor.
+ * Thread safety: PublishMeasurePoint es seguro desde cualquier hilo.
  */
 
 #pragma once
@@ -26,6 +26,8 @@
 #include <vector>
 #include <mutex>
 #include <atomic>
+
+#include "../output/RankingPayload.h"
 
 /**
  * Configuracion de la salida de animacion (bloque "animation" de config.json)
@@ -58,9 +60,9 @@ public:
 
     /**
      * Envia UN datagrama UDP con el punto de medicion resuelto.
-     * @param punto        Numero de punto del guion (1..4 en fase 1)
-     * @param frameEpochMs Instante del frame que resolvio el punto (epoch ms)
-     * @param posiciones   Orden de las esferas (1er lugar primero)
+     * @param punto        Numero de punto del guion (1..6)
+     * @param frameEpochMs Instante del frame que resolvio el punto (epoch ms, solo log)
+     * @param posiciones   ballIDs en orden (1er lugar primero)
      * @return true si el datagrama se envio completo
      */
     bool PublishMeasurePoint(int punto, int64_t frameEpochMs, const std::vector<int>& posiciones);
@@ -70,12 +72,12 @@ public:
 
     uint64_t GetPublishCount() const { return m_publishCount.load(); }
     uint64_t GetFailCount() const { return m_failCount.load(); }
+    uint32_t GetSeq() const { return m_state.seq; }
 
     /**
-     * Payload JSON exacto que se manda por UDP (expuesto para tests/logs)
+     * Payload exacto que se enviaria con el estado actual (expuesto para tests/logs)
      */
-    static std::string BuildPayload(int punto, int64_t frameEpochMs,
-                                    const std::vector<int>& posiciones);
+    std::string BuildCurrentPayload() const;
 
 private:
     void SetLastError(const std::string& error);
@@ -90,4 +92,6 @@ private:
     SOCKET m_socket;
     sockaddr_in m_target;
     bool m_winsockInitialized;
+
+    ranking::RankingState m_state;
 };

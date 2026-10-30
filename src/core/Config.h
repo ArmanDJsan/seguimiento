@@ -15,7 +15,6 @@
 #include "../ai/InferenceEngine.h"       // InferenceEngineConfig
 #include "../tracking/PositionMapper.h"  // TrackBounds
 #include "../tracking/BallTracker.h"     // BallTrackerConfig
-#include "../output/RankingPublisher.h"  // RankingPublisherConfig
 #include "../output/ArrivalEmitter.h"    // ArrivalEndpointConfig
 #include "../verification/ArrivalOrderStabilizer.h"  // ArrivalStabilizerConfig
 #include "../measure/AnimationPublisher.h" // AnimationPublisherConfig
@@ -129,9 +128,6 @@ struct Config {
     
     // Ball tracker configuration
     BallTrackerConfig ballTrackerConfig;
-    
-    // Ranking publisher configuration
-    RankingPublisherConfig rankingConfig;
     
     // Choreography configuration
     ChoreographyConfig choreographyConfig;

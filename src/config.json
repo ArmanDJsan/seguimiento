@@ -185,14 +185,6 @@
     "min_confidence_threshold": 0.3,
     "description": "Kalman filter-based multi-ball tracking with Hungarian assignment"
   },
-  "ranking_publisher": {
-    "enabled": true,
-    "vmix_host": "127.0.0.1",
-    "vmix_tcp_port": 8099,
-    "publish_rate_hz": 30,
-    "title_input_name": "RankingTitle",
-    "description": "Publish ball rankings to vMix GT Titles"
-  },
   "choreography": {
     "enabled": true,
     "script_path": "config/choreography/carrera_principal.json",
@@ -204,10 +196,10 @@
     "description": "vMix choreography automation - executes sequences of vMix commands and NDI slot changes"
   },
   "animation": {
-    "enabled": false,
+    "enabled": true,
     "host": "127.0.0.1",
     "port": 9100,
-    "description": "Salida UDP del medidor por evento: un datagrama por MeasurePoint con el orden de las esferas (posiciones = orden, no coordenadas)"
+    "description": "Salida UDP por PUNTO DE MEDICION hacia TouchDesigner: un datagrama por cada evento MeasurePoint de la coreografia. Payload: {\"type\":\"ranking\",\"seq\":N,\"canicas\":[{\"id\":0..9,\"puesto\":1..10}]}. ballID 10 -> id 0, resto igual."
   },
   "ports": [
     { "index": 1, "name": "CAM_01", "role": "stream", "is_output": true },

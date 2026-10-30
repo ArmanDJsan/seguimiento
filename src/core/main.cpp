@@ -46,7 +46,6 @@
 #include "../tracking/MovingAverageFilter.h"
 #include "../tracking/RouteMapper.h"
 #include "../scene/SceneManager.h"
-#include "../output/RankingPublisher.h"
 #include "../measure/MeasurePointCoordinator.h"
 #include "../redis/RedisWorker.h"
 #include "../telemetry/PerformanceMonitor.h"
@@ -656,16 +655,6 @@ Config LoadConfig(const std::string& path) {
             if (bt.contains("min_confidence_threshold")) config.ballTrackerConfig.minConfidenceThreshold = bt["min_confidence_threshold"].get<float>();
         }
         
-        // Parse ranking_publisher section
-        if (j.contains("ranking_publisher") && j["ranking_publisher"].is_object()) {
-            auto& rp = j["ranking_publisher"];
-            if (rp.contains("enabled")) config.rankingConfig.enabled = rp["enabled"].get<bool>();
-            if (rp.contains("vmix_host")) config.rankingConfig.vmixHost = rp["vmix_host"].get<std::string>();
-            if (rp.contains("vmix_tcp_port")) config.rankingConfig.vmixTcpPort = rp["vmix_tcp_port"].get<uint16_t>();
-            if (rp.contains("publish_rate_hz")) config.rankingConfig.publishRateHz = rp["publish_rate_hz"].get<int>();
-            if (rp.contains("title_input_name")) config.rankingConfig.titleInputName = rp["title_input_name"].get<std::string>();
-        }
-        
         // Parse choreography section
         if (j.contains("choreography") && j["choreography"].is_object()) {
             auto& ch = j["choreography"];
@@ -1014,13 +1003,7 @@ bool RunRunningMode() {
     if (config.sceneManagerEnabled && !sceneManager->Initialize()) {
         Logger::Warning("SceneManager initialization failed");
     }
-    
-    Logger::Info("Initializing RankingPublisher...");
-    auto rankingPublisher = std::make_shared<RankingPublisher>(config.rankingConfig);
-    if (config.rankingConfig.enabled && !rankingPublisher->Initialize()) {
-        Logger::Warning("RankingPublisher initialization failed");
-    }
-    
+
     // ============================================================================
     // Initialize SphereVerifier
     // ============================================================================
@@ -1207,7 +1190,7 @@ bool RunRunningMode() {
             capture->SetFrameReadyHandler([ndiManager, cameraSelector, 
                                           perfMonitor, &config, inferenceStream,
                                           inferenceEngine, positionMapper, ballTracker, 
-                                          sceneManager, rankingPublisher, inferenceReady,
+                                          sceneManager, inferenceReady,
                                           ptzController, centroidFilter, routeMapper,
                                           trackingLogger, &framesWithDetection, &framesWithoutDetection]
                                          (const VideoChannel& channel, cudaStream_t stream) {
@@ -1316,12 +1299,7 @@ bool RunRunningMode() {
                         auto leader = ballTracker->GetLeader();
                         sceneManager->UpdateLeaderPosition(leader.Xg, leader.Yg);
                     }
-                    
-                    if (rankingPublisher && rankingPublisher->IsEnabled()) {
-                        auto ranking = ballTracker->GetRanking();
-                        rankingPublisher->PublishRanking(ranking);
-                    }
-                    
+
                     // === PTZ Tracking Integration ===
                     // Only runs when ptz_tracking.enabled = true in config.json.
                     // Set it to false to use PTZ cameras in choreography/preset mode only.
@@ -1859,11 +1837,7 @@ bool RunRunningMode() {
         choreographyEngine->Stop();
         choreographyEngine.reset();
     }
-    
-    if (rankingPublisher) {
-        rankingPublisher->Shutdown();
-    }
-    
+
     if (inferenceStream) {
         cudaStreamDestroy(inferenceStream);
     }
