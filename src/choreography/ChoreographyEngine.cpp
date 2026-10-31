@@ -11,7 +11,7 @@
 #include "../scene/SceneManager.h"
 #include "../control/VideoHubClient.h"
 #include "../verification/SphereVerifier.h"
-#include "../measure/MeasurePointCoordinator.h"
+#include "../measure/RankingMeasure.h"
 #include "../utils/Logger.h"
 #include <sstream>
 #include <iomanip>
@@ -426,7 +426,7 @@ EventResult ChoreographyEngine::ExecuteEventInternal(const ChoreographyEvent& ev
             // y se sigue con el proximo evento. El hilo medidor hace el resto.
             auto* params = std::get_if<MeasurePointParams>(&event.params);
             if (params) {
-                Measure::MeasurePointCoordinator* coordinator = Measure::AttachedCoordinator();
+                Measure::RankingMeasure* coordinator = Measure::AttachedCoordinator();
                 if (coordinator) {
                     // El guion es 1-indexed para camaras; el medidor 0-based.
                     const int cameraIndex = (params->camera > 0) ? (params->camera - 1) : 0;

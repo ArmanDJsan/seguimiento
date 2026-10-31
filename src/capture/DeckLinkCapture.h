@@ -69,7 +69,7 @@ struct VideoChannel {
 };
 
 // Forward declaration: anillo corto de frames del medidor por evento
-// (src/measure/MeasurePointCoordinator.h). El .h de captura no lo incluye para
+// (src/measure/RankingMeasure.h). El .h de captura no lo incluye para
 // no arrastrar la cabecera de inferencia; el .cpp si.
 namespace Measure {
     class FrameRing;

@@ -46,7 +46,7 @@
 #include "../tracking/MovingAverageFilter.h"
 #include "../tracking/RouteMapper.h"
 #include "../scene/SceneManager.h"
-#include "../measure/MeasurePointCoordinator.h"
+#include "../measure/RankingMeasure.h"
 #include "../redis/RedisWorker.h"
 #include "../telemetry/PerformanceMonitor.h"
 #include "../utils/Logger.h"
@@ -675,16 +675,49 @@ Config LoadConfig(const std::string& path) {
             }
         }
         
-        // Parse animation section (salida UDP del medidor por evento)
-        if (j.contains("animation") && j["animation"].is_object()) {
-            auto& an = j["animation"];
-            if (an.contains("enabled")) config.animationConfig.enabled = an["enabled"].get<bool>();
-            if (an.contains("host")) config.animationConfig.host = an["host"].get<std::string>();
-            if (an.contains("port")) config.animationConfig.port = an["port"].get<uint16_t>();
-            if (config.animationConfig.enabled) {
-                Logger::Info("Animation config: enabled, destino=" + config.animationConfig.host +
-                            ":" + std::to_string(config.animationConfig.port));
+        // Parse ranking_publisher section (emision UDP: 1 datagrama por punto
+        // de medicion resuelto).
+        // Alias de compatibilidad: se acepta el bloque viejo "animation" SOLO
+        // si falta "ranking_publisher". Si estan los dos gana el nuevo y se
+        // avisa: un config.json viejo no debe dejar el medidor apagado en
+        // silencio.
+        const bool hasRankingPublisher =
+            j.contains("ranking_publisher") && j["ranking_publisher"].is_object();
+        const bool hasLegacyAnimation =
+            j.contains("animation") && j["animation"].is_object();
+        if (hasRankingPublisher) {
+            if (hasLegacyAnimation) {
+                Logger::Warning("Config: \"animation\" es obsoleto y se IGNORA; "
+                                "usar \"ranking_publisher\" (y \"ranking_measure\" "
+                                "para burst_ms/max_ms)");
             }
+            auto& rp = j["ranking_publisher"];
+            if (rp.contains("enabled")) config.rankingPublisherConfig.enabled = rp["enabled"].get<bool>();
+            if (rp.contains("host")) config.rankingPublisherConfig.host = rp["host"].get<std::string>();
+            if (rp.contains("port")) config.rankingPublisherConfig.port = rp["port"].get<uint16_t>();
+        } else if (hasLegacyAnimation) {
+            auto& an = j["animation"];
+            Logger::Warning("Config: bloque \"animation\" obsoleto (alias de "
+                            "\"ranking_publisher\"); renombrar en config.json");
+            if (an.contains("enabled")) config.rankingPublisherConfig.enabled = an["enabled"].get<bool>();
+            if (an.contains("host")) config.rankingPublisherConfig.host = an["host"].get<std::string>();
+            if (an.contains("port")) config.rankingPublisherConfig.port = an["port"].get<uint16_t>();
+        }
+        if (config.rankingPublisherConfig.enabled) {
+            Logger::Info("RankingPublisher config: enabled, destino=" +
+                        config.rankingPublisherConfig.host + ":" +
+                        std::to_string(config.rankingPublisherConfig.port));
+        }
+
+        // Parse ranking_measure section (defaults de medicion: el evento
+        // MeasurePoint gana si trae burst_ms/max_ms propios)
+        if (j.contains("ranking_measure") && j["ranking_measure"].is_object()) {
+            auto& rm = j["ranking_measure"];
+            if (rm.contains("burst_ms")) config.rankingMeasureConfig.burstMs = rm["burst_ms"].get<int>();
+            if (rm.contains("max_ms")) config.rankingMeasureConfig.maxMs = rm["max_ms"].get<int>();
+            Logger::Info("RankingMeasure config: burst=" +
+                        std::to_string(config.rankingMeasureConfig.burstMs) + "ms, max=" +
+                        std::to_string(config.rankingMeasureConfig.maxMs) + "ms");
         }
         
         // Parse ptz_cameras section
@@ -1067,25 +1100,27 @@ bool RunRunningMode() {
     }
     
     // ============================================================================
-    // Initialize medidor por evento (MeasurePoint) + salida UDP de animacion
+    // Initialize medidor por evento (MeasurePoint) + salida UDP del ranking
     // ============================================================================
     // Se crea ANTES del ChoreographyEngine: el `case` del evento MeasurePoint
     // solo hace Enqueue() y sigue, asi que necesita el medidor enganchado desde
     // el primer evento. El hilo medidor es el que mide (nunca la coreografia).
-    std::unique_ptr<Measure::MeasurePointCoordinator> measureCoordinator;
-    if (config.animationConfig.enabled) {
-        Logger::Info("Initializing MeasurePointCoordinator...");
-        measureCoordinator = std::make_unique<Measure::MeasurePointCoordinator>();
-        if (measureCoordinator->Initialize(config.animationConfig, config.inferenceConfig)) {
-            Measure::AttachCoordinator(measureCoordinator.get());
-            Logger::Info("MeasurePointCoordinator attached to ChoreographyEngine");
+    std::unique_ptr<Measure::RankingMeasure> rankingMeasure;
+    if (config.rankingPublisherConfig.enabled) {
+        Logger::Info("Initializing RankingMeasure...");
+        rankingMeasure = std::make_unique<Measure::RankingMeasure>();
+        if (rankingMeasure->Initialize(config.rankingPublisherConfig,
+                                       config.rankingMeasureConfig,
+                                       config.inferenceConfig)) {
+            Measure::AttachCoordinator(rankingMeasure.get());
+            Logger::Info("RankingMeasure attached to ChoreographyEngine");
         } else {
-            Logger::Warning("MeasurePointCoordinator initialization failed - "
+            Logger::Warning("RankingMeasure initialization failed - "
                             "MeasurePoint events will be ignored");
-            measureCoordinator.reset();
+            rankingMeasure.reset();
         }
     } else {
-        Logger::Info("MeasurePointCoordinator: disabled in config (animation.enabled=false)");
+        Logger::Info("RankingMeasure: disabled in config (ranking_publisher.enabled=false)");
     }
     
     // ============================================================================
@@ -1182,9 +1217,9 @@ bool RunRunningMode() {
         if (capture->Initialize(kCaptureDeviceBase + i, channelName, i)) {
             // Medidor por evento: el anillo corto lo llena el hilo de captura de
             // esta camara (pre-roll del disparo). Sin medidor queda nullptr.
-            if (measureCoordinator) {
+            if (rankingMeasure) {
                 const VideoChannel& channelInfo = capture->GetChannel();
-                capture->SetMeasureRing(measureCoordinator->SetupCamera(
+                capture->SetMeasureRing(rankingMeasure->SetupCamera(
                     channelInfo.channelID, channelInfo.width, channelInfo.height));
             }
             capture->SetFrameReadyHandler([ndiManager, cameraSelector, 
@@ -1849,11 +1884,11 @@ bool RunRunningMode() {
     
     // Medidor por evento: se apaga DESPUES de frenar la captura (los hilos de
     // captura son los que llenan los anillos; el hilo medidor solo los lee).
-    if (measureCoordinator) {
-        Logger::Info("Stopping MeasurePointCoordinator...");
+    if (rankingMeasure) {
+        Logger::Info("Stopping RankingMeasure...");
         Measure::AttachCoordinator(nullptr);
-        measureCoordinator->Shutdown();
-        measureCoordinator.reset();
+        rankingMeasure->Shutdown();
+        rankingMeasure.reset();
     }
     
     if (ndiManager) {

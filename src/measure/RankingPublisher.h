@@ -1,5 +1,5 @@
 /**
- * AnimationPublisher.h
+ * RankingPublisher.h
  *
  * Publicacion UDP de UN punto de medicion resuelto hacia TouchDesigner.
  *
@@ -30,22 +30,22 @@
 #include "../output/RankingPayload.h"
 
 /**
- * Configuracion de la salida de animacion (bloque "animation" de config.json)
+ * Configuracion de la salida UDP (bloque "ranking_publisher" de config.json)
  */
-struct AnimationPublisherConfig {
+struct RankingPublisherConfig {
     bool enabled = false;
     std::string host = "127.0.0.1";
     uint16_t port = 0;
 };
 
-class AnimationPublisher {
+class RankingPublisher {
 public:
-    explicit AnimationPublisher(const AnimationPublisherConfig& config = AnimationPublisherConfig());
-    ~AnimationPublisher();
+    explicit RankingPublisher(const RankingPublisherConfig& config = RankingPublisherConfig());
+    ~RankingPublisher();
 
     // Non-copyable
-    AnimationPublisher(const AnimationPublisher&) = delete;
-    AnimationPublisher& operator=(const AnimationPublisher&) = delete;
+    RankingPublisher(const RankingPublisher&) = delete;
+    RankingPublisher& operator=(const RankingPublisher&) = delete;
 
     /**
      * Inicializa Winsock y el socket UDP. Si enabled=false devuelve true sin
@@ -82,7 +82,7 @@ public:
 private:
     void SetLastError(const std::string& error);
 
-    AnimationPublisherConfig m_config;
+    RankingPublisherConfig m_config;
     std::atomic<bool> m_initialized;
     mutable std::mutex m_mutex;
     std::string m_lastError;

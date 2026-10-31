@@ -1,5 +1,5 @@
 /**
- * MeasurePointCoordinator.h
+ * RankingMeasure.h
  *
  * Medidor por evento (fase 1): el motor de coreografia NO mide; en el `case`
  * del evento MeasurePoint solo encola y sigue con la linea de tiempo. Un hilo
@@ -40,7 +40,7 @@
 #include <vector>
 
 #include "../ai/InferenceEngine.h"
-#include "AnimationPublisher.h"
+#include "RankingPublisher.h"
 
 namespace Measure {
 
@@ -127,6 +127,17 @@ private:
 };
 
 /**
+ * Configuracion del medidor (bloque "ranking_measure" de config.json).
+ *
+ * Estos valores son los DEFAULTS: si el evento MeasurePoint del guion trae
+ * burst_ms/max_ms, gana el evento.
+ */
+struct RankingMeasureConfig {
+    int burstMs = 400;   // rafaga corta de medicion por punto
+    int maxMs = 2000;    // techo si no salen las 10 esferas
+};
+
+/**
  * Trabajo de medicion encolado por el motor de coreografia
  */
 struct MeasureJob {
@@ -138,10 +149,10 @@ struct MeasureJob {
 };
 
 /**
- * MeasurePointCoordinator - duenio del anillo, la cola, el hilo medidor, la
+ * RankingMeasure - duenio del anillo, la cola, el hilo medidor, la
  * inferencia propia y el publisher UDP.
  */
-class MeasurePointCoordinator {
+class RankingMeasure {
 public:
     static constexpr int kMaxCameras = 4;        // 4 PTZ radar
     static constexpr size_t kQueueCapacity = 8;  // tope de la cola de mediciones
@@ -151,19 +162,21 @@ public:
     // nunca se reasigna (el hilo medidor es unico y lo usa en serie).
     static constexpr size_t kMaxFrameBytes = 1920u * 1080u * 2u;
 
-    MeasurePointCoordinator();
-    ~MeasurePointCoordinator();
+    RankingMeasure();
+    ~RankingMeasure();
 
-    MeasurePointCoordinator(const MeasurePointCoordinator&) = delete;
-    MeasurePointCoordinator& operator=(const MeasurePointCoordinator&) = delete;
+    RankingMeasure(const RankingMeasure&) = delete;
+    RankingMeasure& operator=(const RankingMeasure&) = delete;
 
     /**
      * Crea anillos, publisher, stream de inferencia e instancia propia de
      * InferenceEngine, y arranca el hilo medidor.
-     * @param pubConfig       bloque "animation" de config.json
+     * @param pubConfig       bloque "ranking_publisher" de config.json
+     * @param measureConfig   bloque "ranking_measure" (defaults de burst/techo)
      * @param inferenceConfig misma config que usa el camino de las PTZ
      */
-    bool Initialize(const AnimationPublisherConfig& pubConfig,
+    bool Initialize(const RankingPublisherConfig& pubConfig,
+                    const RankingMeasureConfig& measureConfig,
                     const InferenceEngineConfig& inferenceConfig);
 
     /**
@@ -246,7 +259,11 @@ private:
     std::jthread m_worker;
 
     // Publisher UDP (1 datagrama por punto)
-    std::unique_ptr<AnimationPublisher> m_publisher;
+    std::unique_ptr<RankingPublisher> m_publisher;
+
+    // Defaults de medicion (bloque "ranking_measure"); el evento gana si trae
+    // burst_ms/max_ms propios.
+    RankingMeasureConfig m_config;
 
     // Inferencia propia (contexto de ejecucion propio, NO la de las PTZ)
     InferenceEngine m_inferenceEngine;
@@ -272,7 +289,7 @@ private:
  *     if (auto* c = Measure::AttachedCoordinator()) c->Enqueue(...);
  * y vuelve. Si no hay medidor enganchado el evento es un no-op.
  */
-MeasurePointCoordinator* AttachedCoordinator();
-void AttachCoordinator(MeasurePointCoordinator* coordinator);
+RankingMeasure* AttachedCoordinator();
+void AttachCoordinator(RankingMeasure* coordinator);
 
 } // namespace Measure

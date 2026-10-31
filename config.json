@@ -221,11 +221,16 @@
     "debug": true,
     "description": "vMix choreography automation - executes sequences of vMix commands and NDI slot changes"
   },
-  "animation": {
+  "ranking_publisher": {
     "enabled": true,
     "host": "127.0.0.1",
     "port": 9100,
-    "description": "Salida UDP por PUNTO DE MEDICION hacia TouchDesigner: un datagrama por cada evento MeasurePoint de la coreografia. Payload: {\"type\":\"ranking\",\"seq\":N,\"canicas\":[{\"id\":0..9,\"puesto\":1..10}]}. ballID 10 -> id 0, resto igual."
+    "description": "RankingPublisher — un paquete UDP por MeasurePoint con el orden de las esferas (puesto por canica). Destino: el grafico del receptor."
+  },
+  "ranking_measure": {
+    "burst_ms": 400,
+    "max_ms": 2000,
+    "description": "RankingMeasure — duracion de la rafaga de medicion por punto y techo de extension si no salen las 10 esferas."
   },
   "ports": [
     {

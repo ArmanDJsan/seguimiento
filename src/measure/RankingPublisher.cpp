@@ -1,16 +1,16 @@
 /**
- * AnimationPublisher.cpp
+ * RankingPublisher.cpp
  *
  * Implementacion del publisher UDP por punto de medicion (contrato TD).
  */
 
-#include "AnimationPublisher.h"
+#include "RankingPublisher.h"
 #include "../utils/Logger.h"
 #include <ws2tcpip.h>
 
 #pragma comment(lib, "Ws2_32.lib")
 
-AnimationPublisher::AnimationPublisher(const AnimationPublisherConfig& config)
+RankingPublisher::RankingPublisher(const RankingPublisherConfig& config)
     : m_config(config)
     , m_initialized(false)
     , m_publishCount(0)
@@ -21,11 +21,11 @@ AnimationPublisher::AnimationPublisher(const AnimationPublisherConfig& config)
     m_target = sockaddr_in{};
 }
 
-AnimationPublisher::~AnimationPublisher() {
+RankingPublisher::~RankingPublisher() {
     Shutdown();
 }
 
-bool AnimationPublisher::Initialize() {
+bool RankingPublisher::Initialize() {
     std::lock_guard<std::mutex> lock(m_mutex);
 
     if (m_initialized) {
@@ -33,14 +33,14 @@ bool AnimationPublisher::Initialize() {
     }
 
     if (!m_config.enabled) {
-        Logger::Info("AnimationPublisher: deshabilitado por configuracion");
+        Logger::Info("RankingPublisher: deshabilitado por configuracion");
         m_initialized = true;
         return true;
     }
 
     if (m_config.port == 0) {
         SetLastError("animation.port no configurado (0)");
-        Logger::Error("AnimationPublisher: " + m_lastError);
+        Logger::Error("RankingPublisher: " + m_lastError);
         return false;
     }
 
@@ -48,7 +48,7 @@ bool AnimationPublisher::Initialize() {
     int result = WSAStartup(MAKEWORD(2, 2), &wsaData);
     if (result != 0) {
         SetLastError("Winsock initialization failed: " + std::to_string(result));
-        Logger::Error("AnimationPublisher: " + m_lastError);
+        Logger::Error("RankingPublisher: " + m_lastError);
         return false;
     }
     m_winsockInitialized = true;
@@ -56,7 +56,7 @@ bool AnimationPublisher::Initialize() {
     m_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (m_socket == INVALID_SOCKET) {
         SetLastError("Failed to create UDP socket: " + std::to_string(WSAGetLastError()));
-        Logger::Error("AnimationPublisher: " + m_lastError);
+        Logger::Error("RankingPublisher: " + m_lastError);
         WSACleanup();
         m_winsockInitialized = false;
         return false;
@@ -68,7 +68,7 @@ bool AnimationPublisher::Initialize() {
 
     if (inet_pton(AF_INET, m_config.host.c_str(), &m_target.sin_addr) != 1) {
         SetLastError("Host UDP invalido: " + m_config.host);
-        Logger::Error("AnimationPublisher: " + m_lastError);
+        Logger::Error("RankingPublisher: " + m_lastError);
         closesocket(m_socket);
         m_socket = INVALID_SOCKET;
         WSACleanup();
@@ -77,13 +77,13 @@ bool AnimationPublisher::Initialize() {
     }
 
     m_initialized = true;
-    Logger::Info("AnimationPublisher: inicializado, destino=" + m_config.host +
+    Logger::Info("RankingPublisher: inicializado, destino=" + m_config.host +
                  ":" + std::to_string(m_config.port) +
                  " (UDP, 1 datagrama por punto de medicion)");
     return true;
 }
 
-void AnimationPublisher::Shutdown() {
+void RankingPublisher::Shutdown() {
     std::lock_guard<std::mutex> lock(m_mutex);
 
     if (m_socket != INVALID_SOCKET) {
@@ -97,7 +97,7 @@ void AnimationPublisher::Shutdown() {
     }
 
     if (m_initialized) {
-        Logger::Info("AnimationPublisher: shutdown. Enviados: " +
+        Logger::Info("RankingPublisher: shutdown. Enviados: " +
                      std::to_string(m_publishCount.load()) + ", Fallidos: " +
                      std::to_string(m_failCount.load()) + ", seq=" +
                      std::to_string(m_state.seq));
@@ -105,7 +105,7 @@ void AnimationPublisher::Shutdown() {
     m_initialized = false;
 }
 
-bool AnimationPublisher::PublishMeasurePoint(int punto, int64_t frameEpochMs,
+bool RankingPublisher::PublishMeasurePoint(int punto, int64_t frameEpochMs,
                                              const std::vector<int>& posiciones) {
     if (!m_config.enabled) {
         return false;
@@ -148,23 +148,23 @@ bool AnimationPublisher::PublishMeasurePoint(int punto, int64_t frameEpochMs,
     }
 
     m_publishCount++;
-    Logger::Info("AnimationPublisher: punto=" + std::to_string(punto) +
+    Logger::Info("RankingPublisher: punto=" + std::to_string(punto) +
                  " t=" + std::to_string(frameEpochMs) +
                  " seq=" + std::to_string(m_state.seq) + " -> " + payload);
     return true;
 }
 
-std::string AnimationPublisher::BuildCurrentPayload() const {
+std::string RankingPublisher::BuildCurrentPayload() const {
     std::lock_guard<std::mutex> lock(m_mutex);
     return m_state.BuildPayload();
 }
 
-std::string AnimationPublisher::GetLastError() const {
+std::string RankingPublisher::GetLastError() const {
     std::lock_guard<std::mutex> lock(m_mutex);
     return m_lastError;
 }
 
-void AnimationPublisher::SetLastError(const std::string& error) {
+void RankingPublisher::SetLastError(const std::string& error) {
     m_lastError = error;
-    Logger::Warning("AnimationPublisher: " + error);
+    Logger::Warning("RankingPublisher: " + error);
 }

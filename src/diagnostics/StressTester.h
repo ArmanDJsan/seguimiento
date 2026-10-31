@@ -26,7 +26,6 @@ class PerformanceMonitor;
 class PositionMapper;
 class BallTracker;
 class SceneManager;
-class RankingPublisher;
 
 struct Config;
 struct InferenceEngineConfig;

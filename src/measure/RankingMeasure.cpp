@@ -1,7 +1,7 @@
 /**
- * MeasurePointCoordinator.cpp
+ * RankingMeasure.cpp
  *
- * Medidor por evento (fase 1). Ver MeasurePointCoordinator.h para el contrato
+ * Medidor por evento (fase 1). Ver RankingMeasure.h para el contrato
  * y las reglas duras.
  *
  * Flujo por evento:
@@ -17,7 +17,7 @@
  *   5. Un solo sendto() por punto con el orden final.
  */
 
-#include "MeasurePointCoordinator.h"
+#include "RankingMeasure.h"
 #include "../utils/Logger.h"
 
 #include <algorithm>
@@ -38,7 +38,7 @@ constexpr int kTimestampRetries = 50;   // reintentos de lectura de un slot en e
 constexpr float kMatchGateX = 0.20f;    // puerta de asociacion en x normalizado
 constexpr size_t kMaxTracks = 40;       // techo de identidades provisorias
 
-std::atomic<MeasurePointCoordinator*> g_attachedCoordinator{nullptr};
+std::atomic<RankingMeasure*> g_attachedCoordinator{nullptr};
 
 } // namespace
 
@@ -200,35 +200,39 @@ bool FrameRing::CopyToDevice(int64_t index, void* deviceDst, size_t dstBytes,
 // Punto de enganche con el motor de coreografia
 // ============================================================================
 
-MeasurePointCoordinator* AttachedCoordinator() {
+RankingMeasure* AttachedCoordinator() {
     return g_attachedCoordinator.load(std::memory_order_acquire);
 }
 
-void AttachCoordinator(MeasurePointCoordinator* coordinator) {
+void AttachCoordinator(RankingMeasure* coordinator) {
     g_attachedCoordinator.store(coordinator, std::memory_order_release);
 }
 
 // ============================================================================
-// MeasurePointCoordinator
+// RankingMeasure
 // ============================================================================
 
-MeasurePointCoordinator::MeasurePointCoordinator() {
+RankingMeasure::RankingMeasure() {
 }
 
-MeasurePointCoordinator::~MeasurePointCoordinator() {
+RankingMeasure::~RankingMeasure() {
     Shutdown();
 }
 
-bool MeasurePointCoordinator::Initialize(const AnimationPublisherConfig& pubConfig,
-                                         const InferenceEngineConfig& inferenceConfig) {
+bool RankingMeasure::Initialize(const RankingPublisherConfig& pubConfig,
+                                const RankingMeasureConfig& measureConfig,
+                                const InferenceEngineConfig& inferenceConfig) {
     if (m_initialized) {
         return true;
     }
 
+    // 0. Defaults de medicion (el evento puede pisarlos con burst_ms/max_ms)
+    m_config = measureConfig;
+
     // 1. Publisher UDP del punto (1 datagrama por punto)
-    m_publisher = std::make_unique<AnimationPublisher>(pubConfig);
+    m_publisher = std::make_unique<RankingPublisher>(pubConfig);
     if (!m_publisher->Initialize()) {
-        Logger::Error("MeasurePointCoordinator: AnimationPublisher no inicializo, se aborta");
+        Logger::Error("RankingMeasure: RankingPublisher no inicializo, se aborta");
         m_publisher.reset();
         return false;
     }
@@ -236,7 +240,7 @@ bool MeasurePointCoordinator::Initialize(const AnimationPublisherConfig& pubConf
     // 2. Stream propio del medidor (NO inferenceStream de las PTZ)
     cudaError_t streamErr = cudaStreamCreate(&m_inferenceStream);
     if (streamErr != cudaSuccess) {
-        Logger::Error("MeasurePointCoordinator: cudaStreamCreate fallo: " +
+        Logger::Error("RankingMeasure: cudaStreamCreate fallo: " +
                       std::string(cudaGetErrorString(streamErr)));
         m_publisher->Shutdown();
         m_publisher.reset();
@@ -248,14 +252,14 @@ bool MeasurePointCoordinator::Initialize(const AnimationPublisherConfig& pubConf
     //    propios, para no compartir el tensor indice 0 con el camino de las PTZ.
     m_inferenceReady = m_inferenceEngine.Initialize(inferenceConfig);
     if (!m_inferenceReady) {
-        Logger::Warning("MeasurePointCoordinator: InferenceEngine propia no inicializo; "
+        Logger::Warning("RankingMeasure: InferenceEngine propia no inicializo; "
                         "las mediciones no van a poder resolver puntos");
     }
 
     // 4. Buffer propio de device para el frame a inferir (se reserva una sola vez)
     cudaError_t allocErr = cudaMalloc(&m_deviceFrame, kMaxFrameBytes);
     if (allocErr != cudaSuccess) {
-        Logger::Error("MeasurePointCoordinator: cudaMalloc del frame propio fallo: " +
+        Logger::Error("RankingMeasure: cudaMalloc del frame propio fallo: " +
                       std::string(cudaGetErrorString(allocErr)));
         m_deviceFrame = nullptr;
         m_deviceFrameBytes = 0;
@@ -271,13 +275,13 @@ bool MeasurePointCoordinator::Initialize(const AnimationPublisherConfig& pubConf
 
     m_initialized = true;
     m_stopRequested.store(false);
-    Logger::Info("MeasurePointCoordinator: inicializado (cola tope=" +
+    Logger::Info("RankingMeasure: inicializado (cola tope=" +
                  std::to_string(kQueueCapacity) + ", anillo=" +
                  std::to_string(FrameRing::kSlots) + " frames/camara, sin ROI)");
     return true;
 }
 
-void MeasurePointCoordinator::Shutdown() {
+void RankingMeasure::Shutdown() {
     // 1. Parar el hilo medidor antes de liberar anillos/GPU
     m_stopRequested.store(true);
     if (m_worker.joinable()) {
@@ -319,15 +323,15 @@ void MeasurePointCoordinator::Shutdown() {
     }
 
     m_initialized = false;
-    Logger::Info("MeasurePointCoordinator: shutdown. Puntos medidos: " +
+    Logger::Info("RankingMeasure: shutdown. Puntos medidos: " +
                  std::to_string(m_measureCount.load()) + ", descartados: " +
                  std::to_string(m_droppedCount.load()));
 }
 
-FrameRing* MeasurePointCoordinator::SetupCamera(int cameraID, unsigned int width,
+FrameRing* RankingMeasure::SetupCamera(int cameraID, unsigned int width,
                                                unsigned int height) {
     if (cameraID < 0 || cameraID >= kMaxCameras) {
-        Logger::Warning("MeasurePointCoordinator: camara " + std::to_string(cameraID) +
+        Logger::Warning("RankingMeasure: camara " + std::to_string(cameraID) +
                         " fuera de rango para medicion (0.." +
                         std::to_string(kMaxCameras - 1) + ")");
         return nullptr;
@@ -340,7 +344,7 @@ FrameRing* MeasurePointCoordinator::SetupCamera(int cameraID, unsigned int width
             return nullptr;
         }
         if (m_rings[cameraID]->FrameBytes() > m_deviceFrameBytes) {
-            Logger::Warning("MeasurePointCoordinator: el frame de la camara " +
+            Logger::Warning("RankingMeasure: el frame de la camara " +
                             std::to_string(cameraID) + " (" +
                             std::to_string(m_rings[cameraID]->FrameBytes()) +
                             " bytes) no entra en el buffer propio (" +
@@ -351,24 +355,24 @@ FrameRing* MeasurePointCoordinator::SetupCamera(int cameraID, unsigned int width
     return m_rings[cameraID].get();
 }
 
-FrameRing* MeasurePointCoordinator::GetRing(int cameraID) {
+FrameRing* RankingMeasure::GetRing(int cameraID) {
     if (cameraID < 0 || cameraID >= kMaxCameras) {
         return nullptr;
     }
     return m_rings[cameraID].get();
 }
 
-void MeasurePointCoordinator::Enqueue(int camera, int punto, int burstMs, int maxMs) {
+void RankingMeasure::Enqueue(int camera, int punto, int burstMs, int maxMs) {
     if (!m_initialized) {
-        Logger::Warning("MeasurePointCoordinator: evento MeasurePoint ignorado (medidor no inicializado)");
+        Logger::Warning("RankingMeasure: evento MeasurePoint ignorado (medidor no inicializado)");
         return;
     }
 
     MeasureJob job;
     job.camera = camera;
     job.punto = punto;
-    job.burstMs = (burstMs > 0) ? burstMs : 400;
-    job.maxMs = (maxMs > 0) ? maxMs : 2000;
+    job.burstMs = (burstMs > 0) ? burstMs : m_config.burstMs;
+    job.maxMs = (maxMs > 0) ? maxMs : m_config.maxMs;
     if (job.maxMs < job.burstMs) {
         job.maxMs = job.burstMs;
     }
@@ -379,7 +383,7 @@ void MeasurePointCoordinator::Enqueue(int camera, int punto, int burstMs, int ma
         std::lock_guard<std::mutex> lock(m_queueMutex);
         if (m_queue.size() >= kQueueCapacity) {
             const MeasureJob& dropped = m_queue.front();
-            Logger::Warning("MeasurePointCoordinator: cola llena, se descarta la medicion mas vieja "
+            Logger::Warning("RankingMeasure: cola llena, se descarta la medicion mas vieja "
                             "(punto=" + std::to_string(dropped.punto) + ", camara=" +
                             std::to_string(dropped.camera) + ")");
             m_queue.pop_front();
@@ -389,24 +393,24 @@ void MeasurePointCoordinator::Enqueue(int camera, int punto, int burstMs, int ma
     }
     m_queueCv.notify_one();
 
-    Logger::Debug("MeasurePointCoordinator: encolado punto=" + std::to_string(job.punto) +
+    Logger::Debug("RankingMeasure: encolado punto=" + std::to_string(job.punto) +
                   " camara=" + std::to_string(job.camera) +
                   " burst=" + std::to_string(job.burstMs) + "ms" +
                   " max=" + std::to_string(job.maxMs) + "ms");
 }
 
-void MeasurePointCoordinator::ResetIdentity() {
+void RankingMeasure::ResetIdentity() {
     m_tracks.clear();
     m_nextTrackId = 1;
-    Logger::Info("MeasurePointCoordinator: identidades provisorias reiniciadas");
+    Logger::Info("RankingMeasure: identidades provisorias reiniciadas");
 }
 
 // ----------------------------------------------------------------------------
 // Hilo medidor
 // ----------------------------------------------------------------------------
 
-void MeasurePointCoordinator::WorkerThreadFunc(std::stop_token stopToken) {
-    Logger::Info("MeasurePointCoordinator: hilo medidor iniciado");
+void RankingMeasure::WorkerThreadFunc(std::stop_token stopToken) {
+    Logger::Info("RankingMeasure: hilo medidor iniciado");
     while (!stopToken.stop_requested()) {
         MeasureJob job;
         if (!PopJob(job)) {
@@ -417,10 +421,10 @@ void MeasurePointCoordinator::WorkerThreadFunc(std::stop_token stopToken) {
         }
         ProcessJob(job);
     }
-    Logger::Info("MeasurePointCoordinator: hilo medidor detenido");
+    Logger::Info("RankingMeasure: hilo medidor detenido");
 }
 
-bool MeasurePointCoordinator::PopJob(MeasureJob& job) {
+bool RankingMeasure::PopJob(MeasureJob& job) {
     std::unique_lock<std::mutex> lock(m_queueMutex);
     m_queueCv.wait_for(lock, std::chrono::milliseconds(20), [this] {
         return !m_queue.empty();
@@ -433,16 +437,16 @@ bool MeasurePointCoordinator::PopJob(MeasureJob& job) {
     return true;
 }
 
-void MeasurePointCoordinator::ProcessJob(const MeasureJob& job) {
+void RankingMeasure::ProcessJob(const MeasureJob& job) {
     FrameRing* ring = GetRing(job.camera);
     if (!ring || !ring->IsInitialized()) {
-        Logger::Warning("MeasurePointCoordinator: punto=" + std::to_string(job.punto) +
+        Logger::Warning("RankingMeasure: punto=" + std::to_string(job.punto) +
                         " sin anillo de frames para camara " + std::to_string(job.camera));
         m_droppedCount++;
         return;
     }
     if (!m_inferenceReady || !m_deviceFrame) {
-        Logger::Warning("MeasurePointCoordinator: punto=" + std::to_string(job.punto) +
+        Logger::Warning("RankingMeasure: punto=" + std::to_string(job.punto) +
                         " sin inferencia/buffer propio, se descarta");
         m_droppedCount++;
         return;
@@ -487,7 +491,7 @@ void MeasurePointCoordinator::ProcessJob(const MeasureJob& job) {
     std::vector<int> posiciones;
     int64_t resolvedEpochMs = 0;
     if (!ResolvePositions(samples, posiciones, resolvedEpochMs)) {
-        Logger::Warning("MeasurePointCoordinator: punto=" + std::to_string(job.punto) +
+        Logger::Warning("RankingMeasure: punto=" + std::to_string(job.punto) +
                         " sin detecciones en la rafaga, se descarta");
         m_droppedCount++;
         return;
@@ -495,7 +499,7 @@ void MeasurePointCoordinator::ProcessJob(const MeasureJob& job) {
 
     {
         std::ostringstream oss;
-        oss << "MeasurePointCoordinator: punto=" << job.punto
+        oss << "RankingMeasure: punto=" << job.punto
             << " camara=" << job.camera
             << " frames=" << samples.size()
             << " maxDetecciones=" << MaxDetections(samples)
@@ -512,7 +516,7 @@ void MeasurePointCoordinator::ProcessJob(const MeasureJob& job) {
     // La salida exige las 10 esferas: si no se completaron, no se manda un
     // array incompleto (el receptor dibuja posiciones 1..10).
     if (static_cast<int>(posiciones.size()) < kTargetSpheres) {
-        Logger::Warning("MeasurePointCoordinator: punto=" + std::to_string(job.punto) +
+        Logger::Warning("RankingMeasure: punto=" + std::to_string(job.punto) +
                         " resuelto con " + std::to_string(posiciones.size()) + "/" +
                         std::to_string(kTargetSpheres) + " esferas despues de max_ms, no se publica");
         m_droppedCount++;
@@ -530,7 +534,7 @@ void MeasurePointCoordinator::ProcessJob(const MeasureJob& job) {
 // Ingesta y resolucion
 // ----------------------------------------------------------------------------
 
-bool MeasurePointCoordinator::IngestFrame(FrameRing* ring, int64_t index, FrameSample& out) {
+bool RankingMeasure::IngestFrame(FrameRing* ring, int64_t index, FrameSample& out) {
     if (!m_deviceFrame || ring->FrameBytes() > m_deviceFrameBytes) {
         return false;   // el frame no entra en el buffer propio
     }
@@ -597,7 +601,7 @@ bool MeasurePointCoordinator::IngestFrame(FrameRing* ring, int64_t index, FrameS
     return true;
 }
 
-int64_t MeasurePointCoordinator::CollectWindow(FrameRing* ring, int64_t fromIndex,
+int64_t RankingMeasure::CollectWindow(FrameRing* ring, int64_t fromIndex,
                                                int64_t fromTs, int64_t untilTs,
                                                std::vector<FrameSample>& samples,
                                                bool stopWhenComplete) {
@@ -673,7 +677,7 @@ int64_t MeasurePointCoordinator::CollectWindow(FrameRing* ring, int64_t fromInde
     }
 }
 
-bool MeasurePointCoordinator::ResolvePositions(const std::vector<FrameSample>& samples,
+bool RankingMeasure::ResolvePositions(const std::vector<FrameSample>& samples,
                                                std::vector<int>& posiciones,
                                                int64_t& resolvedEpochMs) {
     posiciones.clear();
@@ -727,11 +731,11 @@ bool MeasurePointCoordinator::ResolvePositions(const std::vector<FrameSample>& s
     return !posiciones.empty();
 }
 
-void MeasurePointCoordinator::MatchFrame(const std::vector<float>& xs) {
+void RankingMeasure::MatchFrame(const std::vector<float>& xs) {
     if (m_tracks.size() > kMaxTracks) {
         // Red de seguridad: sin la barrera IR no hay identidad real, y no
         // queremos que la lista de tracks crezca sin techo.
-        Logger::Warning("MeasurePointCoordinator: demasiadas identidades provisorias, se reinician");
+        Logger::Warning("RankingMeasure: demasiadas identidades provisorias, se reinician");
         ResetIdentity();
     }
 
@@ -775,7 +779,7 @@ void MeasurePointCoordinator::MatchFrame(const std::vector<float>& xs) {
     }
 }
 
-int MeasurePointCoordinator::MaxDetections(const std::vector<FrameSample>& samples) {
+int RankingMeasure::MaxDetections(const std::vector<FrameSample>& samples) {
     int best = 0;
     for (const auto& sample : samples) {
         const int count = static_cast<int>(sample.xs.size());
@@ -786,7 +790,7 @@ int MeasurePointCoordinator::MaxDetections(const std::vector<FrameSample>& sampl
     return best;
 }
 
-int64_t MeasurePointCoordinator::NowEpochMs() {
+int64_t RankingMeasure::NowEpochMs() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
 }

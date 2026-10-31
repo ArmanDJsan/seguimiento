@@ -23,7 +23,7 @@
 // 3. Project headers
 #include "DeckLinkCapture.h"
 #include "CudaColorConversion.h"
-#include "../measure/MeasurePointCoordinator.h"
+#include "../measure/RankingMeasure.h"
 #include "../utils/Logger.h"
 #include "../utils/ThreadOptimizer.h"
 

@@ -17,7 +17,8 @@
 #include "../tracking/BallTracker.h"     // BallTrackerConfig
 #include "../output/ArrivalEmitter.h"    // ArrivalEndpointConfig
 #include "../verification/ArrivalOrderStabilizer.h"  // ArrivalStabilizerConfig
-#include "../measure/AnimationPublisher.h" // AnimationPublisherConfig
+#include "../measure/RankingPublisher.h" // RankingPublisherConfig
+#include "../measure/RankingMeasure.h"   // RankingMeasureConfig
 #include "../control/PTZController.h"    // PTZCameraConfig, PTZTrackingConfig
 
 /**
@@ -132,9 +133,15 @@ struct Config {
     // Choreography configuration
     ChoreographyConfig choreographyConfig;
     
-    // Salida de animacion del medidor por evento (bloque "animation"):
-    // un datagrama UDP por punto de medicion resuelto.
-    AnimationPublisherConfig animationConfig;
+    // Emision del ranking (bloque "ranking_publisher"): un datagrama UDP por
+    // punto de medicion resuelto. El alias obsoleto "animation" tambien se
+    // acepta en el parser (solo si falta ranking_publisher).
+    RankingPublisherConfig rankingPublisherConfig;
+
+    // Medicion del ranking (bloque "ranking_measure"): defaults de rafaga y
+    // techo por punto. Si el evento MeasurePoint trae burst_ms/max_ms, gana el
+    // evento.
+    RankingMeasureConfig rankingMeasureConfig;
     
     // PTZ cameras configuration
     PTZCamerasConfig ptzCamerasConfig;

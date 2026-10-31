@@ -72,7 +72,11 @@ src/
 ├── scene/
 │   └── SceneManager.h         # VideoHub control & leapfrogging
 ├── output/
-│   └── RankingPublisher.h     # vMix ranking output
+│   ├── ArrivalEmitter.h      # Confirmacion de orden de llegada (opcion 11)
+│   └── RankingPayload.h      # Contrato del payload {"type":"ranking","seq":N,"canicas":[...]}
+├── measure/
+│   ├── RankingMeasure.h      # MIDE: rafaga + deteccion + orden por punto de medicion
+│   └── RankingPublisher.h    # PUBLICA: un datagrama UDP por punto de medicion
 ├── redis/
 │   ├── RedisWorker.h         # Async Redis worker
 │   └── RedisWorker.cpp       # Metadata publishing
