@@ -141,7 +141,7 @@ struct Config {
     // Medicion del ranking (bloque "ranking_measure"): defaults de rafaga y
     // techo por punto. Si el evento MeasurePoint trae burst_ms/max_ms, gana el
     // evento.
-    RankingMeasureConfig rankingMeasureConfig;
+    Measure::RankingMeasureConfig rankingMeasureConfig;
     
     // PTZ cameras configuration
     PTZCamerasConfig ptzCamerasConfig;
