@@ -547,36 +547,57 @@ void RankingMeasure::ClipStop() {
         return;
     }
 
-    const std::string raw  = m_clipDir + "\\clip.uyvy";
-    const std::string mp4  = m_clipDir + ".mp4";
-    const std::string logf = m_clipDir + "\\ffmpeg.log";
-    std::string cmd = "\"" + m_config.ffmpegCmd + "\" -y -v error -f rawvideo -pix_fmt uyvy422 -s " +
-                      std::to_string(m_clipW) + "x" + std::to_string(m_clipH) +
-                      " -framerate " + std::to_string(m_config.saveFps) +
-                      " -i \"" + raw + "\" -c:v libx264 -pix_fmt yuv420p -crf 20 \"" + mp4 +
-                      "\" 2>\"" + logf + "\"";
+    const std::string raw = m_clipDir + "\\clip.uyvy";
+    const std::string mp4 = m_clipDir + ".mp4";
 
-    const int rc = system(cmd.c_str());
+    // Tamano real del crudo: si ffmpeg falla, este dato dice si el problema es
+    // el archivo de entrada o la invocation.
+    long long crudoBytes = 0;
+    {
+        WIN32_FILE_ATTRIBUTE_DATA fad;
+        if (GetFileAttributesExA(raw.c_str(), GetFileExInfoStandard, &fad)) {
+            crudoBytes = (static_cast<long long>(fad.nFileSizeHigh) << 32) | fad.nFileSizeLow;
+        }
+    }
+
+    const std::string cmd = "\"" + m_config.ffmpegCmd + "\" -y -v error -f rawvideo -pix_fmt uyvy422 -s " +
+                            std::to_string(m_clipW) + "x" + std::to_string(m_clipH) +
+                            " -framerate " + std::to_string(m_config.saveFps) +
+                            " -i \"" + raw + "\" -c:v libx264 -pix_fmt yuv420p -crf 20 \"" + mp4 + "\"";
+
+    // La salida se captura por pipe (2>&1): la redireccion a archivo desde
+    // system() no estaba dejando nada, y sin la salida no hay diagnostico.
+    std::string salida;
+    int rc = -1;
+    FILE* pipe = _popen((cmd + " 2>&1").c_str(), "r");
+    if (pipe != nullptr) {
+        char buf[256];
+        while (fgets(buf, sizeof(buf), pipe) != nullptr) {
+            salida += buf;
+            if (salida.size() > 900) {          // basta con el principio del error
+                break;
+            }
+        }
+        rc = _pclose(pipe);
+    } else {
+        salida = "(no se pudo abrir el pipe)";
+    }
+
+    while (!salida.empty() && (salida.back() == '\n' || salida.back() == '\r')) {
+        salida.pop_back();
+    }
+    for (size_t i = 0; i < salida.size(); ++i) {
+        if (salida[i] == '\n' || salida[i] == '\r') salida[i] = ' ';
+    }
+
     const bool mp4Ok = (rc == 0);
     if (mp4Ok) {
         DeleteFileA(raw.c_str());
-        DeleteFileA(logf.c_str());
     } else {
-        // Sin la salida de ffmpeg no hay forma de saber por que fallo.
-        std::string detalle;
-        FILE* f = nullptr;
-        if (fopen_s(&f, logf.c_str(), "rb") == 0 && f != nullptr) {
-            char buf[512];
-            const size_t n = fread(buf, 1, sizeof(buf) - 1, f);
-            buf[n] = '\0';
-            detalle = std::string(buf);
-            fclose(f);
-            while (!detalle.empty() && (detalle.back() == '\n' || detalle.back() == '\r')) {
-                detalle.pop_back();
-            }
-        }
-        Logger::Warning("RankingMeasure: ffmpeg fallo (rc=" + std::to_string(rc) + "). Salida: " +
-                        (detalle.empty() ? std::string("(sin salida)") : detalle));
+        Logger::Warning("RankingMeasure: ffmpeg fallo (rc=" + std::to_string(rc) +
+                        ", crudo=" + std::to_string(crudoBytes) + " bytes, cuadros=" +
+                        std::to_string(m_clipFrames) + "). Comando: " + cmd +
+                        " . Salida: " + (salida.empty() ? std::string("(vacia)") : salida));
     }
 
     Logger::Info("RankingMeasure: clip punto=" + std::to_string(m_clipPunto) +
