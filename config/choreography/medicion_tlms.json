@@ -5,24 +5,6 @@
   "version": "1.0",
   "events": [
     {
-      "type": "StartRecording"
-    },
-    {
-      "type": "Restart",
-      "guid": "74c833cb-63d6-41b0-9967-dd79e7e485b2",
-      "comment": "Restart intro"
-    },
-    {
-      "type": "CutDirect",
-      "guid": "74c833cb-63d6-41b0-9967-dd79e7e485b2",
-      "layer": -1,
-      "comment": "intro"
-    },
-    {
-      "type": "Timer",
-      "ms": 46000
-    },
-    {
       "type": "SceneSwitch",
       "config": 2,
       "comment": "Volver a config_c"
