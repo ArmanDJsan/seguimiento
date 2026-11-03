@@ -124,7 +124,7 @@
     },
     {
       "type": "Timer",
-      "ms": 4500
+      "ms": 1500
     },
     {
       "type": "CutDirect",
@@ -144,13 +144,6 @@
     {
       "type": "MeasurePoint",
       "camera": 1,
-      "punto": 1,
-      "burst_ms": 3000,
-      "max_ms": 4000
-    },
-    {
-      "type": "MeasurePoint",
-      "camera": 2,
       "punto": 1,
       "burst_ms": 3000,
       "max_ms": 4000
