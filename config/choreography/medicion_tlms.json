@@ -5,6 +5,25 @@
   "version": "1.0",
   "events": [
     {
+      "type": "Comment",
+      "text": "=== Posicion inicial: PTZ1 y PTZ2 preset 1, PTZ3 preset 2 ==="
+    },
+    {
+      "type": "PTZPreset",
+      "camera": 1,
+      "preset": 1
+    },
+    {
+      "type": "PTZPreset",
+      "camera": 2,
+      "preset": 1
+    },
+    {
+      "type": "PTZPreset",
+      "camera": 3,
+      "preset": 2
+    },
+    {
       "type": "SceneSwitch",
       "config": 2,
       "comment": "Volver a config_c"
@@ -182,12 +201,6 @@
       "text": "=== seg 7: PTZ 4 → preset 2 ==="
     },
     {
-      "type": "PTZPreset",
-      "camera": 4,
-      "preset": 2,
-      "comment": "PTZ 4 preset 2"
-    },
-    {
       "type": "Comment",
       "text": "=== seg 7: ESP32 finalizar ==="
     },
@@ -199,12 +212,6 @@
     {
       "type": "Comment",
       "text": "=== seg 3: PTZ 2 → preset 2 ==="
-    },
-    {
-      "type": "PTZPreset",
-      "camera": 2,
-      "preset": 2,
-      "comment": "PTZ 2 preset 2"
     },
     {
       "type": "Timer",
@@ -387,7 +394,7 @@
     },
     {
       "type": "Timer",
-      "ms": 24000
+      "ms": 20000
     },
     {
       "type": "Comment",
