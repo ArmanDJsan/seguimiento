@@ -225,20 +225,33 @@ public:
     uint64_t GetDroppedCount() const { return m_droppedCount.load(); }
 
 private:
-    // Muestreo de un frame: instante + posiciones x (ordenadas, mas adelantada
-    // primero) de las esferas detectadas.
-    struct FrameSample {
-        int64_t epochMs = 0;
-        std::vector<float> xs;
+    // Una deteccion con todo lo necesario para seguir la esfera y votar su clase.
+    // x,y,w,h en PIXELES (se convierten en IngestFrame).
+    struct FrameDetection {
+        float x = 0.0f, y = 0.0f;
+        float w = 0.0f, h = 0.0f;
+        int   ballID = 0;      // clase 0..9 tal como la devuelve el motor
+        float conf = 0.0f;
     };
 
-    // Identidad provisoria de una esfera: se propaga entre frames y entre
-    // puntos por vecino mas cercano en x (el ID real por carril llega con la
-    // barrera IR).
-    struct ProvisionalTrack {
+    // Muestreo de un frame: instante, detecciones y a que esfera (track) quedo
+    // asignada cada una. trackOf lo llena ResolvePositions.
+    struct FrameSample {
+        int64_t epochMs = 0;
+        std::vector<FrameDetection> dets;
+        std::vector<int> trackOf;
+    };
+
+    // Esfera fisica seguida por movimiento durante la rafaga. Acumula el voto de
+    // clase de cada cuadro: la banda blanca de la 9 aparece en unos cuadros y en
+    // otros no, y el voto es lo que la separa de la 1.
+    struct SphereTrack {
         int id = 0;
-        float lastX = 0.0f;
-        std::vector<float> observedX;   // x observadas en la rafaga actual
+        float lastX = 0.0f, lastY = 0.0f;
+        float lastW = 0.0f, lastH = 0.0f;
+        int frames = 0;
+        std::vector<int>   votes   = std::vector<int>(kTargetSpheres, 0);
+        std::vector<float> confSum = std::vector<float>(kTargetSpheres, 0.0f);
     };
 
     void WorkerThreadFunc(std::stop_token stopToken);
@@ -250,9 +263,10 @@ private:
                           int64_t untilTs, std::vector<FrameSample>& samples,
                           bool stopWhenComplete);
 
-    bool ResolvePositions(const std::vector<FrameSample>& samples,
+    bool ResolvePositions(std::vector<FrameSample>& samples,
                           std::vector<int>& posiciones, int64_t& resolvedEpochMs);
-    void MatchFrame(const std::vector<float>& xs);
+    void MatchFrameByMotion(FrameSample& sample);
+    static int ArgMaxClass(const SphereTrack& track);
     static int MaxDetections(const std::vector<FrameSample>& samples);
     static int64_t NowEpochMs();
 
@@ -300,7 +314,7 @@ private:
     size_t m_deviceFrameBytes = 0;
 
     // Identidades provisorias (persisten entre puntos de la misma carrera)
-    std::vector<ProvisionalTrack> m_tracks;
+    std::vector<SphereTrack> m_tracks;
     int m_nextTrackId = 1;
 
     // Metricas
