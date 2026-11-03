@@ -513,12 +513,15 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
         Logger::Info(oss.str());
     }
 
-    // La salida exige las 10 esferas: si no se completaron, no se manda un
-    // array incompleto (el receptor dibuja posiciones 1..10).
-    if (static_cast<int>(posiciones.size()) < kTargetSpheres) {
+    // La salida exige EXACTAMENTE las 10 esferas. Con menos el array esta
+    // incompleto; con MAS (identidades de sobra acumuladas entre los cuadros de
+    // la rafaga) se publican puestos que no existen: medido 3-nov-2026, 13
+    // posiciones -> {"id":0,"puesto":11}. El receptor dibuja puestos 1..10.
+    if (static_cast<int>(posiciones.size()) != kTargetSpheres) {
         Logger::Warning("RankingMeasure: punto=" + std::to_string(job.punto) +
-                        " resuelto con " + std::to_string(posiciones.size()) + "/" +
-                        std::to_string(kTargetSpheres) + " esferas despues de max_ms, no se publica");
+                        " resuelto con " + std::to_string(posiciones.size()) +
+                        " posiciones y se exigen " + std::to_string(kTargetSpheres) +
+                        " exactas, no se publica");
         m_droppedCount++;
         return;
     }
