@@ -135,6 +135,9 @@ private:
 struct RankingMeasureConfig {
     int burstMs = 400;   // rafaga corta de medicion por punto
     int maxMs = 2000;    // techo si no salen las 10 esferas
+    // true  = si dos esferas quedan con la misma clase no se publica (produccion).
+    // false = publica igual, marcado como provisorio (solo para armar/validar).
+    bool strictClasses = true;
 
     // Evidencia: guardar los cuadros de la rafaga en disco (UYVY crudo) y armar
     // el MP4 con ffmpeg si esta en PATH. Apagado por defecto.

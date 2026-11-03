@@ -720,6 +720,7 @@ Config LoadConfig(const std::string& path) {
             if (rm.contains("save_fps")) config.rankingMeasureConfig.saveFps = rm["save_fps"].get<int>();
             if (rm.contains("save_max_frames")) config.rankingMeasureConfig.saveMaxFrames = rm["save_max_frames"].get<int>();
             if (rm.contains("ffmpeg_cmd")) config.rankingMeasureConfig.ffmpegCmd = rm["ffmpeg_cmd"].get<std::string>();
+            if (rm.contains("strict_classes")) config.rankingMeasureConfig.strictClasses = rm["strict_classes"].get<bool>();
             Logger::Info("RankingMeasure config: burst=" +
                         std::to_string(config.rankingMeasureConfig.burstMs) + "ms, max=" +
                         std::to_string(config.rankingMeasureConfig.maxMs) + "ms");
