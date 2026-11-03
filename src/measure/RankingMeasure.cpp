@@ -28,6 +28,7 @@
 #include <cstring>
 #include <functional>
 #include <sstream>
+#include <thread>
 #include <string>
 #include <unordered_map>
 
@@ -609,12 +610,21 @@ void RankingMeasure::ClipStop() {
                                 " -framerate " + std::to_string(m_config.saveFps) +
                                 " -i \"" + raw + "\" -c:v libx264 -pix_fmt yuv420p -crf 20 \"" + mp4 + "\"";
 
-    // Se llama a ffmpeg DIRECTO con CreateProcess, sin cmd.exe: el shell era el
-    // que fallaba ("El sistema no puede encontrar la ruta") aunque la ruta fuese
-    // correcta. La salida de ffmpeg (stdout+stderr) va al archivo de log.
-    int rc = -1;
-    std::string salida;
-    {
+    // El MP4 se arma en un hilo APARTE. ffmpeg tarda ~1 s y bloqueaba el hilo
+    // medidor: la medicion siguiente arrancaba tarde y, como el anillo guarda 8
+    // cuadros, los de su ventana ya no existian (medido 3-nov-2026: 3 de 9
+    // puntos juntaron 1-9 cuadros y el clip salio vacio).
+    const int cuadros = m_clipFrames;
+    const int punto = m_clipPunto;
+    m_clipFrames = 0;
+
+    std::thread([cmdLine, raw, mp4, logf, crudoBytes, cuadros, punto]() {
+        // Se llama a ffmpeg DIRECTO con CreateProcess, sin cmd.exe: el shell era
+        // el que fallaba ("El sistema no puede encontrar la ruta") aunque la ruta
+        // fuese correcta. La salida de ffmpeg va al archivo de log.
+        std::string salida;
+        int rc = -1;
+
         SECURITY_ATTRIBUTES sa{};
         sa.nLength = sizeof(sa);
         sa.bInheritHandle = TRUE;
@@ -637,11 +647,10 @@ void RankingMeasure::ClipStop() {
         std::vector<char> buf(cmdLine.begin(), cmdLine.end());
         buf.push_back('\0');
 
-        const BOOL ok = CreateProcessA(ffmpeg.c_str(), buf.data(), nullptr, nullptr, TRUE,
+        const BOOL ok = CreateProcessA(nullptr, buf.data(), nullptr, nullptr, TRUE,
                                        CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
         if (!ok) {
             salida = "CreateProcess fallo, error " + std::to_string(GetLastError());
-            rc = -1;
         } else {
             WaitForSingleObject(pi.hProcess, 120000);
             DWORD code = 1;
@@ -662,29 +671,26 @@ void RankingMeasure::ClipStop() {
             salida += tmp;
             fclose(f);
         }
-    }
 
-    for (size_t i = 0; i < salida.size(); ++i) {
-        if (salida[i] == '\n' || salida[i] == '\r' || salida[i] == '\t') salida[i] = ' ';
-    }
-    while (!salida.empty() && salida.back() == ' ') salida.pop_back();
+        for (size_t i = 0; i < salida.size(); ++i) {
+            if (salida[i] == '\n' || salida[i] == '\r' || salida[i] == '\t') salida[i] = ' ';
+        }
+        while (!salida.empty() && salida.back() == ' ') salida.pop_back();
 
-    const bool mp4Ok = (rc == 0);
-    if (mp4Ok) {
-        DeleteFileA(raw.c_str());
-        DeleteFileA(logf.c_str());
-    } else {
-        Logger::Warning("RankingMeasure: ffmpeg fallo (rc=" + std::to_string(rc) +
-                        ", crudo=" + std::to_string(crudoBytes) + " bytes, cuadros=" +
-                        std::to_string(m_clipFrames) + "). Comando: " + cmdLine +
-                        " . Salida: " + (salida.empty() ? std::string("(vacia)") : salida));
-    }
-
-    Logger::Info("RankingMeasure: clip punto=" + std::to_string(m_clipPunto) +
-                 " cuadros=" + std::to_string(m_clipFrames) +
-                 " carpeta=" + m_clipDir +
-                 " mp4=" + (mp4Ok ? std::string("si") : std::string("no")));
-    m_clipFrames = 0;
+        const bool mp4Ok = (rc == 0);
+        if (mp4Ok) {
+            DeleteFileA(raw.c_str());
+            DeleteFileA(logf.c_str());
+        } else {
+            Logger::Warning("RankingMeasure: ffmpeg fallo (rc=" + std::to_string(rc) +
+                            ", crudo=" + std::to_string(crudoBytes) + " bytes, cuadros=" +
+                            std::to_string(cuadros) + "). Comando: " + cmdLine +
+                            " . Salida: " + (salida.empty() ? std::string("(vacia)") : salida));
+        }
+        Logger::Info("RankingMeasure: clip punto=" + std::to_string(punto) +
+                     " cuadros=" + std::to_string(cuadros) + " mp4=" +
+                     (mp4Ok ? std::string("si") : std::string("no")));
+    }).detach();
 }
 
 void RankingMeasure::ProcessJob(const MeasureJob& job) {
