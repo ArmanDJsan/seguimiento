@@ -1,0 +1,664 @@
+{
+  "name": "Medicion TLMS",
+  "description": "Coreografia de medicion: 3 PTZ y 8 puntos. Circulo = preset al que se mueve, triangulo = mide. La medicion de PTZ2 en el punto 7 se extiende hasta el final.",
+  "author": "VIB Automation",
+  "version": "1.0",
+  "events": [
+    {
+      "type": "StartRecording"
+    },
+    {
+      "type": "Restart",
+      "guid": "74c833cb-63d6-41b0-9967-dd79e7e485b2",
+      "comment": "Restart intro"
+    },
+    {
+      "type": "CutDirect",
+      "guid": "74c833cb-63d6-41b0-9967-dd79e7e485b2",
+      "layer": -1,
+      "comment": "intro"
+    },
+    {
+      "type": "Timer",
+      "ms": 46000
+    },
+    {
+      "type": "SceneSwitch",
+      "config": 2,
+      "comment": "Volver a config_c"
+    },
+    {
+      "type": "CutDirect",
+      "guid": "519a0c79-fbd1-4dc3-a0eb-6f81a2ba5769",
+      "layer": -1,
+      "comment": "Logo Animado"
+    },
+    {
+      "type": "StartRecording"
+    },
+    {
+      "type": "Play",
+      "guid": "519a0c79-fbd1-4dc3-a0eb-6f81a2ba5769",
+      "layer": -1,
+      "comment": "Play Animacion Logo"
+    },
+    {
+      "type": "Restart",
+      "guid": "3113e58a-0202-4cbc-8b25-0ef4cad7a8fc",
+      "comment": "Restart musica de sorteo"
+    },
+    {
+      "type": "Restart",
+      "guid": "cfee483f-2a01-4eb9-9245-f11f42ced404",
+      "comment": "restart Bg Cam 12"
+    },
+    {
+      "type": "Play",
+      "guid": "cfee483f-2a01-4eb9-9245-f11f42ced404",
+      "comment": "Play BG Cam 12"
+    },
+    {
+      "type": "AudioOn",
+      "guid": "3113e58a-0202-4cbc-8b25-0ef4cad7a8fc"
+    },
+    {
+      "type": "Play",
+      "guid": "3113e58a-0202-4cbc-8b25-0ef4cad7a8fc",
+      "comment": "Play musica de sorteo"
+    },
+    {
+      "type": "Timer",
+      "ms": 6000
+    },
+    {
+      "type": "QuickPlay",
+      "guid": "fc6f97be-c893-4abd-89f4-6f332e727aa1",
+      "layer": -1,
+      "comment": "cam 12+Logo"
+    },
+    {
+      "type": "Timer",
+      "ms": 1000
+    },
+    {
+      "type": "QuickPlay",
+      "guid": "edae07c9-8f33-404a-9a63-2d82eaa11e57",
+      "layer": -1,
+      "comment": "cam 12"
+    },
+    {
+      "type": "Timer",
+      "ms": 2000
+    },
+    {
+      "type": "CutDirect",
+      "guid": "7335e3c1-cd6e-4ae4-ad7e-5446c87238be",
+      "layer": -1,
+      "comment": "cam 10"
+    },
+    {
+      "type": "ESP32Command",
+      "command": "reload",
+      "comment": "ESP32: recargar"
+    },
+    {
+      "type": "Restart",
+      "guid": "cfee483f-2a01-4eb9-9245-f11f42ced404",
+      "comment": "restart Bg Cam 12"
+    },
+    {
+      "type": "Timer",
+      "ms": 2000
+    },
+    {
+      "type": "CutDirect",
+      "guid": "edae07c9-8f33-404a-9a63-2d82eaa11e57",
+      "layer": -1,
+      "comment": "cam 12"
+    },
+    {
+      "type": "SceneSwitch",
+      "config": 0,
+      "comment": "Volver a config_a"
+    },
+    {
+      "type": "Timer",
+      "ms": 4500
+    },
+    {
+      "type": "ReplayStartRecording",
+      "comment": "Star Replay Recorder"
+    },
+    {
+      "type": "CutDirect",
+      "guid": "1c6b5bfc-977e-4beb-9ef2-5975d7235f8d",
+      "layer": -1,
+      "comment": "cam 1"
+    },
+    {
+      "type": "Timer",
+      "ms": 2000
+    },
+    {
+      "type": "ESP32Command",
+      "command": "iniciar",
+      "comment": "ESP32: iniciar"
+    },
+    {
+      "type": "Timer",
+      "ms": 1000
+    },
+    {
+      "type": "OverlayInputXIn",
+      "guid": "17cfab0d-60fe-4610-96cf-1429b6e91f09",
+      "layer": 3,
+      "comment": "Mostrar overlay de mini mapa"
+    },
+    {
+      "type": "CutDirect",
+      "guid": "ff99ae76-1a32-44d5-a398-7ad420d369ed",
+      "layer": -1,
+      "comment": "cam 2"
+    },
+    {
+      "type": "Timer",
+      "ms": 2000
+    },
+    {
+      "type": "CutDirect",
+      "guid": "795245f3-b23f-4e2f-b88a-6035091ad331",
+      "layer": -1,
+      "comment": "cam 3"
+    },
+    {
+      "type": "Comment",
+      "text": "=== seg 3: PTZ 3 → preset 2 ==="
+    },
+    {
+      "type": "PTZPreset",
+      "camera": 3,
+      "preset": 2,
+      "comment": "PTZ 3 preset 2"
+    },
+    {
+      "type": "Timer",
+      "ms": 5000
+    },
+    {
+      "type": "SceneSwitch",
+      "config": 1,
+      "comment": "Volver a config_b"
+    },
+    {
+      "type": "CutDirect",
+      "guid": "edae07c9-8f33-404a-9a63-2d82eaa11e57",
+      "layer": -1,
+      "comment": "cam 12"
+    },
+    {
+      "type": "Timer",
+      "ms": 2000
+    },
+    {
+      "type": "Comment",
+      "text": "=== seg 7: PTZ 4 → preset 2 ==="
+    },
+    {
+      "type": "PTZPreset",
+      "camera": 4,
+      "preset": 2,
+      "comment": "PTZ 4 preset 2"
+    },
+    {
+      "type": "Comment",
+      "text": "=== seg 7: ESP32 finalizar ==="
+    },
+    {
+      "type": "ESP32Command",
+      "command": "finalizar",
+      "comment": "ESP32: finalizar"
+    },
+    {
+      "type": "Comment",
+      "text": "=== seg 3: PTZ 2 → preset 2 ==="
+    },
+    {
+      "type": "PTZPreset",
+      "camera": 2,
+      "preset": 2,
+      "comment": "PTZ 2 preset 2"
+    },
+    {
+      "type": "Timer",
+      "ms": 1000
+    },
+    {
+      "type": "CutDirect",
+      "guid": "59bd1349-6356-4885-a975-9d2f180d5cf2",
+      "layer": -1,
+      "comment": "cam 4"
+    },
+    {
+      "type": "Timer",
+      "ms": 4000
+    },
+    {
+      "type": "Comment",
+      "text": "=== Medicion por evento: 6 MeasurePoint - offsets propuesta inicial, ajustar con el dueño ==="
+    },
+    {
+      "type": "Comment",
+      "text": "=== Medicion TLMS: 3 PTZ, 8 puntos (circulo=mover, triangulo=medir) ==="
+    },
+    {
+      "type": "MeasurePoint",
+      "camera": 1,
+      "punto": 1,
+      "burst_ms": 3000,
+      "max_ms": 4000
+    },
+    {
+      "type": "MeasurePoint",
+      "camera": 2,
+      "punto": 1,
+      "burst_ms": 3000,
+      "max_ms": 4000
+    },
+    {
+      "type": "Timer",
+      "ms": 3000
+    },
+    {
+      "type": "PTZPreset",
+      "camera": 1,
+      "preset": 4
+    },
+    {
+      "type": "PTZPreset",
+      "camera": 2,
+      "preset": 3
+    },
+    {
+      "type": "MeasurePoint",
+      "camera": 3,
+      "punto": 2,
+      "burst_ms": 3000,
+      "max_ms": 4000
+    },
+    {
+      "type": "Timer",
+      "ms": 5000
+    },
+    {
+      "type": "MeasurePoint",
+      "camera": 2,
+      "punto": 3,
+      "burst_ms": 3000,
+      "max_ms": 4000
+    },
+    {
+      "type": "Timer",
+      "ms": 5000
+    },
+    {
+      "type": "MeasurePoint",
+      "camera": 2,
+      "punto": 3,
+      "burst_ms": 3000,
+      "max_ms": 4000
+    },
+    {
+      "type": "Timer",
+      "ms": 7000
+    },
+    {
+      "type": "MeasurePoint",
+      "camera": 1,
+      "punto": 4,
+      "burst_ms": 3000,
+      "max_ms": 4000
+    },
+    {
+      "type": "PTZPreset",
+      "camera": 2,
+      "preset": 5
+    },
+    {
+      "type": "Timer",
+      "ms": 3000
+    },
+    {
+      "type": "MeasurePoint",
+      "camera": 2,
+      "punto": 5,
+      "burst_ms": 3000,
+      "max_ms": 4000
+    },
+    {
+      "type": "Timer",
+      "ms": 1000
+    },
+    {
+      "type": "PTZPreset",
+      "camera": 1,
+      "preset": 6
+    },
+    {
+      "type": "Timer",
+      "ms": 8000
+    },
+    {
+      "type": "MeasurePoint",
+      "camera": 1,
+      "punto": 6,
+      "burst_ms": 3000,
+      "max_ms": 4000
+    },
+    {
+      "type": "PTZPreset",
+      "camera": 2,
+      "preset": 7
+    },
+    {
+      "type": "Timer",
+      "ms": 4000
+    },
+    {
+      "type": "PTZPreset",
+      "camera": 1,
+      "preset": 8
+    },
+    {
+      "type": "MeasurePoint",
+      "camera": 2,
+      "punto": 7,
+      "burst_ms": 20000,
+      "max_ms": 21000
+    },
+    {
+      "type": "Timer",
+      "ms": 3000
+    },
+    {
+      "type": "MeasurePoint",
+      "camera": 1,
+      "punto": 8,
+      "burst_ms": 3000,
+      "max_ms": 4000
+    },
+    {
+      "type": "OverlayInputXOut",
+      "layer": 3
+    },
+    {
+      "type": "Timer",
+      "ms": 1000
+    },
+    {
+      "type": "ReplayMarkOut",
+      "comment": "Marcar punto final del replay"
+    },
+    {
+      "type": "Timer",
+      "ms": 300
+    },
+    {
+      "type": "Comment",
+      "text": "=== Configurar y detener replay Setspeed==="
+    },
+    {
+      "type": "Comment",
+      "text": "Crear los 4 eventos juntos para que las ventanas de 60 s queden lo más alineadas posible. Cam 1 no se exporta: queda seleccionada para el replay"
+    },
+    {
+      "type": "ReplayCamera",
+      "camera": 1,
+      "channel": "A",
+      "comment": "Seleccionar Cámara 1 (queda seleccionada al final)"
+    },
+    {
+      "type": "ReplayMarkInOut",
+      "value": 60,
+      "comment": "Crear evento Cam 1 (no se exporta)"
+    },
+    {
+      "type": "ReplayCamera",
+      "camera": 4,
+      "channel": "A",
+      "comment": "Seleccionar Cámara 4"
+    },
+    {
+      "type": "ReplayMarkInOut",
+      "value": 60,
+      "comment": "Crear evento Cam 4"
+    },
+    {
+      "type": "ReplayCamera",
+      "camera": 3,
+      "channel": "A",
+      "comment": "Seleccionar Cámara 3"
+    },
+    {
+      "type": "ReplayMarkInOut",
+      "value": 60,
+      "comment": "Crear evento Cam 3"
+    },
+    {
+      "type": "ReplayCamera",
+      "camera": 2,
+      "channel": "A",
+      "comment": "Seleccionar Cámara 2"
+    },
+    {
+      "type": "ReplayMarkInOut",
+      "value": 60,
+      "comment": "Crear evento Cam 2 (el más reciente = 'last event')"
+    },
+    {
+      "type": "Comment",
+      "text": "vMix exporta de forma asíncrona e ignora un export nuevo mientras el anterior sigue codificando: se exporta el último evento, se espera al archivo y se borra el evento para que el anterior pase a ser el último. La cadena completa agrega ~2-3 min (un MP4 4K de 60 s tarda ~35-60 s)"
+    },
+    {
+      "type": "Comment",
+      "text": "El export no lleva 'value': vMix usa su última carpeta de exportación (Replay → Export Clips). El 'folder' de WaitForExport debe ser esa misma carpeta"
+    },
+    {
+      "type": "ReplayExportLastEvent",
+      "comment": "Exportar Cam 2 (último evento)"
+    },
+    {
+      "type": "WaitForExport",
+      "folder": "C:/Users/TecnologíaIntegraTec/Desktop/27-10-2026 Mercedes Pista V 3.0.1",
+      "timeout": 240000,
+      "stable": 5000,
+      "comment": "Esperar a que el MP4 de Cam 2 termine de escribirse"
+    },
+    {
+      "type": "ReplayDeleteLastEvent",
+      "comment": "Quitar el evento Cam 2 ya exportado"
+    },
+    {
+      "type": "Timer",
+      "ms": 1000
+    },
+    {
+      "type": "ReplayExportLastEvent",
+      "comment": "Exportar Cam 3 (ahora es el último evento)"
+    },
+    {
+      "type": "WaitForExport",
+      "folder": "C:/Users/TecnologíaIntegraTec/Desktop/27-10-2026 Mercedes Pista V 3.0.1",
+      "timeout": 240000,
+      "stable": 5000,
+      "comment": "Esperar a que el MP4 de Cam 3 termine de escribirse"
+    },
+    {
+      "type": "ReplayDeleteLastEvent",
+      "comment": "Quitar el evento Cam 3 ya exportado"
+    },
+    {
+      "type": "Timer",
+      "ms": 1000
+    },
+    {
+      "type": "ReplayExportLastEvent",
+      "comment": "Exportar Cam 4 (ahora es el último evento)"
+    },
+    {
+      "type": "WaitForExport",
+      "folder": "C:/Users/TecnologíaIntegraTec/Desktop/27-10-2026 Mercedes Pista V 3.0.1",
+      "timeout": 240000,
+      "stable": 5000,
+      "comment": "Esperar a que el MP4 de Cam 4 termine de escribirse"
+    },
+    {
+      "type": "ReplayDeleteLastEvent",
+      "comment": "Quitar el evento Cam 4 ya exportado"
+    },
+    {
+      "type": "Timer",
+      "ms": 1000
+    },
+    {
+      "type": "ReplaySelectLastEvent",
+      "comment": "Dejar seleccionado el evento de Cámara 1"
+    },
+    {
+      "type": "ReplaySetSpeed",
+      "speed": "0.75"
+    },
+    {
+      "type": "ReplayStopRecording"
+    },
+    {
+      "type": "ScriptStop",
+      "script": "marcador",
+      "comment": "Detener script marcador en vMix"
+    },
+    {
+      "type": "QuickPlay",
+      "guid": "33198d71-87b0-4bf3-9a17-238f5896bb28",
+      "comment": "Reproducir bumper tiempo para colocar datos"
+    },
+    {
+      "type": "Timer",
+      "ms": 8000
+    },
+    {
+      "type": "Comment",
+      "text": "=== Reproducir/replay ==="
+    },
+    {
+      "type": "Restart",
+      "guid": "e6768a6f-c6ed-4412-8b40-c6b346df3e33",
+      "comment": "Reiniciar Musica Post-Producción"
+    },
+    {
+      "type": "AudioOn",
+      "guid": "e6768a6f-c6ed-4412-8b40-c6b346df3e33",
+      "comment": "Activar audio Musica Post-Producción"
+    },
+    {
+      "type": "Play",
+      "guid": "e6768a6f-c6ed-4412-8b40-c6b346df3e33",
+      "comment": "Reproducir Musica Post-Producción"
+    },
+    {
+      "type": "SetVolume",
+      "guid": "2dcf5265-d17a-4ac2-85ed-6025e22bbf46",
+      "value": 0,
+      "comment": "Bajar volumen de replay"
+    },
+    {
+      "type": "QuickPlay",
+      "guid": "2dcf5265-d17a-4ac2-85ed-6025e22bbf46",
+      "comment": "Reproducir replay"
+    },
+    {
+      "type": "OverlayInputXIn",
+      "guid": "e72d62fd-51ce-4de9-b0b1-63e445e82dfc",
+      "layer": 3,
+      "comment": "Mostrar overlay replay"
+    },
+    {
+      "type": "Timer",
+      "ms": 3000
+    },
+    {
+      "type": "OverlayInputXIn",
+      "guid": "9e2fba82-b543-4d55-b7ff-ac5f70b42ac4",
+      "layer": 1,
+      "comment": "Mostrar insert animacion"
+    },
+    {
+      "type": "OverlayInputXIn",
+      "guid": "fe3116a3-bbd4-44a5-8906-9a31322002d6",
+      "layer": 2,
+      "comment": "Mostrar ndi vertical"
+    },
+    {
+      "type": "Timer",
+      "ms": 65000
+    },
+    {
+      "type": "OverlayInputXOut",
+      "guid": "e72d62fd-51ce-4de9-b0b1-63e445e82dfc",
+      "layer": 3,
+      "comment": "out overlay replay"
+    },
+    {
+      "type": "OverlayInputXOut",
+      "layer": 2
+    },
+    {
+      "type": "OverlayInputXOut",
+      "layer": 1
+    },
+    {
+      "type": "Comment",
+      "text": "=== Reproducir/bumper ==="
+    },
+    {
+      "type": "QuickPlay",
+      "guid": "33198d71-87b0-4bf3-9a17-238f5896bb28",
+      "comment": "Reproducir bumper"
+    },
+    {
+      "type": "Timer",
+      "ms": 24000
+    },
+    {
+      "type": "Comment",
+      "text": "=== Detener Grabacion y finalizar ==="
+    },
+    {
+      "type": "StopRecording",
+      "comment": "Detener grabación vMix"
+    },
+    {
+      "type": "Pause",
+      "guid": "33198d71-87b0-4bf3-9a17-238f5896bb28",
+      "comment": "pause bumper loop"
+    },
+    {
+      "type": "Restart",
+      "guid": "33198d71-87b0-4bf3-9a17-238f5896bb28",
+      "comment": "Reiniciar bumper loop"
+    },
+    {
+      "type": "AudioOff",
+      "guid": "e6768a6f-c6ed-4412-8b40-c6b346df3e33",
+      "comment": "apagar audio Post-Producción"
+    },
+    {
+      "type": "AudioOff",
+      "guid": "33198d71-87b0-4bf3-9a17-238f5896bb28",
+      "comment": "apagar audio Bumpern"
+    },
+    {
+      "type": "ScriptStart",
+      "script": "organizar",
+      "comment": "Iniciar script organizador de videos en vMix"
+    }
+  ]
+}
