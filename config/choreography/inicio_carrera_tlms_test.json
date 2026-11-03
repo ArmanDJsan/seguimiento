@@ -1,0 +1,62 @@
+{
+  "name": "Test Medicion Llegada",
+  "description": "Prueba de medicion: PTZ 1 a preset 1 y TRES mediciones (a los 4, 7 y 10 s) por si las esferas llegan tarde. La que junte las 10 publica; las otras se descartan solas. Sin carrera, sin vMix, sin ESP32.",
+  "author": "VIB Automation",
+  "version": "1.2",
+  "events": [
+    {
+      "type": "Comment",
+      "text": "=== Prueba: tres mediciones en la llegada ==="
+    },
+    {
+      "type": "PTZPreset",
+      "camera": 1,
+      "preset": 1,
+      "comment": "PTZ 1 -> preset 1 (vista de llegada)"
+    },
+    {
+      "type": "Timer",
+      "ms": 4000,
+      "comment": "Esperar que la PTZ se acomode y que entren las esferas"
+    },
+    {
+      "type": "MeasurePoint",
+      "camera": 1,
+      "punto": 1,
+      "burst_ms": 400,
+      "max_ms": 2000,
+      "comment": "Medicion 1 (t+4s)"
+    },
+    {
+      "type": "Timer",
+      "ms": 3000,
+      "comment": "Dejar terminar la rafaga"
+    },
+    {
+      "type": "MeasurePoint",
+      "camera": 1,
+      "punto": 1,
+      "burst_ms": 400,
+      "max_ms": 2000,
+      "comment": "Medicion 2 (t+7s)"
+    },
+    {
+      "type": "Timer",
+      "ms": 3000,
+      "comment": "Dejar terminar la rafaga"
+    },
+    {
+      "type": "MeasurePoint",
+      "camera": 1,
+      "punto": 1,
+      "burst_ms": 400,
+      "max_ms": 2000,
+      "comment": "Medicion 3 (t+10s)"
+    },
+    {
+      "type": "Timer",
+      "ms": 5000,
+      "comment": "Dar tiempo al hilo medidor a completar/publicar"
+    }
+  ]
+}
