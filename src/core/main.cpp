@@ -1233,7 +1233,8 @@ bool RunRunningMode() {
                                           inferenceEngine, positionMapper, ballTracker, 
                                           sceneManager, inferenceReady,
                                           ptzController, centroidFilter, routeMapper,
-                                          trackingLogger, &framesWithDetection, &framesWithoutDetection]
+                                          trackingLogger, &framesWithDetection, &framesWithoutDetection,
+                                          &rankingMeasure]
                                          (const VideoChannel& channel, cudaStream_t stream) {
                 // Static flag to save only one frame per channel
                 // This array is shared across all lambda invocations, ensuring each channel
@@ -1295,6 +1296,20 @@ bool RunRunningMode() {
                     // Save frame when there are detections (only once per channel)
                     // NOTE: This I/O operation adds latency (~10-20ms) but only executes once per channel
                     // TODO: Move to async thread pool for zero impact on critical path
+                    // El medidor NO infiere: consume lo que el pipeline ya vio.
+                    // Se le pasa cada cuadro (con o sin detecciones) porque de
+                    // aca sale tambien la ventana del clip.
+                    if (rankingMeasure && rankingMeasure->IsInitialized()) {
+                        const int64_t nsMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now().time_since_epoch()).count();
+                        const size_t frameBytes =
+                            static_cast<size_t>(channel.width) * channel.height * 2u;
+                        rankingMeasure->OnDetections(
+                            channel.channelID, nsMs, ballDetections,
+                            channel.cudaYUVBuffer, frameBytes,
+                            channel.width, channel.height);
+                    }
+
                     if (!ballDetections.empty() && channel.channelID < kMaxNDIChannels && 
                         !framesSaved[channel.channelID].load()) {
                         

@@ -183,8 +183,8 @@ public:
     RankingMeasure& operator=(const RankingMeasure&) = delete;
 
     /**
-     * Crea anillos, publisher, stream de inferencia e instancia propia de
-     * InferenceEngine, y arranca el hilo medidor.
+     * Crea anillos, publisher y el hilo medidor. NO crea motor de inferencia:
+     * el pipeline ya infiere cada cuadro y nos lo pasa por OnDetections.
      * @param pubConfig       bloque "ranking_publisher" de config.json
      * @param measureConfig   bloque "ranking_measure" (defaults de burst/techo)
      * @param inferenceConfig misma config que usa el camino de las PTZ
@@ -211,6 +211,19 @@ public:
      * @return anillo de esa camara (nullptr si la camara esta fuera de rango)
      */
     FrameRing* SetupCamera(int cameraID, unsigned int width, unsigned int height);
+
+
+    /**
+     * El pipeline YA infiere en todas las camaras todo el tiempo; esto le pasa
+     * al medidor lo que vio en un cuadro. El medidor deja de inferir: solo
+     * guarda (y alimenta el clip si hay una ventana abierta para esa camara).
+     * @param dets        detecciones de ese cuadro, en pixeles normalizados
+     * @param deviceFrame buffer UYVY en device, solo para el clip (puede ser null)
+     */
+    void OnDetections(int camera, int64_t epochMs,
+                      const std::vector<BallDetection>& dets,
+                      const void* deviceFrame, size_t frameBytes,
+                      unsigned int width, unsigned int height);
 
     /**
      * Anillo de una camara (para que DeckLinkCapture lo llene).
@@ -257,14 +270,25 @@ private:
         std::vector<float> confSum = std::vector<float>(kTargetSpheres, 0.0f);
     };
 
+
+    // Historia de detecciones por camara: lo que el pipeline vio, ya deduplicado
+    // por cuadro. El medidor agrega sobre esto; no infiere nada.
+    static constexpr size_t kHistoriaPorCamara = 900;   // 30 s a 30 fps
+    struct MuestraCamara {
+        int64_t epochMs = 0;
+        std::vector<FrameDetection> dets;
+    };
+    std::array<std::deque<MuestraCamara>, kMaxCameras> m_historia;
+    std::mutex m_historiaMutex;
+    int m_clipCamera = -1;
+
+    void SnapshotHistory(int camera, int64_t fromMs, int64_t toMs,
+                         std::vector<FrameSample>& out);
+
     void WorkerThreadFunc(std::stop_token stopToken);
     bool PopJob(MeasureJob& job);
     void ProcessJob(const MeasureJob& job);
 
-    bool IngestFrame(FrameRing* ring, int64_t index, FrameSample& out);
-    int64_t CollectWindow(FrameRing* ring, int64_t fromIndex, int64_t fromTs,
-                          int64_t untilTs, std::vector<FrameSample>& samples,
-                          bool stopWhenComplete);
 
     bool ResolvePositions(std::vector<FrameSample>& samples,
                           std::vector<int>& posiciones, int64_t& resolvedEpochMs);

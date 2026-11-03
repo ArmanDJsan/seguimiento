@@ -236,6 +236,7 @@ bool RankingMeasure::Initialize(const RankingPublisherConfig& pubConfig,
 
     // 0. Defaults de medicion (el evento puede pisarlos con burst_ms/max_ms)
     m_config = measureConfig;
+    (void)inferenceConfig;   // ya no hay motor propio: el pipeline infiere
 
     // 1. Publisher UDP del punto (1 datagrama por punto)
     m_publisher = std::make_unique<RankingPublisher>(pubConfig);
@@ -245,37 +246,10 @@ bool RankingMeasure::Initialize(const RankingPublisherConfig& pubConfig,
         return false;
     }
 
-    // 2. Stream propio del medidor (NO inferenceStream de las PTZ)
-    cudaError_t streamErr = cudaStreamCreate(&m_inferenceStream);
-    if (streamErr != cudaSuccess) {
-        Logger::Error("RankingMeasure: cudaStreamCreate fallo: " +
-                      std::string(cudaGetErrorString(streamErr)));
-        m_publisher->Shutdown();
-        m_publisher.reset();
-        m_inferenceStream = nullptr;
-        return false;
-    }
-
-    // 3. Instancia propia de InferenceEngine: contexto de ejecucion y buffers
-    //    propios, para no compartir el tensor indice 0 con el camino de las PTZ.
-    m_inferenceReady = m_inferenceEngine.Initialize(inferenceConfig);
-    if (!m_inferenceReady) {
-        Logger::Warning("RankingMeasure: InferenceEngine propia no inicializo; "
-                        "las mediciones no van a poder resolver puntos");
-    }
-
-    // 4. Buffer propio de device para el frame a inferir (se reserva una sola vez)
-    cudaError_t allocErr = cudaMalloc(&m_deviceFrame, kMaxFrameBytes);
-    if (allocErr != cudaSuccess) {
-        Logger::Error("RankingMeasure: cudaMalloc del frame propio fallo: " +
-                      std::string(cudaGetErrorString(allocErr)));
-        m_deviceFrame = nullptr;
-        m_deviceFrameBytes = 0;
-        Shutdown();   // libera stream y publisher; sin buffer propio no se mide
-        return false;
-    }
-    m_deviceFrameBytes = kMaxFrameBytes;
-
+    // 2. Ya NO hay motor propio: el pipeline infiere cada cuadro de cada camara
+    //    todo el tiempo y nos pasa sus detecciones por OnDetections. Antes el
+    //    medidor volvia a inferir los mismos cuadros con un segundo TensorRT,
+    //    que era la mitad de la carga de GPU y la causa de que llegara tarde.
     // 5. Hilo medidor
     m_worker = std::jthread([this](std::stop_token stopToken) {
         WorkerThreadFunc(stopToken);
@@ -311,19 +285,6 @@ void RankingMeasure::Shutdown() {
         }
     }
 
-    // 3. Buffer propio de device
-    if (m_deviceFrame) {
-        cudaFree(m_deviceFrame);
-        m_deviceFrame = nullptr;
-        m_deviceFrameBytes = 0;
-    }
-
-    // 4. Stream propio
-    if (m_inferenceStream) {
-        cudaStreamDestroy(m_inferenceStream);
-        m_inferenceStream = nullptr;
-    }
-
     // 5. Publisher UDP
     if (m_publisher) {
         m_publisher->Shutdown();
@@ -350,13 +311,6 @@ FrameRing* RankingMeasure::SetupCamera(int cameraID, unsigned int width,
         if (!m_rings[cameraID]->Initialize(cameraID, width, height)) {
             m_rings[cameraID].reset();
             return nullptr;
-        }
-        if (m_rings[cameraID]->FrameBytes() > m_deviceFrameBytes) {
-            Logger::Warning("RankingMeasure: el frame de la camara " +
-                            std::to_string(cameraID) + " (" +
-                            std::to_string(m_rings[cameraID]->FrameBytes()) +
-                            " bytes) no entra en el buffer propio (" +
-                            std::to_string(m_deviceFrameBytes) + " bytes); no se podra medir");
         }
     }
 
@@ -400,6 +354,16 @@ void RankingMeasure::Enqueue(int camera, int punto, int burstMs, int maxMs) {
         m_queue.push_back(job);
     }
     m_queueCv.notify_one();
+
+    // La ventana se abre ACA (no en el hilo): el clip y la ventana tienen que
+    // empezar en el instante del disparo, no cuando el hilo llega.
+    {
+        FrameRing* ring = GetRing(camera);
+        const unsigned int w = ring ? ring->Width() : m_clipW;
+        const unsigned int h = ring ? ring->Height() : m_clipH;
+        m_clipCamera = camera;
+        ClipStart(job.punto, w, h);
+    }
 
     Logger::Debug("RankingMeasure: encolado punto=" + std::to_string(job.punto) +
                   " camara=" + std::to_string(job.camera) +
@@ -694,62 +658,31 @@ void RankingMeasure::ClipStop() {
 }
 
 void RankingMeasure::ProcessJob(const MeasureJob& job) {
-    FrameRing* ring = GetRing(job.camera);
-    if (!ring || !ring->IsInitialized()) {
-        Logger::Warning("RankingMeasure: punto=" + std::to_string(job.punto) +
-                        " sin anillo de frames para camara " + std::to_string(job.camera));
-        m_droppedCount++;
-        return;
-    }
-    if (!m_inferenceReady || !m_deviceFrame) {
-        Logger::Warning("RankingMeasure: punto=" + std::to_string(job.punto) +
-                        " sin inferencia/buffer propio, se descarta");
-        m_droppedCount++;
-        return;
-    }
+    const int64_t t0 = job.requestedEpochMs;
+    const int64_t burstEnd = t0 + job.burstMs;
 
-    // Evidencia: el clip arranca al entrar al punto y se cierra en CUALQUIER
-    // salida de esta funcion (la guardia llama a ClipStop en su destructor).
-    ClipStart(job.punto, ring->Width(), ring->Height());
+    // El clip ya arranco en Enqueue, en el instante del disparo. Se cierra en
+    // CUALQUIER salida de esta funcion (la guardia llama a ClipStop).
     struct ClipGuard {
         RankingMeasure* self;
         ~ClipGuard() { if (self) self->ClipStop(); }
     } clipGuard{this};
 
-    const int64_t t0 = job.requestedEpochMs;
-    const int64_t burstEnd = t0 + job.burstMs;
-    const int64_t hardEnd = t0 + job.maxMs;
+    // 1. Esperar a que cierre la ventana. Mientras tanto el pipeline sigue
+    //    detectando y OnDetections junta las muestras de esta camara.
+    while (!m_stopRequested.load() && NowEpochMs() < burstEnd) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
 
+    // 2. Tomar lo que el pipeline vio en la ventana
     std::vector<FrameSample> samples;
-
-    // 1. Pre-roll: ultimo frame sellado ANTES del disparo (para eso existe el anillo).
-    // Se busca solo dentro de la ventana viva del anillo (kSlots frames).
-    int64_t preRollIndex = -1;
-    {
-        const int64_t latest = ring->LatestIndex();
-        const int64_t oldest = latest - FrameRing::kSlots + 1;
-        for (int64_t i = latest; i >= 0 && i >= oldest; --i) {
-            int64_t ts = 0;
-            if (ring->TryGetTimestamp(i, ts) && ts <= t0) {
-                preRollIndex = i;
-                break;
-            }
-        }
-    }
-    if (preRollIndex >= 0) {
-        FrameSample preRollSample;
-        if (IngestFrame(ring, preRollIndex, preRollSample)) {
-            samples.push_back(std::move(preRollSample));
-        }
-    }
-
-    // 2. Rafaga corta [t0, t0+burst_ms]
-    int64_t next = (preRollIndex >= 0) ? (preRollIndex + 1) : 0;
-    next = CollectWindow(ring, next, t0, burstEnd, samples, false);
-
-    // 3. Si no estan las 10 esferas, seguir hasta max_ms o hasta completarlas
-    if (MaxDetections(samples) < kTargetSpheres && hardEnd > burstEnd) {
-        CollectWindow(ring, next, burstEnd, hardEnd, samples, true);
+    SnapshotHistory(job.camera, t0, burstEnd, samples);
+    if (samples.empty()) {
+        Logger::Warning("RankingMeasure: punto=" + std::to_string(job.punto) +
+                        " sin cuadros en la ventana (camara " +
+                        std::to_string(job.camera) + "), se descarta");
+        m_droppedCount++;
+        return;
     }
 
     std::vector<int> posiciones;
@@ -801,177 +734,97 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
 // Ingesta y resolucion
 // ----------------------------------------------------------------------------
 
-bool RankingMeasure::IngestFrame(FrameRing* ring, int64_t index, FrameSample& out) {
-    if (!m_deviceFrame || ring->FrameBytes() > m_deviceFrameBytes) {
-        return false;   // el frame no entra en el buffer propio
+// ----------------------------------------------------------------------------
+// El pipeline nos pasa lo que ya infirio
+// ----------------------------------------------------------------------------
+
+void RankingMeasure::OnDetections(int camera, int64_t epochMs,
+                                  const std::vector<BallDetection>& dets,
+                                  const void* deviceFrame, size_t frameBytes,
+                                  unsigned int width, unsigned int height) {
+    if (camera < 0 || camera >= kMaxCameras) {
+        return;
     }
 
-    int64_t epochMs = 0;
-    if (!ring->CopyToDevice(index, m_deviceFrame, m_deviceFrameBytes, m_inferenceStream, epochMs)) {
-        return false;
+    // Evidencia: si hay ventana abierta para esta camara, el cuadro va al clip.
+    if (m_clipRecording && camera == m_clipCamera && deviceFrame && frameBytes > 0) {
+        ClipPush(deviceFrame, frameBytes);
     }
 
-    // Evidencia: el mismo cuadro que se infiere se guarda en disco (si esta activado).
-    ClipPush(m_deviceFrame, ring->FrameBytes());
-
-    std::vector<BallDetection> detections = m_inferenceEngine.ProcessFrameUYVY(
-        m_deviceFrame,
-        ring->CameraID(),
-        ring->Width(),
-        ring->Height(),
-        m_inferenceStream);
-
-    if (detections.empty()) {
-        out.epochMs = epochMs;
-        out.dets.clear();
-        return true;
+    if (dets.empty()) {
+        return;
     }
 
-    // Una esfera = una posicion. El motor puede devolver la MISMA esfera dos veces:
-    // con la misma clase (duplicado) o con DOS clases distintas (confusion 2<->4).
-    // Agrupar por ballID no sirve: en el log real hay 3 esferas distintas etiquetadas "2".
-    {
-        const float W = static_cast<float>(ring->Width());
-        const float H = static_cast<float>(ring->Height());
-        constexpr float kMismaEsferaRatio = 0.60f;   // centros a menos de 0.6 diametros = la misma esfera
+    // Dedupe por distancia dentro del cuadro: el NMS del motor es por clase, asi
+    // que la misma esfera puede venir dos veces con clases distintas. Se queda
+    // la de mayor confianza (medido 3-nov: dos cajas para la esfera de x=425).
+    const float W = static_cast<float>(width);
+    const float H = static_cast<float>(height);
 
-        std::vector<BallDetection> orden = detections;
-        std::sort(orden.begin(), orden.end(),
-                  [](const BallDetection& a, const BallDetection& b) {
-                      return a.confidence > b.confidence;
-                  });
+    std::vector<BallDetection> ordenadas = dets;
+    std::stable_sort(ordenadas.begin(), ordenadas.end(),
+                     [](const BallDetection& a, const BallDetection& b) {
+                         return a.confidence > b.confidence;
+                     });
 
-        std::vector<BallDetection> unique;
-        unique.reserve(orden.size());
-        for (const auto& det : orden) {
-            bool duplicada = false;
-            for (const auto& kept : unique) {
-                const float dx = (det.x - kept.x) * W;
-                const float dy = (det.y - kept.y) * H;
-                const float dist = std::sqrt(dx * dx + dy * dy);
-                const float diam = (std::max)(kept.width * W, kept.height * H);
-                if (dist < kMismaEsferaRatio * diam) { duplicada = true; break; }
+    std::vector<BallDetection> unicas;
+    unicas.reserve(ordenadas.size());
+    for (const auto& det : ordenadas) {
+        bool repetida = false;
+        for (const auto& k : unicas) {
+            const float dx = (det.x - k.x) * W;
+            const float dy = (det.y - k.y) * H;
+            const float diam = (std::max)(k.width * W, k.height * H);
+            if (diam <= 0.0f) {
+                continue;
             }
-            if (!duplicada) unique.push_back(det);
-        }
-
-        // Trazabilidad: dos esferas DISTINTAS con la misma clase = confusion del modelo.
-        for (size_t i = 0; i < unique.size(); ++i) {
-            for (size_t j = i + 1; j < unique.size(); ++j) {
-                if (unique[i].ballID == unique[j].ballID) {
-                    Logger::Warning("RankingMeasure: clase repetida en la rafaga B" +
-                                    std::to_string(unique[i].ballID) +
-                                    " (confusion del modelo, se conservan ambas)");
-                }
-            }
-        }
-        detections.swap(unique);
-    }
-
-    // Si el modelo devuelve mas de 10, quedarse con las de mayor confianza.
-    if (detections.size() > static_cast<size_t>(kTargetSpheres)) {
-        std::sort(detections.begin(), detections.end(),
-                  [](const BallDetection& a, const BallDetection& b) {
-                      return a.confidence > b.confidence;
-                  });
-        detections.resize(static_cast<size_t>(kTargetSpheres));
-    }
-
-    // Se guarda la deteccion completa (posicion, tamano, clase y confianza) en
-    // PIXELES: el seguimiento por movimiento y el voto de clase necesitan la
-    // clase, que antes se tiraba aca mismo.
-    const float Wpx = static_cast<float>(ring->Width());
-    const float Hpx = static_cast<float>(ring->Height());
-
-    out.epochMs = epochMs;
-    out.dets.clear();
-    out.dets.reserve(detections.size());
-    for (const auto& det : detections) {
-        FrameDetection f;
-        f.x = det.x * Wpx;
-        f.y = det.y * Hpx;
-        f.w = det.width * Wpx;
-        f.h = det.height * Hpx;
-        f.ballID = det.ballID;
-        f.conf = det.confidence;
-        out.dets.push_back(f);
-    }
-    return true;
-}
-
-int64_t RankingMeasure::CollectWindow(FrameRing* ring, int64_t fromIndex,
-                                               int64_t fromTs, int64_t untilTs,
-                                               std::vector<FrameSample>& samples,
-                                               bool stopWhenComplete) {
-    int64_t cursor = (fromIndex > 0) ? fromIndex : 0;
-    // No arrancar por debajo de la ventana viva del anillo: esos frames ya no existen.
-    {
-        const int64_t oldest = ring->LatestIndex() - FrameRing::kSlots + 1;
-        if (cursor < oldest) {
-            cursor = (oldest > 0) ? oldest : 0;
-        }
-    }
-    bool finalDrainDone = false;
-    int timestampRetries = 0;
-
-    for (;;) {
-        if (m_stopRequested.load()) {
-            return cursor;              // shutdown: no seguir esperando frames
-        }
-        // Ingerir todo lo disponible dentro de la ventana
-        for (;;) {
-            const int64_t latest = ring->LatestIndex();
-            if (cursor > latest) {
+            if (std::sqrt(dx * dx + dy * dy) < 1.2f * diam) {
+                repetida = true;
                 break;
             }
-
-            int64_t ts = 0;
-            if (!ring->TryGetTimestamp(cursor, ts)) {
-                if (cursor <= latest - FrameRing::kSlots) {
-                    ++cursor;          // slot reciclado: frame perdido
-                    timestampRetries = 0;
-                    continue;
-                }
-                // posible escritura en curso: reintentar el mismo indice
-                if (++timestampRetries > kTimestampRetries) {
-                    ++cursor;
-                    timestampRetries = 0;
-                }
-                std::this_thread::sleep_for(std::chrono::milliseconds(2));
-                continue;
-            }
-            timestampRetries = 0;
-
-            if (ts < fromTs) {
-                ++cursor;
-                continue;
-            }
-            if (ts > untilTs) {
-                break;                 // fuera de esta ventana
-            }
-
-            FrameSample sample;
-            if (IngestFrame(ring, cursor, sample)) {
-                samples.push_back(std::move(sample));
-            }
-            ++cursor;
         }
+        if (!repetida) {
+            unicas.push_back(det);
+        }
+    }
 
-        if (NowEpochMs() >= untilTs) {
-            if (finalDrainDone) {
-                return cursor;
-            }
-            // Una pasada mas: el frame con ts<=untilTs puede estar entrando.
-            std::this_thread::sleep_for(std::chrono::milliseconds(kFinalDrainMs));
-            finalDrainDone = true;
+    MuestraCamara muestra;
+    muestra.epochMs = epochMs;
+    muestra.dets.reserve(unicas.size());
+    for (const auto& det : unicas) {
+        FrameDetection d;
+        d.x = det.x * W;
+        d.y = det.y * H;
+        d.w = det.width * W;
+        d.h = det.height * H;
+        d.ballID = det.ballID;
+        d.conf = det.confidence;
+        muestra.dets.push_back(d);
+    }
+
+    std::lock_guard<std::mutex> lock(m_historiaMutex);
+    auto& cola = m_historia[camera];
+    cola.push_back(std::move(muestra));
+    while (cola.size() > kHistoriaPorCamara) {
+        cola.pop_front();
+    }
+}
+
+void RankingMeasure::SnapshotHistory(int camera, int64_t fromMs, int64_t toMs,
+                                     std::vector<FrameSample>& out) {
+    out.clear();
+    if (camera < 0 || camera >= kMaxCameras) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(m_historiaMutex);
+    for (const auto& m : m_historia[camera]) {
+        if (m.epochMs < fromMs || m.epochMs > toMs) {
             continue;
         }
-
-        if (stopWhenComplete && MaxDetections(samples) >= kTargetSpheres) {
-            return cursor;
-        }
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(kPollIntervalMs));
+        FrameSample s;
+        s.epochMs = m.epochMs;
+        s.dets = m.dets;
+        out.push_back(std::move(s));
     }
 }
 
