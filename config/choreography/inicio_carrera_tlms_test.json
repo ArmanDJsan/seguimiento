@@ -1,12 +1,12 @@
 {
   "name": "Test Medicion Llegada",
-  "description": "Prueba de medicion: PTZ 1 a preset 1 y DOS mediciones de 3 s (t+4s y t+9s). La rafaga larga agarra la rodada y el reposo, que es lo que necesita el voto de clase. La que junte las 10 publica. Sin carrera, sin vMix, sin ESP32.",
+  "description": "Prueba de medicion: PTZ 1 a preset 1 y UNA rafaga larga (5 s) que empieza antes de que lleguen las esferas, para que contenga la rodada y el reposo. El voto de clase necesita ver la esfera girando.",
   "author": "VIB Automation",
-  "version": "1.3",
+  "version": "1.4",
   "events": [
     {
       "type": "Comment",
-      "text": "=== Prueba: dos mediciones largas (3 s) en la llegada ==="
+      "text": "=== Prueba: una rafaga de 5 s desde t+1s (rodada + reposo) ==="
     },
     {
       "type": "PTZPreset",
@@ -16,33 +16,20 @@
     },
     {
       "type": "Timer",
-      "ms": 4000,
-      "comment": "Esperar que la PTZ se acomode"
+      "ms": 1000,
+      "comment": "Arrancar la rafaga casi enseguida"
     },
     {
       "type": "MeasurePoint",
       "camera": 1,
       "punto": 1,
-      "burst_ms": 3000,
-      "max_ms": 4000,
-      "comment": "Medicion A: t+4s a t+7s (rodada + llegada)"
+      "burst_ms": 5000,
+      "max_ms": 6000,
+      "comment": "Rafaga larga: t+1s a t+6s"
     },
     {
       "type": "Timer",
-      "ms": 5000,
-      "comment": "Dejar terminar la rafaga y el MP4"
-    },
-    {
-      "type": "MeasurePoint",
-      "camera": 1,
-      "punto": 1,
-      "burst_ms": 3000,
-      "max_ms": 4000,
-      "comment": "Medicion B: t+9s a t+12s (ya quietas)"
-    },
-    {
-      "type": "Timer",
-      "ms": 6000,
+      "ms": 7000,
       "comment": "Dar tiempo al hilo medidor a completar/publicar"
     }
   ]
