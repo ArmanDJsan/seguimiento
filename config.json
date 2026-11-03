@@ -213,7 +213,7 @@
   },
   "choreography": {
     "enabled": true,
-    "script_path": "config/choreography/inicio_carrera_tlms.json",
+    "script_path": "config/choreography/inicio_carrera_tlms_test.json",
     "auto_start": true,
     "continue_on_error": false,
     "vmix_required": true,
