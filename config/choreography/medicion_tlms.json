@@ -1,6 +1,6 @@
 {
   "name": "Medicion TLMS",
-  "description": "Coreografia de medicion: 3 PTZ y 8 puntos. Circulo = preset al que se mueve, triangulo = mide. La medicion de PTZ2 en el punto 7 se extiende hasta el final.",
+  "description": "Coreografia de medicion: 3 PTZ y 8 puntos. Circulo = preset al que se mueve, triangulo = mide. El punto 7 de PTZ2 mide 2 s para no comerse el punto 8.",
   "author": "VIB Automation",
   "version": "1.0",
   "events": [
@@ -372,8 +372,8 @@
       "type": "MeasurePoint",
       "camera": 2,
       "punto": 7,
-      "burst_ms": 20000,
-      "max_ms": 21000
+      "burst_ms": 2000,
+      "max_ms": 2500
     },
     {
       "type": "Timer",
