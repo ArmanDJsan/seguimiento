@@ -134,18 +134,18 @@
     },
     {
       "type": "Timer",
-      "ms": 2000
+      "ms": 1000
     },
     {
       "type": "MeasurePoint",
       "camera": 1,
       "punto": 1,
-      "burst_ms": 3000,
-      "max_ms": 4000
+      "burst_ms": 4000,
+      "max_ms": 5000
     },
     {
       "type": "Timer",
-      "ms": 3000
+      "ms": 4000
     },
     {
       "type": "ESP32Command",
@@ -218,8 +218,8 @@
       "type": "MeasurePoint",
       "camera": 2,
       "punto": 3,
-      "burst_ms": 3000,
-      "max_ms": 4000
+      "burst_ms": 4000,
+      "max_ms": 5000
     },
     {
       "type": "Timer",
@@ -260,8 +260,8 @@
       "type": "MeasurePoint",
       "camera": 2,
       "punto": 3,
-      "burst_ms": 3000,
-      "max_ms": 4000
+      "burst_ms": 3500,
+      "max_ms": 4500
     },
     {
       "type": "Timer",
@@ -293,7 +293,7 @@
     },
     {
       "type": "Timer",
-      "ms": 3000
+      "ms": 4000
     },
     {
       "type": "MeasurePoint",
@@ -301,10 +301,6 @@
       "punto": 5,
       "burst_ms": 3000,
       "max_ms": 4000
-    },
-    {
-      "type": "Timer",
-      "ms": 1000
     },
     {
       "type": "PTZPreset",
@@ -340,8 +336,8 @@
       "type": "MeasurePoint",
       "camera": 2,
       "punto": 7,
-      "burst_ms": 2000,
-      "max_ms": 2500
+      "burst_ms": 4000,
+      "max_ms": 5000
     },
     {
       "type": "Timer",
@@ -351,8 +347,8 @@
       "type": "MeasurePoint",
       "camera": 1,
       "punto": 8,
-      "burst_ms": 3000,
-      "max_ms": 4000
+      "burst_ms": 5000,
+      "max_ms": 6000
     },
     {
       "type": "Timer",
