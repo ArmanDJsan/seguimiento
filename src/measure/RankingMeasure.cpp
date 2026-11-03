@@ -524,13 +524,18 @@ void RankingMeasure::ClipStart(int punto, unsigned int width, unsigned int heigh
     // UN SOLO archivo con los cuadros seguidos. ffmpeg lo lee con -f rawvideo sin
     // patrones: el patron "f_%04d.uyvy" no lo expande el demuxer rawvideo y ademas
     // el %04d se estropea al pasar por cmd/PowerShell.
-    FILE* f = nullptr;
-    if (fopen_s(&f, (m_clipDir + "\\clip.uyvy").c_str(), "wb") != 0 || f == nullptr) {
-        Logger::Warning("RankingMeasure: no se pudo crear clip.uyvy en " + m_clipDir + "; no se graba");
-        m_clipFailed = true;
-        return;
+    // Se comprueba que la carpeta sea escribible creando el archivo vacio; los
+    // cuadros se acumulan en RAM y se vuelcan al final.
+    {
+        FILE* f = nullptr;
+        if (fopen_s(&f, (m_clipDir + "\\clip.uyvy").c_str(), "wb") != 0 || f == nullptr) {
+            Logger::Warning("RankingMeasure: no se pudo crear clip.uyvy en " + m_clipDir + "; no se graba");
+            m_clipFailed = true;
+            return;
+        }
+        fclose(f);
     }
-    fclose(f);
+    m_clipBuffer.clear();
 
     m_clipRecording = true;
     Logger::Info("RankingMeasure: grabando clip punto=" + std::to_string(punto) +
@@ -553,16 +558,11 @@ void RankingMeasure::ClipPush(const void* devicePtr, size_t bytes) {
         m_clipFailed = true;
         return;
     }
-    const std::string path = m_clipDir + "\\clip.uyvy";
-    FILE* f = nullptr;
-    if (fopen_s(&f, path.c_str(), "ab") != 0 || f == nullptr) {
-        Logger::Warning("RankingMeasure: no se pudo escribir " + path + ", se corta la grabacion");
-        m_clipRecording = false;
-        m_clipFailed = true;
-        return;
+    // A RAM, no a disco: el volcado va una sola vez en ClipStop.
+    if (m_clipBuffer.capacity() == 0 && m_config.saveMaxFrames > 0) {
+        m_clipBuffer.reserve(static_cast<size_t>(m_config.saveMaxFrames) * bytes);
     }
-    fwrite(m_clipHost.data(), 1, bytes, f);
-    fclose(f);
+    m_clipBuffer.insert(m_clipBuffer.end(), m_clipHost.begin(), m_clipHost.end());
     ++m_clipFrames;
 }
 
@@ -578,6 +578,22 @@ void RankingMeasure::ClipStop() {
     const std::string raw = m_clipDir + "\\clip.uyvy";
     const std::string mp4 = m_clipDir + ".mp4";
     const std::string logf = m_clipDir + "\\ffmpeg.log";
+
+    // Volcado unico del crudo acumulado en RAM.
+    {
+        FILE* f = nullptr;
+        if (fopen_s(&f, raw.c_str(), "wb") == 0 && f != nullptr) {
+            if (!m_clipBuffer.empty()) {
+                fwrite(m_clipBuffer.data(), 1, m_clipBuffer.size(), f);
+            }
+            fclose(f);
+        } else {
+            Logger::Warning("RankingMeasure: no se pudo volcar clip.uyvy en " + m_clipDir);
+            m_clipFailed = true;
+        }
+    }
+    m_clipBuffer.clear();
+    m_clipBuffer.shrink_to_fit();
 
     long long crudoBytes = 0;
     {

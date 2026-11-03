@@ -286,6 +286,11 @@ private:
     std::string m_clipDir;
     std::string m_clipFfmpeg;      // ruta de ffmpeg YA expandida (%VAR% resuelto en C++)
     std::vector<unsigned char> m_clipHost;
+    // Cuadros de la rafaga acumulados en RAM. Se escriben a disco de una sola vez
+    // en ClipStop: escribir 4 MB por cuadro DENTRO del bucle de recoleccion hacia
+    // que el medidor no llegue a copiar del anillo y perdiera cuadros (medido
+    // 3-nov: 1 cuadro de 150 en una rafaga de 5 s).
+    std::vector<unsigned char> m_clipBuffer;
 
     void ClipStart(int punto, unsigned int width, unsigned int height);
     void ClipPush(const void* devicePtr, size_t bytes);
