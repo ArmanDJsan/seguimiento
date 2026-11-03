@@ -478,9 +478,10 @@ void RankingMeasure::ClipStart(int punto, unsigned int width, unsigned int heigh
 
     // Sin ffmpeg no se graba: llenar el disco de .uyvy no le sirve a nadie, y
     // el clip solo tiene valor si se puede mirar. Se avisa una vez por punto.
-    if (system("ffmpeg -version >nul 2>&1") != 0) {
-        Logger::Warning("RankingMeasure: save_clip activado pero no hay ffmpeg en PATH; no se graba "
-                        "(instalar ffmpeg o dejar ffmpeg.exe junto al binario)");
+    const std::string probe = "\"" + m_config.ffmpegCmd + "\" -version >nul 2>&1";
+    if (system(probe.c_str()) != 0) {
+        Logger::Warning("RankingMeasure: save_clip activado pero no se pudo ejecutar ffmpeg (" +
+                        m_config.ffmpegCmd + "); no se graba. Corregir ranking_measure.ffmpeg_cmd");
         m_clipFailed = true;
         return;
     }
@@ -537,7 +538,7 @@ void RankingMeasure::ClipStop() {
 
     // El MP4 lo arma ffmpeg desde el UYVY crudo: nada de convertir en C++.
     const std::string mp4 = m_clipDir + ".mp4";
-    std::string cmd = "ffmpeg -y -loglevel error -f rawvideo -pix_fmt uyvy422 -s " +
+    std::string cmd = "\"" + m_config.ffmpegCmd + "\" -y -loglevel error -f rawvideo -pix_fmt uyvy422 -s " +
                       std::to_string(m_clipW) + "x" + std::to_string(m_clipH) +
                       " -framerate " + std::to_string(m_config.saveFps) +
                       " -i \"" + m_clipDir + "\\f_%04d.uyvy\" -c:v libx264 -pix_fmt yuv420p -crf 20 \"" +

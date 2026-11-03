@@ -234,6 +234,7 @@
     "save_dir": "measure_clips",
     "save_fps": 30,
     "save_max_frames": 90,
+    "ffmpeg_cmd": "%LOCALAPPDATA%\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.1.1-full_build\\bin\\ffmpeg.exe",
     "description": "RankingMeasure — duracion de la rafaga de medicion por punto y techo de extension si no salen las 10 esferas."
   },
   "ports": [
