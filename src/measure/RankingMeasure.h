@@ -142,6 +142,10 @@ struct RankingMeasureConfig {
     std::string saveDir = "measure_clips";
     int saveFps = 30;
     int saveMaxFrames = 90;
+    // Ejecutable de ffmpeg. Puede ser "ffmpeg" (PATH) o una ruta completa.
+    // Se admite %LOCALAPPDATA% y demas variables: las expande cmd, asi que la
+    // ruta puede tener acentos sin problema de codificacion en el codigo.
+    std::string ffmpegCmd = "ffmpeg";
 };
 
 /**
