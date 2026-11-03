@@ -1082,10 +1082,14 @@ bool RankingMeasure::ResolvePositions(std::vector<FrameSample>& samples,
     // Dos esferas con la misma clase = no hay ranking posible: se descarta entero
     // en vez de publicar un puesto repetido.
     if (repetidas > 0) {
+        if (m_config.strictClasses) {
+            Logger::Warning("RankingMeasure: " + std::to_string(repetidas) +
+                            " clase(s) asignadas a dos esferas distintas, no se publica");
+            posiciones.clear();
+            return false;
+        }
         Logger::Warning("RankingMeasure: " + std::to_string(repetidas) +
-                        " clase(s) asignadas a dos esferas distintas, no se publica");
-        posiciones.clear();
-        return false;
+                        " clase(s) repetidas; strict_classes=false, se publica PROVISORIO");
     }
 
     return !posiciones.empty();
