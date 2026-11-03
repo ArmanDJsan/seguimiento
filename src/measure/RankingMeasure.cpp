@@ -43,7 +43,6 @@ namespace {
 constexpr int kPollIntervalMs = 5;      // cadencia de sondeo del hilo medidor
 constexpr int kFinalDrainMs = 40;       // margen para el ultimo frame (~1 frame @30fps)
 constexpr int kTimestampRetries = 50;   // reintentos de lectura de un slot en escritura
-constexpr float kMatchGateX = 0.20f;    // puerta de asociacion en x normalizado
 constexpr size_t kMaxTracks = 40;       // techo de identidades provisorias
 
 std::atomic<RankingMeasure*> g_attachedCoordinator{nullptr};
@@ -802,7 +801,7 @@ bool RankingMeasure::IngestFrame(FrameRing* ring, int64_t index, FrameSample& ou
 
     if (detections.empty()) {
         out.epochMs = epochMs;
-        out.xs.clear();
+        out.dets.clear();
         return true;
     }
 
@@ -856,16 +855,25 @@ bool RankingMeasure::IngestFrame(FrameRing* ring, int64_t index, FrameSample& ou
         detections.resize(static_cast<size_t>(kTargetSpheres));
     }
 
-    out.epochMs = epochMs;
-    out.xs.clear();
-    out.xs.reserve(detections.size());
-    for (const auto& det : detections) {
-        out.xs.push_back(det.x);
-    }
+    // Se guarda la deteccion completa (posicion, tamano, clase y confianza) en
+    // PIXELES: el seguimiento por movimiento y el voto de clase necesitan la
+    // clase, que antes se tiraba aca mismo.
+    const float Wpx = static_cast<float>(ring->Width());
+    const float Hpx = static_cast<float>(ring->Height());
 
-    // La esfera mas adelantada es la de x mayor (misma convencion que
-    // BallTracker::GetRanking: "Sort by X position descending (leader first)").
-    std::sort(out.xs.begin(), out.xs.end(), std::greater<float>());
+    out.epochMs = epochMs;
+    out.dets.clear();
+    out.dets.reserve(detections.size());
+    for (const auto& det : detections) {
+        FrameDetection f;
+        f.x = det.x * Wpx;
+        f.y = det.y * Hpx;
+        f.w = det.width * Wpx;
+        f.h = det.height * Hpx;
+        f.ballID = det.ballID;
+        f.conf = det.confidence;
+        out.dets.push_back(f);
+    }
     return true;
 }
 
@@ -945,61 +953,118 @@ int64_t RankingMeasure::CollectWindow(FrameRing* ring, int64_t fromIndex,
     }
 }
 
-bool RankingMeasure::ResolvePositions(const std::vector<FrameSample>& samples,
-                                               std::vector<int>& posiciones,
-                                               int64_t& resolvedEpochMs) {
+bool RankingMeasure::ResolvePositions(std::vector<FrameSample>& samples,
+                                      std::vector<int>& posiciones,
+                                      int64_t& resolvedEpochMs) {
     posiciones.clear();
     resolvedEpochMs = 0;
 
-    for (auto& track : m_tracks) {
-        track.observedX.clear();
-    }
+    ResetIdentity();
 
-    for (const auto& sample : samples) {
-        if (sample.xs.empty()) {
+    // 1) Seguir cada esfera por MOVIMIENTO (x,y) y acumular el voto de clase.
+    //    No se ordena por x: con las esferas rodando, la x cambia cuadro a cuadro
+    //    y usarla como identidad inventa esferas nuevas (medido 3-nov: 13 ids
+    //    para 10 esferas).
+    for (auto& sample : samples) {
+        sample.trackOf.assign(sample.dets.size(), -1);
+        if (sample.dets.empty()) {
             continue;
         }
-        MatchFrame(sample.xs);
-        resolvedEpochMs = sample.epochMs;   // ultimo frame que aporto detecciones
+        MatchFrameByMotion(sample);
+        resolvedEpochMs = sample.epochMs;
     }
-
     if (resolvedEpochMs == 0) {
         return false;
     }
 
-    // Mediana de x por esfera (no un frame suelto) y orden final
-    struct Ranked {
-        int id;
-        float medianX;
+    auto findTrack = [this](int id) -> const SphereTrack* {
+        for (const auto& t : m_tracks) {
+            if (t.id == id) {
+                return &t;
+            }
+        }
+        return nullptr;
     };
-    std::vector<Ranked> ranked;
-    ranked.reserve(m_tracks.size());
 
-    for (const auto& track : m_tracks) {
-        if (track.observedX.empty()) {
+    // 2) Cuadro de referencia: el ULTIMO que tenga las 10. El orden se lee de un
+    //    instante, no de la mezcla de cuadros con las esferas en movimiento.
+    int ref = -1;
+    int refCount = 0;
+    for (size_t i = 0; i < samples.size(); ++i) {
+        const int n = static_cast<int>(samples[i].dets.size());
+        if (n == kTargetSpheres) {
+            ref = static_cast<int>(i);
+            refCount = n;
+        }
+    }
+    if (ref < 0) {
+        for (size_t i = 0; i < samples.size(); ++i) {
+            const int n = static_cast<int>(samples[i].dets.size());
+            if (n > refCount) {
+                refCount = n;
+                ref = static_cast<int>(i);
+            }
+        }
+    }
+    if (ref < 0) {
+        return false;
+    }
+
+    // 3) Orden en ese cuadro: la mas adelantada primero (x mayor).
+    struct Item {
+        int track;
+        float x;
+    };
+    std::vector<Item> items;
+    items.reserve(samples[ref].dets.size());
+    for (size_t d = 0; d < samples[ref].dets.size(); ++d) {
+        const int track = samples[ref].trackOf[d];
+        if (track < 0) {
             continue;
         }
-        std::vector<float> xs = track.observedX;
-        std::sort(xs.begin(), xs.end());
-        const size_t n = xs.size();
-        const float median = (n % 2 == 1)
-            ? xs[n / 2]
-            : 0.5f * (xs[n / 2 - 1] + xs[n / 2]);
-        ranked.push_back({track.id, median});
+        items.push_back({track, samples[ref].dets[d].x});
     }
-
-    std::sort(ranked.begin(), ranked.end(), [](const Ranked& a, const Ranked& b) {
-        return a.medianX > b.medianX;   // mas adelantada primero
+    std::sort(items.begin(), items.end(), [](const Item& a, const Item& b) {
+        return a.x > b.x;
     });
 
-    posiciones.reserve(ranked.size());
-    for (const auto& entry : ranked) {
-        posiciones.push_back(entry.id);
+    // 4) Identidad: la clase mas votada de cada esfera en TODA la rafaga.
+    std::vector<int> claseUsada(kTargetSpheres, 0);
+    int repetidas = 0;
+    std::ostringstream detalle;
+    detalle << "RankingMeasure: voto por esfera (cuadro " << ref << "/" << samples.size() << "):";
+    int n = 0;
+    for (const auto& item : items) {
+        const SphereTrack* track = findTrack(item.track);
+        if (track == nullptr) {
+            continue;
+        }
+        const int cls = ArgMaxClass(*track);
+        if (cls < 0) {
+            continue;
+        }
+        ++n;
+        if (claseUsada[cls]++ > 0) {
+            ++repetidas;
+        }
+        detalle << " [" << n << "]B" << cls << "(" << track->votes[cls] << "/" << track->frames << ")";
+        posiciones.push_back(cls + 1);   // el payload va 1..10 (B0 = canica 1)
     }
+    Logger::Info(detalle.str());
+
+    // Dos esferas con la misma clase = no hay ranking posible: se descarta entero
+    // en vez de publicar un puesto repetido.
+    if (repetidas > 0) {
+        Logger::Warning("RankingMeasure: " + std::to_string(repetidas) +
+                        " clase(s) asignadas a dos esferas distintas, no se publica");
+        posiciones.clear();
+        return false;
+    }
+
     return !posiciones.empty();
 }
 
-void RankingMeasure::MatchFrame(const std::vector<float>& xs) {
+void RankingMeasure::MatchFrameByMotion(FrameSample& sample) {
     if (m_tracks.size() > kMaxTracks) {
         // Red de seguridad: sin la barrera IR no hay identidad real, y no
         // queremos que la lista de tracks crezca sin techo.
@@ -1007,50 +1072,80 @@ void RankingMeasure::MatchFrame(const std::vector<float>& xs) {
         ResetIdentity();
     }
 
-    std::vector<bool> used(m_tracks.size(), false);
+    std::vector<bool> usado(m_tracks.size(), false);
 
-    // Se siembra por x descendente: la esfera mas adelantada recibe el id 1,
-    // asi el primer punto de una carrera sale [1,2,...,10] y los ids quedan
-    // pegados a la esfera fisica mientras se mueven (nunca al reves).
-    std::vector<float> sortedXs = xs;
-    std::sort(sortedXs.begin(), sortedXs.end(), std::greater<float>());
+    for (size_t d = 0; d < sample.dets.size(); ++d) {
+        const FrameDetection& det = sample.dets[d];
 
-    for (float x : sortedXs) {
         size_t best = m_tracks.size();
-        float bestDistance = kMatchGateX;
-
+        float bestDist = 0.0f;
         for (size_t i = 0; i < m_tracks.size(); ++i) {
-            if (i < used.size() && used[i]) {
+            if (i < usado.size() && usado[i]) {
                 continue;
             }
-            const float distance = std::fabs(x - m_tracks[i].lastX);
-            if (distance < bestDistance) {
-                bestDistance = distance;
+            const SphereTrack& tr = m_tracks[i];
+            const float dx = det.x - tr.lastX;
+            const float dy = det.y - tr.lastY;
+            const float dist = std::sqrt(dx * dx + dy * dy);
+            // Puerta por movimiento: entre cuadros la esfera se corre ~12 px a
+            // 30 fps, asi que medio diametro sobra y no alcanza a la vecina (que
+            // esta a ~0.8 diametros).
+            const float diam = (std::max)(tr.lastW, tr.lastH);
+            const float gate = (std::max)(0.55f * diam, 30.0f);
+            if (dist <= gate && (best == m_tracks.size() || dist < bestDist)) {
                 best = i;
+                bestDist = dist;
             }
         }
 
         if (best == m_tracks.size()) {
-            ProvisionalTrack track;
-            track.id = m_nextTrackId++;
-            track.lastX = x;
-            track.observedX.push_back(x);
-            m_tracks.push_back(track);
-            used.push_back(true);
+            SphereTrack nuevo;
+            nuevo.id = m_nextTrackId++;
+            m_tracks.push_back(nuevo);
+            usado.push_back(true);
+            best = m_tracks.size() - 1;
         } else {
-            m_tracks[best].lastX = x;
-            m_tracks[best].observedX.push_back(x);
-            if (best < used.size()) {
-                used[best] = true;
+            if (best < usado.size()) {
+                usado[best] = true;
             }
         }
+
+        SphereTrack& track = m_tracks[best];
+        track.lastX = det.x;
+        track.lastY = det.y;
+        track.lastW = det.w;
+        track.lastH = det.h;
+        track.frames += 1;
+        if (det.ballID >= 0 && det.ballID < kTargetSpheres) {
+            track.votes[det.ballID] += 1;
+            track.confSum[det.ballID] += det.conf;
+        }
+        sample.trackOf[d] = track.id;
     }
+}
+
+int RankingMeasure::ArgMaxClass(const SphereTrack& track) {
+    int best = -1;
+    int bestVotes = 0;
+    float bestConf = 0.0f;
+    for (int c = 0; c < kTargetSpheres; ++c) {
+        const int votos = track.votes[c];
+        if (votos > bestVotes) {
+            best = c;
+            bestVotes = votos;
+            bestConf = track.confSum[c];
+        } else if (votos > 0 && votos == bestVotes && track.confSum[c] > bestConf) {
+            best = c;               // empate: gana la clase con mas confianza
+            bestConf = track.confSum[c];
+        }
+    }
+    return best;
 }
 
 int RankingMeasure::MaxDetections(const std::vector<FrameSample>& samples) {
     int best = 0;
     for (const auto& sample : samples) {
-        const int count = static_cast<int>(sample.xs.size());
+        const int count = static_cast<int>(sample.dets.size());
         if (count > best) {
             best = count;
         }
