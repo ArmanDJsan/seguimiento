@@ -267,6 +267,7 @@ private:
     unsigned int m_clipW = 0;
     unsigned int m_clipH = 0;
     std::string m_clipDir;
+    std::string m_clipFfmpeg;      // ruta de ffmpeg YA expandida (%VAR% resuelto en C++)
     std::vector<unsigned char> m_clipHost;
 
     void ClipStart(int punto, unsigned int width, unsigned int height);

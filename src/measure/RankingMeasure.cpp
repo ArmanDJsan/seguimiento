@@ -455,6 +455,31 @@ std::string ClipStamp() {
            dos(st.wHour) + dos(st.wMinute) + dos(st.wSecond);
 }
 
+// Expande %VAR% con el entorno del proceso. No se delega a cmd porque dentro de
+// _popen la expansion no ocurrio (medido 3-nov: el comando salio con
+// %LOCALAPPDATA% literal y ffmpeg devolvio "no puede encontrar la ruta").
+std::string ExpandEnvVars(const std::string& in) {
+    std::string out;
+    size_t i = 0;
+    while (i < in.size()) {
+        if (in[i] == '%') {
+            const size_t j = in.find('%', i + 1);
+            if (j != std::string::npos && j > i + 1) {
+                const std::string name = in.substr(i + 1, j - i - 1);
+                const char* v = std::getenv(name.c_str());
+                if (v != nullptr) {
+                    out += v;
+                    i = j + 1;
+                    continue;
+                }
+            }
+        }
+        out += in[i];
+        ++i;
+    }
+    return out;
+}
+
 std::string ClipPad4(int n) {
     std::string s = std::to_string(n);
     while (s.size() < 4) s = "0" + s;
@@ -477,13 +502,15 @@ void RankingMeasure::ClipStart(int punto, unsigned int width, unsigned int heigh
     }
 
     // Sin ffmpeg no se graba: un .uyvy suelto no le sirve a nadie.
-    const std::string probe = "\"" + m_config.ffmpegCmd + "\" -version >nul 2>&1";
+    m_clipFfmpeg = ExpandEnvVars(m_config.ffmpegCmd);
+    const std::string probe = "\"" + m_clipFfmpeg + "\" -version >nul 2>&1";
     if (system(probe.c_str()) != 0) {
         Logger::Warning("RankingMeasure: save_clip activado pero no se pudo ejecutar ffmpeg (" +
-                        m_config.ffmpegCmd + "); no se graba. Corregir ranking_measure.ffmpeg_cmd");
+                        m_clipFfmpeg + "); no se graba. Corregir ranking_measure.ffmpeg_cmd");
         m_clipFailed = true;
         return;
     }
+    Logger::Info("RankingMeasure: ffmpeg = " + m_clipFfmpeg);
 
     CreateDirectoryA(m_config.saveDir.c_str(), nullptr);
     m_clipDir = m_config.saveDir + "\\punto_" + std::to_string(punto) + "_" + ClipStamp();
@@ -560,7 +587,8 @@ void RankingMeasure::ClipStop() {
         }
     }
 
-    const std::string cmd = "\"" + m_config.ffmpegCmd + "\" -y -v error -f rawvideo -pix_fmt uyvy422 -s " +
+    const std::string cmd = "\"" + (m_clipFfmpeg.empty() ? ExpandEnvVars(m_config.ffmpegCmd) : m_clipFfmpeg) +
+                            "\" -y -v error -f rawvideo -pix_fmt uyvy422 -s " +
                             std::to_string(m_clipW) + "x" + std::to_string(m_clipH) +
                             " -framerate " + std::to_string(m_config.saveFps) +
                             " -i \"" + raw + "\" -c:v libx264 -pix_fmt yuv420p -crf 20 \"" + mp4 + "\"";
