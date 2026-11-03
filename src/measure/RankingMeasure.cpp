@@ -557,23 +557,42 @@ bool RankingMeasure::IngestFrame(FrameRing* ring, int64_t index, FrameSample& ou
         return true;
     }
 
-    // Una esfera = una posicion. El motor de inferencia puede devolver la misma
-    // esfera dos veces (InferenceEngine usa IoU fijo y descarta su nmsThreshold,
-    // asi que dos cajas poco solapadas de la misma esfera sobreviven), y sin
-    // esto el top-10 por confianza mete la misma esfera dos veces en el array.
-    // Nos quedamos con la deteccion de mayor confianza por ballID antes de
-    // recortar a 10 y de ordenar por x.
+    // Una esfera = una posicion. El motor puede devolver la MISMA esfera dos veces:
+    // con la misma clase (duplicado) o con DOS clases distintas (confusion 2<->4).
+    // Agrupar por ballID no sirve: en el log real hay 3 esferas distintas etiquetadas "2".
     {
-        std::unordered_map<int, size_t> bestByBall;
+        const float W = static_cast<float>(ring->Width());
+        const float H = static_cast<float>(ring->Height());
+        constexpr float kMismaEsferaRatio = 0.60f;   // centros a menos de 0.6 diametros = la misma esfera
+
+        std::vector<BallDetection> orden = detections;
+        std::sort(orden.begin(), orden.end(),
+                  [](const BallDetection& a, const BallDetection& b) {
+                      return a.confidence > b.confidence;
+                  });
+
         std::vector<BallDetection> unique;
-        unique.reserve(detections.size());
-        for (const auto& det : detections) {
-            auto it = bestByBall.find(det.ballID);
-            if (it == bestByBall.end()) {
-                bestByBall.emplace(det.ballID, unique.size());
-                unique.push_back(det);
-            } else if (det.confidence > unique[it->second].confidence) {
-                unique[it->second] = det;
+        unique.reserve(orden.size());
+        for (const auto& det : orden) {
+            bool duplicada = false;
+            for (const auto& kept : unique) {
+                const float dx = (det.x - kept.x) * W;
+                const float dy = (det.y - kept.y) * H;
+                const float dist = std::sqrt(dx * dx + dy * dy);
+                const float diam = (std::max)(kept.width * W, kept.height * H);
+                if (dist < kMismaEsferaRatio * diam) { duplicada = true; break; }
+            }
+            if (!duplicada) unique.push_back(det);
+        }
+
+        // Trazabilidad: dos esferas DISTINTAS con la misma clase = confusion del modelo.
+        for (size_t i = 0; i < unique.size(); ++i) {
+            for (size_t j = i + 1; j < unique.size(); ++j) {
+                if (unique[i].ballID == unique[j].ballID) {
+                    Logger::Warning("RankingMeasure: clase repetida en la rafaga B" +
+                                    std::to_string(unique[i].ballID) +
+                                    " (confusion del modelo, se conservan ambas)");
+                }
             }
         }
         detections.swap(unique);

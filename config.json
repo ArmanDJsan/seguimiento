@@ -183,7 +183,7 @@
     "input_width": 1920,
     "input_height": 1080,
     "nms_threshold": 0.4,
-    "confidence_threshold": 0.6,
+    "confidence_threshold": 0.30,
     "num_classes": 10,
     "skip_resize": true,
     "max_detections": 300,
