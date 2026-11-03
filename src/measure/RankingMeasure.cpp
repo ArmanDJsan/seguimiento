@@ -576,9 +576,8 @@ void RankingMeasure::ClipStop() {
 
     const std::string raw = m_clipDir + "\\clip.uyvy";
     const std::string mp4 = m_clipDir + ".mp4";
+    const std::string logf = m_clipDir + "\\ffmpeg.log";
 
-    // Tamano real del crudo: si ffmpeg falla, este dato dice si el problema es
-    // el archivo de entrada o la invocation.
     long long crudoBytes = 0;
     {
         WIN32_FILE_ATTRIBUTE_DATA fad;
@@ -587,44 +586,80 @@ void RankingMeasure::ClipStop() {
         }
     }
 
-    const std::string cmd = "\"" + (m_clipFfmpeg.empty() ? ExpandEnvVars(m_config.ffmpegCmd) : m_clipFfmpeg) +
-                            "\" -y -v error -f rawvideo -pix_fmt uyvy422 -s " +
-                            std::to_string(m_clipW) + "x" + std::to_string(m_clipH) +
-                            " -framerate " + std::to_string(m_config.saveFps) +
-                            " -i \"" + raw + "\" -c:v libx264 -pix_fmt yuv420p -crf 20 \"" + mp4 + "\"";
+    const std::string ffmpeg = m_clipFfmpeg.empty() ? ExpandEnvVars(m_config.ffmpegCmd) : m_clipFfmpeg;
+    const std::string cmdLine = "\"" + ffmpeg + "\" -y -v error -f rawvideo -pix_fmt uyvy422 -s " +
+                                std::to_string(m_clipW) + "x" + std::to_string(m_clipH) +
+                                " -framerate " + std::to_string(m_config.saveFps) +
+                                " -i \"" + raw + "\" -c:v libx264 -pix_fmt yuv420p -crf 20 \"" + mp4 + "\"";
 
-    // La salida se captura por pipe (2>&1): la redireccion a archivo desde
-    // system() no estaba dejando nada, y sin la salida no hay diagnostico.
-    std::string salida;
+    // Se llama a ffmpeg DIRECTO con CreateProcess, sin cmd.exe: el shell era el
+    // que fallaba ("El sistema no puede encontrar la ruta") aunque la ruta fuese
+    // correcta. La salida de ffmpeg (stdout+stderr) va al archivo de log.
     int rc = -1;
-    FILE* pipe = _popen((cmd + " 2>&1").c_str(), "r");
-    if (pipe != nullptr) {
-        char buf[256];
-        while (fgets(buf, sizeof(buf), pipe) != nullptr) {
-            salida += buf;
-            if (salida.size() > 900) {          // basta con el principio del error
-                break;
-            }
+    std::string salida;
+    {
+        SECURITY_ATTRIBUTES sa{};
+        sa.nLength = sizeof(sa);
+        sa.bInheritHandle = TRUE;
+
+        HANDLE hLog = CreateFileA(logf.c_str(), GENERIC_WRITE, FILE_SHARE_READ, &sa,
+                                  CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (hLog == INVALID_HANDLE_VALUE) {
+            Logger::Warning("RankingMeasure: no se pudo crear " + logf + " para la salida de ffmpeg");
         }
-        rc = _pclose(pipe);
-    } else {
-        salida = "(no se pudo abrir el pipe)";
+
+        STARTUPINFOA si{};
+        si.cb = sizeof(si);
+        si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+        si.wShowWindow = SW_HIDE;
+        si.hStdOutput = (hLog != INVALID_HANDLE_VALUE) ? hLog : GetStdHandle(STD_OUTPUT_HANDLE);
+        si.hStdError  = (hLog != INVALID_HANDLE_VALUE) ? hLog : GetStdHandle(STD_ERROR_HANDLE);
+        si.hStdInput  = GetStdHandle(STD_INPUT_HANDLE);
+
+        PROCESS_INFORMATION pi{};
+        std::vector<char> buf(cmdLine.begin(), cmdLine.end());
+        buf.push_back('\0');
+
+        const BOOL ok = CreateProcessA(ffmpeg.c_str(), buf.data(), nullptr, nullptr, TRUE,
+                                       CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+        if (!ok) {
+            salida = "CreateProcess fallo, error " + std::to_string(GetLastError());
+            rc = -1;
+        } else {
+            WaitForSingleObject(pi.hProcess, 120000);
+            DWORD code = 1;
+            GetExitCodeProcess(pi.hProcess, &code);
+            rc = static_cast<int>(code);
+            CloseHandle(pi.hThread);
+            CloseHandle(pi.hProcess);
+        }
+        if (hLog != INVALID_HANDLE_VALUE) {
+            CloseHandle(hLog);
+        }
+
+        FILE* f = nullptr;
+        if (fopen_s(&f, logf.c_str(), "rb") == 0 && f != nullptr) {
+            char tmp[512];
+            const size_t n = fread(tmp, 1, sizeof(tmp) - 1, f);
+            tmp[n] = '\0';
+            salida += tmp;
+            fclose(f);
+        }
     }
 
-    while (!salida.empty() && (salida.back() == '\n' || salida.back() == '\r')) {
-        salida.pop_back();
-    }
     for (size_t i = 0; i < salida.size(); ++i) {
-        if (salida[i] == '\n' || salida[i] == '\r') salida[i] = ' ';
+        if (salida[i] == '\n' || salida[i] == '\r' || salida[i] == '\t') salida[i] = ' ';
     }
+    while (!salida.empty() && salida.back() == ' ') salida.pop_back();
 
     const bool mp4Ok = (rc == 0);
     if (mp4Ok) {
         DeleteFileA(raw.c_str());
+        DeleteFileA(logf.c_str());
     } else {
         Logger::Warning("RankingMeasure: ffmpeg fallo (rc=" + std::to_string(rc) +
                         ", crudo=" + std::to_string(crudoBytes) + " bytes, cuadros=" +
-                        std::to_string(m_clipFrames) + "). Comando: " + cmd +
+                        std::to_string(m_clipFrames) + "). Comando: " + cmdLine +
                         " . Salida: " + (salida.empty() ? std::string("(vacia)") : salida));
     }
 
