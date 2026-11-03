@@ -394,7 +394,7 @@
     },
     {
       "type": "Timer",
-      "ms": 20000
+      "ms": 24000
     },
     {
       "type": "Comment",
