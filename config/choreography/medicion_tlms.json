@@ -9,21 +9,6 @@
       "text": "=== Posicion inicial: PTZ1 y PTZ2 preset 1, PTZ3 preset 2 ==="
     },
     {
-      "type": "PTZPreset",
-      "camera": 1,
-      "preset": 1
-    },
-    {
-      "type": "PTZPreset",
-      "camera": 2,
-      "preset": 1
-    },
-    {
-      "type": "PTZPreset",
-      "camera": 3,
-      "preset": 2
-    },
-    {
       "type": "SceneSwitch",
       "config": 2,
       "comment": "Volver a config_c"
@@ -66,6 +51,21 @@
       "type": "Play",
       "guid": "3113e58a-0202-4cbc-8b25-0ef4cad7a8fc",
       "comment": "Play musica de sorteo"
+    },
+    {
+      "type": "PTZPreset",
+      "camera": 1,
+      "preset": 1
+    },
+    {
+      "type": "PTZPreset",
+      "camera": 2,
+      "preset": 1
+    },
+    {
+      "type": "PTZPreset",
+      "camera": 3,
+      "preset": 2
     },
     {
       "type": "Timer",
@@ -142,6 +142,20 @@
       "comment": "ESP32: iniciar"
     },
     {
+      "type": "MeasurePoint",
+      "camera": 1,
+      "punto": 1,
+      "burst_ms": 3000,
+      "max_ms": 4000
+    },
+    {
+      "type": "MeasurePoint",
+      "camera": 2,
+      "punto": 1,
+      "burst_ms": 3000,
+      "max_ms": 4000
+    },
+    {
       "type": "Timer",
       "ms": 1000
     },
@@ -173,9 +187,20 @@
     },
     {
       "type": "PTZPreset",
+      "camera": 1,
+      "preset": 4
+    },
+    {
+      "type": "PTZPreset",
+      "camera": 2,
+      "preset": 3
+    },
+    {
+      "type": "MeasurePoint",
       "camera": 3,
-      "preset": 2,
-      "comment": "PTZ 3 preset 2"
+      "punto": 2,
+      "burst_ms": 3000,
+      "max_ms": 4000
     },
     {
       "type": "Timer",
@@ -191,6 +216,13 @@
       "guid": "edae07c9-8f33-404a-9a63-2d82eaa11e57",
       "layer": -1,
       "comment": "cam 12"
+    },
+    {
+      "type": "MeasurePoint",
+      "camera": 2,
+      "punto": 3,
+      "burst_ms": 3000,
+      "max_ms": 4000
     },
     {
       "type": "Timer",
@@ -225,7 +257,18 @@
     },
     {
       "type": "Timer",
-      "ms": 4000
+      "ms": 2000
+    },
+    {
+      "type": "MeasurePoint",
+      "camera": 2,
+      "punto": 3,
+      "burst_ms": 3000,
+      "max_ms": 4000
+    },
+    {
+      "type": "Timer",
+      "ms": 2000
     },
     {
       "type": "Comment",
@@ -236,65 +279,8 @@
       "text": "=== Medicion TLMS: 3 PTZ, 8 puntos (circulo=mover, triangulo=medir) ==="
     },
     {
-      "type": "MeasurePoint",
-      "camera": 1,
-      "punto": 1,
-      "burst_ms": 3000,
-      "max_ms": 4000
-    },
-    {
-      "type": "MeasurePoint",
-      "camera": 2,
-      "punto": 1,
-      "burst_ms": 3000,
-      "max_ms": 4000
-    },
-    {
-      "type": "Timer",
-      "ms": 3000
-    },
-    {
-      "type": "PTZPreset",
-      "camera": 1,
-      "preset": 4
-    },
-    {
-      "type": "PTZPreset",
-      "camera": 2,
-      "preset": 3
-    },
-    {
-      "type": "MeasurePoint",
-      "camera": 3,
-      "punto": 2,
-      "burst_ms": 3000,
-      "max_ms": 4000
-    },
-    {
       "type": "Timer",
       "ms": 5000
-    },
-    {
-      "type": "MeasurePoint",
-      "camera": 2,
-      "punto": 3,
-      "burst_ms": 3000,
-      "max_ms": 4000
-    },
-    {
-      "type": "Timer",
-      "ms": 5000
-    },
-    {
-      "type": "MeasurePoint",
-      "camera": 2,
-      "punto": 3,
-      "burst_ms": 3000,
-      "max_ms": 4000
-    },
-    {
-      "type": "Timer",
-      "ms": 7000
     },
     {
       "type": "MeasurePoint",
@@ -372,16 +358,16 @@
       "max_ms": 4000
     },
     {
+      "type": "Timer",
+      "ms": 15000
+    },
+    {
       "type": "OverlayInputXOut",
       "layer": 3
     },
     {
       "type": "Timer",
-      "ms": 1000
-    },
-    {
-      "type": "Timer",
-      "ms": 300
+      "ms": 1300
     },
     {
       "type": "Comment",
