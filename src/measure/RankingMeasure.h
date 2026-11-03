@@ -135,6 +135,13 @@ private:
 struct RankingMeasureConfig {
     int burstMs = 400;   // rafaga corta de medicion por punto
     int maxMs = 2000;    // techo si no salen las 10 esferas
+
+    // Evidencia: guardar los cuadros de la rafaga en disco (UYVY crudo) y armar
+    // el MP4 con ffmpeg si esta en PATH. Apagado por defecto.
+    bool saveClip = false;
+    std::string saveDir = "measure_clips";
+    int saveFps = 30;
+    int saveMaxFrames = 90;
 };
 
 /**
@@ -246,6 +253,21 @@ private:
     static int64_t NowEpochMs();
 
     bool m_initialized = false;
+
+    // Evidencia: grabacion de la rafaga (ver Clip* en el .cpp). No bloquea la
+    // medicion: si algo falla se corta la grabacion y el punto sigue igual.
+    bool m_clipRecording = false;
+    bool m_clipFailed = false;
+    int m_clipFrames = 0;
+    int m_clipPunto = 0;
+    unsigned int m_clipW = 0;
+    unsigned int m_clipH = 0;
+    std::string m_clipDir;
+    std::vector<unsigned char> m_clipHost;
+
+    void ClipStart(int punto, unsigned int width, unsigned int height);
+    void ClipPush(const void* devicePtr, size_t bytes);
+    void ClipStop();
 
     // Anillos por camara
     std::array<std::unique_ptr<FrameRing>, kMaxCameras> m_rings;
