@@ -23,10 +23,18 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <sstream>
+#include <string>
 #include <unordered_map>
+
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
 
 namespace Measure {
 
@@ -437,6 +445,125 @@ bool RankingMeasure::PopJob(MeasureJob& job) {
     return true;
 }
 
+namespace {
+
+std::string ClipStamp() {
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    auto dos = [](unsigned v) { return (v < 10) ? ("0" + std::to_string(v)) : std::to_string(v); };
+    return std::to_string(st.wYear) + dos(st.wMonth) + dos(st.wDay) + "-" +
+           dos(st.wHour) + dos(st.wMinute) + dos(st.wSecond);
+}
+
+std::string ClipPad4(int n) {
+    std::string s = std::to_string(n);
+    while (s.size() < 4) s = "0" + s;
+    return s;
+}
+
+} // namespace
+
+void RankingMeasure::ClipStart(int punto, unsigned int width, unsigned int height) {
+    m_clipRecording = false;
+    m_clipFailed = false;
+    m_clipFrames = 0;
+    m_clipPunto = punto;
+    m_clipW = width;
+    m_clipH = height;
+    m_clipDir.clear();
+
+    if (!m_config.saveClip) {
+        return;
+    }
+
+    // Sin ffmpeg no se graba: llenar el disco de .uyvy no le sirve a nadie, y
+    // el clip solo tiene valor si se puede mirar. Se avisa una vez por punto.
+    if (system("ffmpeg -version >nul 2>&1") != 0) {
+        Logger::Warning("RankingMeasure: save_clip activado pero no hay ffmpeg en PATH; no se graba "
+                        "(instalar ffmpeg o dejar ffmpeg.exe junto al binario)");
+        m_clipFailed = true;
+        return;
+    }
+
+    CreateDirectoryA(m_config.saveDir.c_str(), nullptr);
+    m_clipDir = m_config.saveDir + "\\punto_" + std::to_string(punto) + "_" + ClipStamp();
+    if (!CreateDirectoryA(m_clipDir.c_str(), nullptr) && GetLastError() != ERROR_ALREADY_EXISTS) {
+        Logger::Warning("RankingMeasure: no se pudo crear la carpeta del clip (" + m_clipDir + "), no se graba");
+        m_clipFailed = true;
+        return;
+    }
+    m_clipRecording = true;
+    Logger::Info("RankingMeasure: grabando clip punto=" + std::to_string(punto) +
+                 " en " + m_clipDir + " (max " + std::to_string(m_config.saveMaxFrames) + " cuadros)");
+}
+
+void RankingMeasure::ClipPush(const void* devicePtr, size_t bytes) {
+    if (!m_clipRecording || m_clipFailed || !devicePtr || bytes == 0) {
+        return;
+    }
+    if (m_config.saveMaxFrames > 0 && m_clipFrames >= m_config.saveMaxFrames) {
+        return;
+    }
+    if (m_clipHost.size() != bytes) {
+        m_clipHost.resize(bytes);
+    }
+    if (cudaMemcpy(m_clipHost.data(), devicePtr, bytes, cudaMemcpyDeviceToHost) != cudaSuccess) {
+        Logger::Warning("RankingMeasure: cudaMemcpy del clip fallo, se corta la grabacion");
+        m_clipRecording = false;
+        m_clipFailed = true;
+        return;
+    }
+    const std::string path = m_clipDir + "\\f_" + ClipPad4(m_clipFrames) + ".uyvy";
+    FILE* f = nullptr;
+    if (fopen_s(&f, path.c_str(), "wb") != 0 || f == nullptr) {
+        Logger::Warning("RankingMeasure: no se pudo escribir " + path + ", se corta la grabacion");
+        m_clipRecording = false;
+        m_clipFailed = true;
+        return;
+    }
+    fwrite(m_clipHost.data(), 1, bytes, f);
+    fclose(f);
+    ++m_clipFrames;
+}
+
+void RankingMeasure::ClipStop() {
+    if (!m_clipRecording && m_clipFrames == 0) {
+        return;
+    }
+    m_clipRecording = false;
+    if (m_clipFrames == 0) {
+        return;
+    }
+
+    // El MP4 lo arma ffmpeg desde el UYVY crudo: nada de convertir en C++.
+    const std::string mp4 = m_clipDir + ".mp4";
+    std::string cmd = "ffmpeg -y -loglevel error -f rawvideo -pix_fmt uyvy422 -s " +
+                      std::to_string(m_clipW) + "x" + std::to_string(m_clipH) +
+                      " -framerate " + std::to_string(m_config.saveFps) +
+                      " -i \"" + m_clipDir + "\\f_%04d.uyvy\" -c:v libx264 -pix_fmt yuv420p -crf 20 \"" +
+                      mp4 + "\"";
+
+    const int rc = system(cmd.c_str());
+    const bool mp4Ok = (rc == 0);
+    if (mp4Ok) {
+        WIN32_FIND_DATAA fd;
+        const std::string patron = m_clipDir + "\\*.uyvy";
+        HANDLE h = FindFirstFileA(patron.c_str(), &fd);
+        if (h != INVALID_HANDLE_VALUE) {
+            do {
+                DeleteFileA((m_clipDir + "\\" + fd.cFileName).c_str());
+            } while (FindNextFileA(h, &fd));
+            FindClose(h);
+        }
+    }
+
+    Logger::Info("RankingMeasure: clip punto=" + std::to_string(m_clipPunto) +
+                 " cuadros=" + std::to_string(m_clipFrames) +
+                 " carpeta=" + m_clipDir +
+                 " mp4=" + (mp4Ok ? std::string("si") : std::string("no (ffmpeg no disponible; quedan los .uyvy)")));
+    m_clipFrames = 0;
+}
+
 void RankingMeasure::ProcessJob(const MeasureJob& job) {
     FrameRing* ring = GetRing(job.camera);
     if (!ring || !ring->IsInitialized()) {
@@ -451,6 +578,14 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
         m_droppedCount++;
         return;
     }
+
+    // Evidencia: el clip arranca al entrar al punto y se cierra en CUALQUIER
+    // salida de esta funcion (la guardia llama a ClipStop en su destructor).
+    ClipStart(job.punto, ring->Width(), ring->Height());
+    struct ClipGuard {
+        RankingMeasure* self;
+        ~ClipGuard() { if (self) self->ClipStop(); }
+    } clipGuard{this};
 
     const int64_t t0 = job.requestedEpochMs;
     const int64_t burstEnd = t0 + job.burstMs;
@@ -546,6 +681,9 @@ bool RankingMeasure::IngestFrame(FrameRing* ring, int64_t index, FrameSample& ou
     if (!ring->CopyToDevice(index, m_deviceFrame, m_deviceFrameBytes, m_inferenceStream, epochMs)) {
         return false;
     }
+
+    // Evidencia: el mismo cuadro que se infiere se guarda en disco (si esta activado).
+    ClipPush(m_deviceFrame, ring->FrameBytes());
 
     std::vector<BallDetection> detections = m_inferenceEngine.ProcessFrameUYVY(
         m_deviceFrame,
