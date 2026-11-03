@@ -476,8 +476,7 @@ void RankingMeasure::ClipStart(int punto, unsigned int width, unsigned int heigh
         return;
     }
 
-    // Sin ffmpeg no se graba: llenar el disco de .uyvy no le sirve a nadie, y
-    // el clip solo tiene valor si se puede mirar. Se avisa una vez por punto.
+    // Sin ffmpeg no se graba: un .uyvy suelto no le sirve a nadie.
     const std::string probe = "\"" + m_config.ffmpegCmd + "\" -version >nul 2>&1";
     if (system(probe.c_str()) != 0) {
         Logger::Warning("RankingMeasure: save_clip activado pero no se pudo ejecutar ffmpeg (" +
@@ -493,6 +492,18 @@ void RankingMeasure::ClipStart(int punto, unsigned int width, unsigned int heigh
         m_clipFailed = true;
         return;
     }
+
+    // UN SOLO archivo con los cuadros seguidos. ffmpeg lo lee con -f rawvideo sin
+    // patrones: el patron "f_%04d.uyvy" no lo expande el demuxer rawvideo y ademas
+    // el %04d se estropea al pasar por cmd/PowerShell.
+    FILE* f = nullptr;
+    if (fopen_s(&f, (m_clipDir + "\\clip.uyvy").c_str(), "wb") != 0 || f == nullptr) {
+        Logger::Warning("RankingMeasure: no se pudo crear clip.uyvy en " + m_clipDir + "; no se graba");
+        m_clipFailed = true;
+        return;
+    }
+    fclose(f);
+
     m_clipRecording = true;
     Logger::Info("RankingMeasure: grabando clip punto=" + std::to_string(punto) +
                  " en " + m_clipDir + " (max " + std::to_string(m_config.saveMaxFrames) + " cuadros)");
@@ -514,9 +525,9 @@ void RankingMeasure::ClipPush(const void* devicePtr, size_t bytes) {
         m_clipFailed = true;
         return;
     }
-    const std::string path = m_clipDir + "\\f_" + ClipPad4(m_clipFrames) + ".uyvy";
+    const std::string path = m_clipDir + "\\clip.uyvy";
     FILE* f = nullptr;
-    if (fopen_s(&f, path.c_str(), "wb") != 0 || f == nullptr) {
+    if (fopen_s(&f, path.c_str(), "ab") != 0 || f == nullptr) {
         Logger::Warning("RankingMeasure: no se pudo escribir " + path + ", se corta la grabacion");
         m_clipRecording = false;
         m_clipFailed = true;
@@ -536,32 +547,42 @@ void RankingMeasure::ClipStop() {
         return;
     }
 
-    // El MP4 lo arma ffmpeg desde el UYVY crudo: nada de convertir en C++.
-    const std::string mp4 = m_clipDir + ".mp4";
-    std::string cmd = "\"" + m_config.ffmpegCmd + "\" -y -loglevel error -f rawvideo -pix_fmt uyvy422 -s " +
+    const std::string raw  = m_clipDir + "\\clip.uyvy";
+    const std::string mp4  = m_clipDir + ".mp4";
+    const std::string logf = m_clipDir + "\\ffmpeg.log";
+    std::string cmd = "\"" + m_config.ffmpegCmd + "\" -y -v error -f rawvideo -pix_fmt uyvy422 -s " +
                       std::to_string(m_clipW) + "x" + std::to_string(m_clipH) +
                       " -framerate " + std::to_string(m_config.saveFps) +
-                      " -i \"" + m_clipDir + "\\f_%04d.uyvy\" -c:v libx264 -pix_fmt yuv420p -crf 20 \"" +
-                      mp4 + "\"";
+                      " -i \"" + raw + "\" -c:v libx264 -pix_fmt yuv420p -crf 20 \"" + mp4 +
+                      "\" 2>\"" + logf + "\"";
 
     const int rc = system(cmd.c_str());
     const bool mp4Ok = (rc == 0);
     if (mp4Ok) {
-        WIN32_FIND_DATAA fd;
-        const std::string patron = m_clipDir + "\\*.uyvy";
-        HANDLE h = FindFirstFileA(patron.c_str(), &fd);
-        if (h != INVALID_HANDLE_VALUE) {
-            do {
-                DeleteFileA((m_clipDir + "\\" + fd.cFileName).c_str());
-            } while (FindNextFileA(h, &fd));
-            FindClose(h);
+        DeleteFileA(raw.c_str());
+        DeleteFileA(logf.c_str());
+    } else {
+        // Sin la salida de ffmpeg no hay forma de saber por que fallo.
+        std::string detalle;
+        FILE* f = nullptr;
+        if (fopen_s(&f, logf.c_str(), "rb") == 0 && f != nullptr) {
+            char buf[512];
+            const size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+            buf[n] = '\0';
+            detalle = std::string(buf);
+            fclose(f);
+            while (!detalle.empty() && (detalle.back() == '\n' || detalle.back() == '\r')) {
+                detalle.pop_back();
+            }
         }
+        Logger::Warning("RankingMeasure: ffmpeg fallo (rc=" + std::to_string(rc) + "). Salida: " +
+                        (detalle.empty() ? std::string("(sin salida)") : detalle));
     }
 
     Logger::Info("RankingMeasure: clip punto=" + std::to_string(m_clipPunto) +
                  " cuadros=" + std::to_string(m_clipFrames) +
                  " carpeta=" + m_clipDir +
-                 " mp4=" + (mp4Ok ? std::string("si") : std::string("no (ffmpeg no disponible; quedan los .uyvy)")));
+                 " mp4=" + (mp4Ok ? std::string("si") : std::string("no")));
     m_clipFrames = 0;
 }
 
