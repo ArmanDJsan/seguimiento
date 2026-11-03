@@ -466,9 +466,11 @@ std::string ExpandEnvVars(const std::string& in) {
             const size_t j = in.find('%', i + 1);
             if (j != std::string::npos && j > i + 1) {
                 const std::string name = in.substr(i + 1, j - i - 1);
-                const char* v = std::getenv(name.c_str());
-                if (v != nullptr) {
+                char* v = nullptr;
+                size_t vLen = 0;
+                if (_dupenv_s(&v, &vLen, name.c_str()) == 0 && v != nullptr) {
                     out += v;
+                    free(v);
                     i = j + 1;
                     continue;
                 }
