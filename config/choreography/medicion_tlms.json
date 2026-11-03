@@ -137,16 +137,20 @@
       "ms": 2000
     },
     {
-      "type": "ESP32Command",
-      "command": "iniciar",
-      "comment": "ESP32: iniciar"
-    },
-    {
       "type": "MeasurePoint",
       "camera": 1,
       "punto": 1,
       "burst_ms": 3000,
       "max_ms": 4000
+    },
+    {
+      "type": "Timer",
+      "ms": 3000
+    },
+    {
+      "type": "ESP32Command",
+      "command": "iniciar",
+      "comment": "ESP32: iniciar"
     },
     {
       "type": "Timer",
