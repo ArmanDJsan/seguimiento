@@ -1,23 +1,23 @@
 {
   "name": "Test Medicion Llegada",
-  "description": "Prueba de medicion: PTZ 1 a preset 1 y UNA rafaga larga (5 s) que empieza antes de que lleguen las esferas, para que contenga la rodada y el reposo. El voto de clase necesita ver la esfera girando.",
+  "description": "Prueba de medicion disparada a mano: con el sistema ya en modo operacion, soltar las esferas y pulsar F12. La rafaga de 5 s arranca con F12, asi que contiene la rodada y el reposo. auto_start esta en false a proposito.",
   "author": "VIB Automation",
-  "version": "1.4",
+  "version": "1.5",
   "events": [
     {
       "type": "Comment",
-      "text": "=== Prueba: una rafaga de 5 s desde t+1s (rodada + reposo) ==="
+      "text": "=== F12 cuando las esferas estan entrando ==="
     },
     {
       "type": "PTZPreset",
       "camera": 1,
       "preset": 1,
-      "comment": "PTZ 1 -> preset 1 (vista de llegada)"
+      "comment": "PTZ 1 -> preset 1 (por si se movio)"
     },
     {
       "type": "Timer",
-      "ms": 1000,
-      "comment": "Arrancar la rafaga casi enseguida"
+      "ms": 500,
+      "comment": "Medio segundo y a medir"
     },
     {
       "type": "MeasurePoint",
@@ -25,7 +25,7 @@
       "punto": 1,
       "burst_ms": 5000,
       "max_ms": 6000,
-      "comment": "Rafaga larga: t+1s a t+6s"
+      "comment": "Rafaga larga: rodada + reposo"
     },
     {
       "type": "Timer",

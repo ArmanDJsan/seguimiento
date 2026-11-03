@@ -214,7 +214,7 @@
   "choreography": {
     "enabled": true,
     "script_path": "config/choreography/inicio_carrera_tlms_test.json",
-    "auto_start": true,
+    "auto_start": false,
     "continue_on_error": false,
     "vmix_required": true,
     "trigger_key": "F12",
