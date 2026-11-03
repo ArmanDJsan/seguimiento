@@ -126,10 +126,6 @@
       "ms": 4500
     },
     {
-      "type": "ReplayStartRecording",
-      "comment": "Star Replay Recorder"
-    },
-    {
       "type": "CutDirect",
       "guid": "1c6b5bfc-977e-4beb-9ef2-5975d7235f8d",
       "layer": -1,
@@ -395,10 +391,6 @@
       "ms": 1000
     },
     {
-      "type": "ReplayMarkOut",
-      "comment": "Marcar punto final del replay"
-    },
-    {
       "type": "Timer",
       "ms": 300
     },
@@ -411,50 +403,6 @@
       "text": "Crear los 4 eventos juntos para que las ventanas de 60 s queden lo más alineadas posible. Cam 1 no se exporta: queda seleccionada para el replay"
     },
     {
-      "type": "ReplayCamera",
-      "camera": 1,
-      "channel": "A",
-      "comment": "Seleccionar Cámara 1 (queda seleccionada al final)"
-    },
-    {
-      "type": "ReplayMarkInOut",
-      "value": 60,
-      "comment": "Crear evento Cam 1 (no se exporta)"
-    },
-    {
-      "type": "ReplayCamera",
-      "camera": 4,
-      "channel": "A",
-      "comment": "Seleccionar Cámara 4"
-    },
-    {
-      "type": "ReplayMarkInOut",
-      "value": 60,
-      "comment": "Crear evento Cam 4"
-    },
-    {
-      "type": "ReplayCamera",
-      "camera": 3,
-      "channel": "A",
-      "comment": "Seleccionar Cámara 3"
-    },
-    {
-      "type": "ReplayMarkInOut",
-      "value": 60,
-      "comment": "Crear evento Cam 3"
-    },
-    {
-      "type": "ReplayCamera",
-      "camera": 2,
-      "channel": "A",
-      "comment": "Seleccionar Cámara 2"
-    },
-    {
-      "type": "ReplayMarkInOut",
-      "value": 60,
-      "comment": "Crear evento Cam 2 (el más reciente = 'last event')"
-    },
-    {
       "type": "Comment",
       "text": "vMix exporta de forma asíncrona e ignora un export nuevo mientras el anterior sigue codificando: se exporta el último evento, se espera al archivo y se borra el evento para que el anterior pase a ser el último. La cadena completa agrega ~2-3 min (un MP4 4K de 60 s tarda ~35-60 s)"
     },
@@ -463,72 +411,16 @@
       "text": "El export no lleva 'value': vMix usa su última carpeta de exportación (Replay → Export Clips). El 'folder' de WaitForExport debe ser esa misma carpeta"
     },
     {
-      "type": "ReplayExportLastEvent",
-      "comment": "Exportar Cam 2 (último evento)"
-    },
-    {
-      "type": "WaitForExport",
-      "folder": "C:/Users/TecnologíaIntegraTec/Desktop/27-10-2026 Mercedes Pista V 3.0.1",
-      "timeout": 240000,
-      "stable": 5000,
-      "comment": "Esperar a que el MP4 de Cam 2 termine de escribirse"
-    },
-    {
-      "type": "ReplayDeleteLastEvent",
-      "comment": "Quitar el evento Cam 2 ya exportado"
+      "type": "Timer",
+      "ms": 1000
     },
     {
       "type": "Timer",
       "ms": 1000
     },
     {
-      "type": "ReplayExportLastEvent",
-      "comment": "Exportar Cam 3 (ahora es el último evento)"
-    },
-    {
-      "type": "WaitForExport",
-      "folder": "C:/Users/TecnologíaIntegraTec/Desktop/27-10-2026 Mercedes Pista V 3.0.1",
-      "timeout": 240000,
-      "stable": 5000,
-      "comment": "Esperar a que el MP4 de Cam 3 termine de escribirse"
-    },
-    {
-      "type": "ReplayDeleteLastEvent",
-      "comment": "Quitar el evento Cam 3 ya exportado"
-    },
-    {
       "type": "Timer",
       "ms": 1000
-    },
-    {
-      "type": "ReplayExportLastEvent",
-      "comment": "Exportar Cam 4 (ahora es el último evento)"
-    },
-    {
-      "type": "WaitForExport",
-      "folder": "C:/Users/TecnologíaIntegraTec/Desktop/27-10-2026 Mercedes Pista V 3.0.1",
-      "timeout": 240000,
-      "stable": 5000,
-      "comment": "Esperar a que el MP4 de Cam 4 termine de escribirse"
-    },
-    {
-      "type": "ReplayDeleteLastEvent",
-      "comment": "Quitar el evento Cam 4 ya exportado"
-    },
-    {
-      "type": "Timer",
-      "ms": 1000
-    },
-    {
-      "type": "ReplaySelectLastEvent",
-      "comment": "Dejar seleccionado el evento de Cámara 1"
-    },
-    {
-      "type": "ReplaySetSpeed",
-      "speed": "0.75"
-    },
-    {
-      "type": "ReplayStopRecording"
     },
     {
       "type": "ScriptStop",
