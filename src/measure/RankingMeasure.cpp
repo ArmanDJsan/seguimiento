@@ -965,6 +965,7 @@ bool RankingMeasure::ResolvePositions(std::vector<FrameSample>& samples,
     //    No se ordena por x: con las esferas rodando, la x cambia cuadro a cuadro
     //    y usarla como identidad inventa esferas nuevas (medido 3-nov: 13 ids
     //    para 10 esferas).
+    int validos = 0;
     for (auto& sample : samples) {
         sample.trackOf.assign(sample.dets.size(), -1);
         if (sample.dets.empty()) {
@@ -972,82 +973,108 @@ bool RankingMeasure::ResolvePositions(std::vector<FrameSample>& samples,
         }
         MatchFrameByMotion(sample);
         resolvedEpochMs = sample.epochMs;
+        ++validos;
     }
-    if (resolvedEpochMs == 0) {
+    if (resolvedEpochMs == 0 || validos == 0) {
         return false;
     }
 
-    auto findTrack = [this](int id) -> const SphereTrack* {
-        for (const auto& t : m_tracks) {
-            if (t.id == id) {
-                return &t;
-            }
-        }
-        return nullptr;
-    };
-
-    // 2) Cuadro de referencia: el ULTIMO que tenga las 10. El orden se lee de un
-    //    instante, no de la mezcla de cuadros con las esferas en movimiento.
-    int ref = -1;
-    int refCount = 0;
-    for (size_t i = 0; i < samples.size(); ++i) {
-        const int n = static_cast<int>(samples[i].dets.size());
-        if (n == kTargetSpheres) {
-            ref = static_cast<int>(i);
-            refCount = n;
+    // 2) Esferas reales: las que aparecen en una parte razonable de la rafaga.
+    //    Una deteccion de un solo cuadro es ruido; exigir presencia evita que un
+    //    falso positivo entre al ranking. Ningun cuadro suelto decide nada.
+    const int minimoFrames = (std::max)(2, validos * 2 / 5);   // 40% de la rafaga
+    std::vector<size_t> idx;
+    idx.reserve(m_tracks.size());
+    for (size_t i = 0; i < m_tracks.size(); ++i) {
+        if (m_tracks[i].frames >= minimoFrames) {
+            idx.push_back(i);
         }
     }
-    if (ref < 0) {
-        for (size_t i = 0; i < samples.size(); ++i) {
-            const int n = static_cast<int>(samples[i].dets.size());
-            if (n > refCount) {
-                refCount = n;
-                ref = static_cast<int>(i);
-            }
-        }
-    }
-    if (ref < 0) {
+    const int n = static_cast<int>(idx.size());
+    if (n == 0) {
         return false;
     }
 
-    // 3) Orden en ese cuadro: la mas adelantada primero (x mayor).
-    struct Item {
-        int track;
-        float x;
-    };
-    std::vector<Item> items;
-    items.reserve(samples[ref].dets.size());
-    for (size_t d = 0; d < samples[ref].dets.size(); ++d) {
-        const int track = samples[ref].trackOf[d];
-        if (track < 0) {
-            continue;
+    auto posDeId = [&idx, this](int id) -> int {
+        for (int k = 0; k < static_cast<int>(idx.size()); ++k) {
+            if (m_tracks[idx[k]].id == id) {
+                return k;
+            }
         }
-        items.push_back({track, samples[ref].dets[d].x});
+        return -1;
+    };
+
+    // 3) ORDEN votado por pares: en cuantos cuadros la esfera a estuvo delante de
+    //    la b. Se usa la rafaga completa, no un cuadro elegido a dedo.
+    std::vector<std::vector<int>> delante(n, std::vector<int>(n, 0));
+    std::vector<double> sumaX(n, 0.0);
+    std::vector<int> vecesX(n, 0);
+
+    for (const auto& sample : samples) {
+        std::vector<std::pair<int, float>> presentes;
+        presentes.reserve(sample.dets.size());
+        for (size_t d = 0; d < sample.dets.size(); ++d) {
+            const int p = posDeId(sample.trackOf[d]);
+            if (p >= 0) {
+                presentes.push_back({p, sample.dets[d].x});
+            }
+        }
+        for (size_t i = 0; i < presentes.size(); ++i) {
+            sumaX[presentes[i].first] += presentes[i].second;
+            vecesX[presentes[i].first] += 1;
+            for (size_t j = 0; j < presentes.size(); ++j) {
+                if (i != j && presentes[i].second > presentes[j].second) {
+                    delante[presentes[i].first][presentes[j].first] += 1;
+                }
+            }
+        }
     }
-    std::sort(items.begin(), items.end(), [](const Item& a, const Item& b) {
-        return a.x > b.x;
+
+    // Puntos tipo Copeland (cuantas esferas le gano a cada una) + x media de
+    // desempate: la mas adelantada primero.
+    struct Ranked {
+        int pos;
+        int puntos;
+        double xMedia;
+    };
+    std::vector<Ranked> ranked;
+    ranked.reserve(n);
+    for (int i = 0; i < n; ++i) {
+        int puntos = 0;
+        for (int j = 0; j < n; ++j) {
+            if (i != j && delante[i][j] > delante[j][i]) {
+                ++puntos;
+            }
+        }
+        const double xMedia = (vecesX[i] > 0) ? (sumaX[i] / vecesX[i]) : 0.0;
+        ranked.push_back({i, puntos, xMedia});
+    }
+    std::sort(ranked.begin(), ranked.end(), [](const Ranked& a, const Ranked& b) {
+        if (a.puntos != b.puntos) {
+            return a.puntos > b.puntos;
+        }
+        return a.xMedia > b.xMedia;
     });
 
     // 4) Identidad: la clase mas votada de cada esfera en TODA la rafaga.
     std::vector<int> claseUsada(kTargetSpheres, 0);
     int repetidas = 0;
     std::ostringstream detalle;
-    detalle << "RankingMeasure: voto por esfera (cuadro " << ref << "/" << samples.size() << "):";
-    int n = 0;
-    for (const auto& item : items) {
-        const SphereTrack* track = findTrack(item.track);
-        if (track == nullptr) {
-            continue;
-        }
-        const int cls = ArgMaxClass(*track);
+    detalle << "RankingMeasure: voto (esferas=" << n << " de " << m_tracks.size()
+            << " pistas, cuadros=" << validos << "):";
+    int puesto = 0;
+    for (const auto& r : ranked) {
+        const SphereTrack& track = m_tracks[idx[r.pos]];
+        const int cls = ArgMaxClass(track);
         if (cls < 0) {
             continue;
         }
-        ++n;
+        ++puesto;
         if (claseUsada[cls]++ > 0) {
             ++repetidas;
         }
-        detalle << " [" << n << "]B" << cls << "(" << track->votes[cls] << "/" << track->frames << ")";
+        detalle << " [" << puesto << "]B" << cls << "(" << track.votes[cls] << "/"
+                << track.frames << "v," << r.puntos << "p)";
         posiciones.push_back(cls + 1);   // el payload va 1..10 (B0 = canica 1)
     }
     Logger::Info(detalle.str());
