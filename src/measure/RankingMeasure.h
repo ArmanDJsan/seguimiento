@@ -324,7 +324,6 @@ private:
     // 3-nov: 1 cuadro de 150 en una rafaga de 5 s).
     std::vector<unsigned char> m_clipBuffer;
 
-    void ClipStart(int punto, unsigned int width, unsigned int height);
     void ClipStartLocked(int punto, unsigned int width, unsigned int height);  // sin lock
     void ClipPush(const void* devicePtr, size_t bytes);
     void ClipStop();

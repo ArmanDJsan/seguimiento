@@ -37,11 +37,6 @@
 #endif
 #include <windows.h>
 
-namespace {
-// Definida mas abajo; se declara aca porque Initialize la usa antes.
-std::string ExpandEnvVars(const std::string& in);
-}  // namespace
-
 namespace Measure {
 
 namespace {
@@ -52,6 +47,10 @@ constexpr int kTimestampRetries = 50;   // reintentos de lectura de un slot en e
 constexpr size_t kMaxTracks = 40;       // techo de identidades provisorias
 
 std::atomic<RankingMeasure*> g_attachedCoordinator{nullptr};
+
+// Definida mas abajo en este mismo namespace anonimo; se declara aca porque
+// Initialize() la usa antes de su definicion.
+std::string ExpandEnvVars(const std::string& in);
 
 } // namespace
 
@@ -362,6 +361,14 @@ void RankingMeasure::Enqueue(int camera, int punto, int burstMs, int maxMs) {
     }
     job.requestedEpochMs = NowEpochMs();
 
+    // La ventana se anota ANTES de encolar: el worker no puede procesar el
+    // trabajo sin verla (el clip lo abre el hilo de captura al verla).
+    {
+        std::lock_guard<std::mutex> lock(m_clipMutex);
+        m_ventanaCam = camera;
+        m_ventanaPunto = job.punto;
+    }
+
     {
         // Solo un push a la cola: nunca se espera al hilo medidor.
         std::lock_guard<std::mutex> lock(m_queueMutex);
@@ -379,11 +386,6 @@ void RankingMeasure::Enqueue(int camera, int punto, int burstMs, int maxMs) {
 
     // La ventana se anota ACA (instantaneo, sin I/O): el clip lo abre el hilo de
     // captura con el primer cuadro y lo cierra el hilo medidor al vencer.
-    {
-        std::lock_guard<std::mutex> lock(m_clipMutex);
-        m_ventanaCam = camera;
-        m_ventanaPunto = job.punto;
-    }
 
     Logger::Debug("RankingMeasure: encolado punto=" + std::to_string(job.punto) +
                   " camara=" + std::to_string(job.camera) +
@@ -473,11 +475,6 @@ std::string ClipPad4(int n) {
 }
 
 } // namespace
-
-void RankingMeasure::ClipStart(int punto, unsigned int width, unsigned int height) {
-    std::lock_guard<std::mutex> lock(m_clipMutex);
-    ClipStartLocked(punto, width, height);
-}
 
 void RankingMeasure::ClipStartLocked(int punto, unsigned int width, unsigned int height) {
     m_clipRecording = false;
@@ -702,6 +699,15 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
 
+    // La ventana ya vencio: si la camara no mando ni un cuadro, no hay que
+    // dejar la marca puesta (abriria el clip de un punto posterior).
+    {
+        std::lock_guard<std::mutex> lock(m_clipMutex);
+        if (m_ventanaCam == job.camera) {
+            m_ventanaCam = -1;
+        }
+    }
+
     // 2. Tomar lo que el pipeline vio en la ventana. Si no estan las 10 esferas y
     //    hay techo (max_ms), se extiende hasta ahi: la historia ya tiene esos
     //    cuadros, no hay que volver a capturar nada.
@@ -798,8 +804,13 @@ void RankingMeasure::OnDetections(int camera, int64_t epochMs,
             m_ventanaCam = -1;
         }
     }
-    if (deviceFrame && frameBytes > 0) {
-        ClipPush(deviceFrame, frameBytes);
+    bool grabar = false;
+    {
+        std::lock_guard<std::mutex> lock(m_clipMutex);
+        grabar = m_clipRecording && (camera == m_clipCamera);
+    }
+    if (grabar && deviceFrame && frameBytes > 0) {
+        ClipPush(deviceFrame, frameBytes);   // vuelve a chequear adentro
     }
 
     if (dets.empty()) {
