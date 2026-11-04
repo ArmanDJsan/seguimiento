@@ -567,6 +567,8 @@ void RankingMeasure::ClipStop() {
         dir = m_clipDir;
         buffer.swap(m_clipBuffer);
         m_clipCamera = -1;
+        m_ventanaCam = -1;
+        m_ventanaPunto = 0;
     }
     if (cuadros == 0) {
         return;
@@ -703,7 +705,7 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
     // dejar la marca puesta (abriria el clip de un punto posterior).
     {
         std::lock_guard<std::mutex> lock(m_clipMutex);
-        if (m_ventanaCam == job.camera) {
+        if (m_ventanaCam == job.camera && m_ventanaPunto == job.punto) {
             m_ventanaCam = -1;
         }
     }
