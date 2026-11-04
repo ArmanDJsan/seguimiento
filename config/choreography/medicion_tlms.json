@@ -134,7 +134,7 @@
     },
     {
       "type": "Timer",
-      "ms": 1000
+      "ms": 2500
     },
     {
       "type": "MeasurePoint",
@@ -145,7 +145,7 @@
     },
     {
       "type": "Timer",
-      "ms": 4000
+      "ms": 2500
     },
     {
       "type": "ESP32Command",
@@ -193,6 +193,10 @@
       "preset": 3
     },
     {
+      "type": "Timer",
+      "ms": 1500
+    },
+    {
       "type": "MeasurePoint",
       "camera": 3,
       "punto": 2,
@@ -201,7 +205,7 @@
     },
     {
       "type": "Timer",
-      "ms": 5000
+      "ms": 3500
     },
     {
       "type": "SceneSwitch",
@@ -215,6 +219,10 @@
       "comment": "cam 12"
     },
     {
+      "type": "Timer",
+      "ms": 500
+    },
+    {
       "type": "MeasurePoint",
       "camera": 2,
       "punto": 3,
@@ -223,7 +231,7 @@
     },
     {
       "type": "Timer",
-      "ms": 2000
+      "ms": 1500
     },
     {
       "type": "Comment",
@@ -254,7 +262,7 @@
     },
     {
       "type": "Timer",
-      "ms": 2000
+      "ms": 3000
     },
     {
       "type": "MeasurePoint",
@@ -265,7 +273,7 @@
     },
     {
       "type": "Timer",
-      "ms": 2000
+      "ms": 1000
     },
     {
       "type": "Comment",
@@ -296,6 +304,15 @@
       "ms": 4000
     },
     {
+      "type": "PTZPreset",
+      "camera": 1,
+      "preset": 6
+    },
+    {
+      "type": "Timer",
+      "ms": 1000
+    },
+    {
       "type": "MeasurePoint",
       "camera": 2,
       "punto": 5,
@@ -303,13 +320,17 @@
       "max_ms": 4000
     },
     {
+      "type": "Timer",
+      "ms": 7000
+    },
+    {
       "type": "PTZPreset",
-      "camera": 1,
-      "preset": 6
+      "camera": 2,
+      "preset": 7
     },
     {
       "type": "Timer",
-      "ms": 8000
+      "ms": 500
     },
     {
       "type": "MeasurePoint",
@@ -319,13 +340,8 @@
       "max_ms": 4000
     },
     {
-      "type": "PTZPreset",
-      "camera": 2,
-      "preset": 7
-    },
-    {
       "type": "Timer",
-      "ms": 4000
+      "ms": 3500
     },
     {
       "type": "PTZPreset",
@@ -341,7 +357,7 @@
     },
     {
       "type": "Timer",
-      "ms": 3000
+      "ms": 1000
     },
     {
       "type": "MeasurePoint",
@@ -352,7 +368,7 @@
     },
     {
       "type": "Timer",
-      "ms": 15000
+      "ms": 17000
     },
     {
       "type": "OverlayInputXOut",
