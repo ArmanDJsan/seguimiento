@@ -372,10 +372,11 @@ private:
         unsigned int h = 0;
         std::string dir;
         std::vector<unsigned char> host;    // staging del cuadro (device -> host)
-        // Cuadros de la rafaga acumulados en RAM. Se escriben a disco de una sola
-        // vez en ClipStop: escribir 4 MB por cuadro DENTRO del bucle de
-        // recoleccion hacia que el medidor no llegue a copiar del anillo y
-        // perdiera cuadros (medido 3-nov: 1 cuadro de 150 en una rafaga de 5 s).
+        // Cuadros de la rafaga acumulados en RAM. En ClipStop van enteros al
+        // stdin de ffmpeg (no se escribe ningun .uyvy): escribir 4 MB por cuadro
+        // DENTRO del bucle de recoleccion hacia que el medidor no llegue a
+        // copiar del anillo y perdiera cuadros (medido 3-nov: 1 cuadro de 150 en
+        // una rafaga de 5 s).
         std::vector<unsigned char> buffer;
         // Instante (epoch ms) del PRIMER cuadro del clip de ESA camara. Es la
         // referencia de los tiempos del .ass de las cajas (draw_boxes): el MP4
@@ -392,8 +393,9 @@ private:
                          int64_t epochMs);
     // Toma el lock y solo empuja si ESA camara esta grabando.
     void ClipPush(int camera, const void* devicePtr, size_t bytes);
-    // Toma el lock solo para sacar copias; el volcado del crudo y ffmpeg van
-    // FUERA del lock. Nunca se llama teniendo m_clipMutex tomado.
+    // Toma el lock solo para sacar copias; el volcado a ffmpeg (por stdin, sin
+    // archivo crudo) va FUERA del lock. Nunca se llama teniendo m_clipMutex
+    // tomado.
     void ClipStop(int camera);
 
     // ------------------------------------------------------------------------
@@ -445,7 +447,7 @@ private:
     // Estatico: NO usa `this` (corre desprendido del objeto).
     static void RaceDumpWorker(std::deque<RaceFrame> cuadros, int camera,
                                unsigned int width, unsigned int height, int fps,
-                               bool drawBoxes, std::string ffmpeg, std::string raw,
+                               bool drawBoxes, std::string ffmpeg,
                                std::string mp4, std::string ass, std::string logf,
                                std::shared_ptr<RaceDumpGate> gate);
 

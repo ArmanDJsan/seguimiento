@@ -54,8 +54,11 @@ std::atomic<RankingMeasure*> g_attachedCoordinator{nullptr};
 std::string ExpandEnvVars(const std::string& in);
 
 // Definida mas abajo en este mismo namespace anonimo; se declara aca porque
-// ClipStop() (que esta antes) la usa para el reintento sin cajas.
-int RunProcessHidden(const std::string& cmdLine, const std::string& logf, std::string& salida);
+// ClipStop() (que esta antes) la usa. Lanza ffmpeg con los cuadros por STDIN
+// (-i -), sin escribir ningun archivo de video crudo en disco.
+int RunFfmpegWithStdin(const std::string& argsSinInput,
+                       const std::vector<const std::vector<unsigned char>*>& cuadros,
+                       const std::string& logf, std::string& salida);
 
 } // namespace
 
@@ -764,19 +767,23 @@ void RankingMeasure::ClipStartLocked(int camera, int punto, unsigned int width, 
         return;
     }
 
-    // UN SOLO archivo con los cuadros seguidos. ffmpeg lo lee con -f rawvideo sin
-    // patrones: el patron "f_%04d.uyvy" no lo expande el demuxer rawvideo y ademas
-    // el %04d se estropea al pasar por cmd/PowerShell.
-    // Se comprueba que la carpeta sea escribible creando el archivo vacio; los
-    // cuadros se acumulan en RAM y se vuelcan al final.
+    // UN SOLO flujo de cuadros, y va por un PIPE a ffmpeg (stdin): no se crea
+    // ningun archivo crudo. Antes se escribia clip.uyvy (cientos de MB) y
+    // Windows Defender lo bloqueaba recien escrito: ffmpeg devolvia rc=-13
+    // (EACCES). Ademas eran GB de escritura y lectura por cada punto.
+    // Se comprueba que la carpeta sea escribible con un archivo vacio de 0
+    // bytes (el log de ffmpeg va ahi); los cuadros se acumulan en RAM.
     {
-        FILE* f = nullptr;
-        if (fopen_s(&f, (clip.dir + "\\clip.uyvy").c_str(), "wb") != 0 || f == nullptr) {
-            Logger::Warning("RankingMeasure: no se pudo crear clip.uyvy en " + clip.dir + "; no se graba");
+        const std::string sonda = clip.dir + "\\ffmpeg.log";
+        HANDLE h = CreateFileA(sonda.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr,
+                               CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (h == INVALID_HANDLE_VALUE) {
+            Logger::Warning("RankingMeasure: la carpeta del clip no es escribible (" + clip.dir +
+                            "), no se graba");
             clip.failed = true;
             return;
         }
-        fclose(f);
+        CloseHandle(h);
     }
 
     clip.recording = true;
@@ -854,36 +861,17 @@ void RankingMeasure::ClipStop(int camera) {
         return;
     }
 
-    const std::string raw = dir + "\\clip.uyvy";
     const std::string mp4 = dir + ".mp4";
     const std::string logf = dir + "\\ffmpeg.log";
 
-    // Volcado unico del crudo acumulado en RAM.
-    {
-        FILE* f = nullptr;
-        if (fopen_s(&f, raw.c_str(), "wb") == 0 && f != nullptr) {
-            if (!buffer.empty()) {
-                fwrite(buffer.data(), 1, buffer.size(), f);
-            }
-            fclose(f);
-        } else {
-            // No se toca el estado de la camara aca: este volcado corre FUERA del
-            // lock y el contexto ya quedo reseteado.
-            Logger::Warning("RankingMeasure: no se pudo volcar clip.uyvy en " + dir);
-        }
-    }
-    long long crudoBytes = 0;
-    {
-        WIN32_FILE_ATTRIBUTE_DATA fad;
-        if (GetFileAttributesExA(raw.c_str(), GetFileExInfoStandard, &fad)) {
-            crudoBytes = (static_cast<long long>(fad.nFileSizeHigh) << 32) | fad.nFileSizeLow;
-        }
-    }
+    // Ni un byte a disco: el buffer de RAM va tal cual al stdin de ffmpeg. Antes
+    // se volcaba clip.uyvy (~300 MB) y Defender bloqueaba ese archivo recien
+    // escrito: ffmpeg devolvia rc=-13 (EACCES) y el punto se quedaba sin video.
 
-    // Cajas del detector (draw_boxes): se arman AHORA, junto al crudo y desde la
-    // historia de detecciones de ESA camara (misma ventana que el clip). Los
-    // tiempos van relativos al PRIMER cuadro del clip: el MP4 arranca ahi y el
-    // crudo no tiene marcas de tiempo, la unica referencia valida es esa.
+    // Cajas del detector (draw_boxes): se arman AHORA, junto al buffer en RAM y
+    // desde la historia de detecciones de ESA camara (misma ventana que el clip).
+    // Los tiempos van relativos al PRIMER cuadro del clip: el MP4 arranca ahi y
+    // el flujo crudo no tiene marcas de tiempo, la unica referencia valida es esa.
     // Con draw_boxes=false este bloque no corre y no se crea ningun .ass.
     std::string ass;
     if (m_config.drawBoxes && firstMs > 0 && clipW > 0 && clipH > 0) {
@@ -934,105 +922,62 @@ void RankingMeasure::ClipStop(int camera) {
     }
 
     const std::string ffmpeg = m_clipFfmpeg.empty() ? ExpandEnvVars(m_config.ffmpegCmd) : m_clipFfmpeg;
-    // Con draw_boxes=false AssFilterArgs("") devuelve vacio: la linea de comando
-    // queda exactamente igual que antes de este cambio.
+    // La entrada NO esta en la linea: RunFfmpegWithStdin pone "-i -" en el
+    // marcador {IN} y escribe los cuadros por el pipe. El filtro de cajas va
+    // DESPUES de la entrada, como exige libavfilter.
+    // Con draw_boxes=false AssFilterArgs("") devuelve vacio.
     const std::string cmdLine = "\"" + ffmpeg + "\" -y -v error -f rawvideo -pix_fmt uyvy422 -s " +
                                 std::to_string(clipW) + "x" + std::to_string(clipH) +
                                 " -framerate " + std::to_string(m_config.saveFps) +
-                                " -i \"" + raw + "\" -c:v libx264 -pix_fmt yuv420p -crf 20" +
-                                AssFilterArgs(ass) + " \"" + mp4 + "\"";
+                                " {IN}" + AssFilterArgs(ass) +
+                                " -c:v libx264 -pix_fmt yuv420p -crf 20 \"" + mp4 + "\"";
     // Mismo comando sin el filtro: solo se usa como red si el ffmpeg del equipo
     // no trae el filtro "ass" (libass), para no perder el MP4 por las cajas.
     const std::string cmdSinCajas = "\"" + ffmpeg + "\" -y -v error -f rawvideo -pix_fmt uyvy422 -s " +
                                     std::to_string(clipW) + "x" + std::to_string(clipH) +
                                     " -framerate " + std::to_string(m_config.saveFps) +
-                                    " -i \"" + raw + "\" -c:v libx264 -pix_fmt yuv420p -crf 20 \"" +
+                                    " {IN} -c:v libx264 -pix_fmt yuv420p -crf 20 \"" +
                                     mp4 + "\"";
+
+    // El buffer del clip se pasa al hilo por shared_ptr: el hilo hace falta que
+    // los bytes sigan vivos para el reintento sin cajas. Ya no hay copia extra
+    // (antes se copiaba a un .uyvy en disco).
+    std::shared_ptr<std::vector<unsigned char>> loteBytes =
+        std::make_shared<std::vector<unsigned char>>(std::move(buffer));
 
     // El MP4 se arma en un hilo APARTE. ffmpeg tarda ~1 s y bloqueaba el hilo
     // medidor: la medicion siguiente arrancaba tarde y, como el anillo guarda 8
     // cuadros, los de su ventana ya no existian (medido 3-nov-2026: 3 de 9
     // puntos juntaron 1-9 cuadros y el clip salio vacio).
-    std::thread([cmdLine, cmdSinCajas, raw, mp4, logf, ass, crudoBytes, cuadros, punto, camera]() {
-        // Se llama a ffmpeg DIRECTO con CreateProcess, sin cmd.exe: el shell era
-        // el que fallaba ("El sistema no puede encontrar la ruta") aunque la ruta
-        // fuese correcta. La salida de ffmpeg va al archivo de log.
+    std::thread([cmdLine, cmdSinCajas, loteBytes, mp4, logf, ass, cuadros, punto, camera]() {
+        // Un solo bloque: el demuxer rawvideo parte el flujo en cuadros por
+        // tamano (w*h*2). Nada de archivos intermedios.
+        std::vector<const std::vector<unsigned char>*> lote;
+        lote.push_back(loteBytes.get());
+
         std::string salida;
-        int rc = -1;
-
-        SECURITY_ATTRIBUTES sa{};
-        sa.nLength = sizeof(sa);
-        sa.bInheritHandle = TRUE;
-
-        HANDLE hLog = CreateFileA(logf.c_str(), GENERIC_WRITE, FILE_SHARE_READ, &sa,
-                                  CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (hLog == INVALID_HANDLE_VALUE) {
-            Logger::Warning("RankingMeasure: no se pudo crear " + logf + " para la salida de ffmpeg");
-        }
-
-        STARTUPINFOA si{};
-        si.cb = sizeof(si);
-        si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
-        si.wShowWindow = SW_HIDE;
-        si.hStdOutput = (hLog != INVALID_HANDLE_VALUE) ? hLog : GetStdHandle(STD_OUTPUT_HANDLE);
-        si.hStdError  = (hLog != INVALID_HANDLE_VALUE) ? hLog : GetStdHandle(STD_ERROR_HANDLE);
-        si.hStdInput  = GetStdHandle(STD_INPUT_HANDLE);
-
-        PROCESS_INFORMATION pi{};
-        std::vector<char> buf(cmdLine.begin(), cmdLine.end());
-        buf.push_back('\0');
-
-        const BOOL ok = CreateProcessA(nullptr, buf.data(), nullptr, nullptr, TRUE,
-                                       CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
-        if (!ok) {
-            salida = "CreateProcess fallo, error " + std::to_string(GetLastError());
-        } else {
-            WaitForSingleObject(pi.hProcess, 120000);
-            DWORD code = 1;
-            GetExitCodeProcess(pi.hProcess, &code);
-            rc = static_cast<int>(code);
-            CloseHandle(pi.hThread);
-            CloseHandle(pi.hProcess);
-        }
-        if (hLog != INVALID_HANDLE_VALUE) {
-            CloseHandle(hLog);
-        }
-
-        FILE* f = nullptr;
-        if (fopen_s(&f, logf.c_str(), "rb") == 0 && f != nullptr) {
-            char tmp[512];
-            const size_t n = fread(tmp, 1, sizeof(tmp) - 1, f);
-            tmp[n] = '\0';
-            salida += tmp;
-            fclose(f);
-        }
-
-        for (size_t i = 0; i < salida.size(); ++i) {
-            if (salida[i] == '\n' || salida[i] == '\r' || salida[i] == '\t') salida[i] = ' ';
-        }
-        while (!salida.empty() && salida.back() == ' ') salida.pop_back();
+        int rc = RunFfmpegWithStdin(cmdLine, lote, logf, salida);
 
         // Si el ffmpeg del equipo no trae el filtro "ass" (libass) el MP4 no se
         // produce. Las cajas son diagnostico: se rehace SIN cajas antes que
-        // quedarse sin la evidencia del punto.
+        // quedarse sin la evidencia del punto. Los bytes siguen en memoria.
         if (rc != 0 && !ass.empty()) {
             Logger::Warning("RankingMeasure: ffmpeg con las cajas fallo (rc=" +
                             std::to_string(rc) + "); se rehace el clip punto=" +
                             std::to_string(punto) + " SIN cajas");
             salida.clear();
-            rc = RunProcessHidden(cmdSinCajas, logf, salida);
+            rc = RunFfmpegWithStdin(cmdSinCajas, lote, logf, salida);
         }
 
         const bool mp4Ok = (rc == 0);
         if (mp4Ok) {
-            DeleteFileA(raw.c_str());
             DeleteFileA(logf.c_str());
             if (!ass.empty()) {
                 DeleteFileA(ass.c_str());   // ya quedo quemado en el MP4
             }
         } else {
             Logger::Warning("RankingMeasure: ffmpeg fallo (rc=" + std::to_string(rc) +
-                            ", crudo=" + std::to_string(crudoBytes) + " bytes, cuadros=" +
+                            ", bytes=" + std::to_string(loteBytes->size()) + ", cuadros=" +
                             std::to_string(cuadros) + "). Comando: " + cmdLine +
                             " . Salida: " + (salida.empty() ? std::string("(vacia)") : salida));
         }
@@ -1053,7 +998,7 @@ void RankingMeasure::ClipStop(int camera) {
 //   DumpRace (corte automatico a los race_seconds desde la compuerta;
 //             Shutdown solo como red de seguridad)
 //        -> swap del deque de cada camara (libera el anillo)
-//        -> hilo aparte por camara: vuelca _race_cam<N>.uyvy + ffmpeg -> MP4
+//        -> hilo aparte por camara: cuadros por PIPE (stdin) + ffmpeg -> MP4
 // ============================================================================
 
 namespace {
@@ -1062,13 +1007,51 @@ namespace {
 // captura de la pista corre a 30p, igual que save_fps por defecto.
 constexpr int kRaceFps = 30;
 
-// Lanza un proceso escondido (ffmpeg) SIN cmd.exe, con la salida a un archivo de
-// log. Es la misma invocacion que ya usa ClipStop, extraida para no duplicarla.
-// Devuelve el codigo de salida (-1 si no arranco).
-int RunProcessHidden(const std::string& cmdLine, const std::string& logf, std::string& salida) {
+// ----------------------------------------------------------------------------
+// RunFfmpegWithStdin
+//
+// Lanza ffmpeg con los cuadros por STDIN (-i -) y la salida a un archivo de
+// log. NO se escribe ningun archivo de video crudo: el pipe es la unica via.
+// Motivo medido (4-nov-2026, cam0): el volcado escribia un .uyvy de ~7,4 GB y
+// Windows Defender lo bloqueaba recien escrito; ffmpeg devolvia rc=-13 (EACCES,
+// "Error opening input: Permission denied") incluso con 4 reintentos de 2 s y
+// habia que convertir el crudo a mano. Ademas eran ~15 GB de escritura+lectura
+// por carrera.
+//
+// argsSinInput: linea de ffmpeg SIN el archivo de entrada. En el lugar de la
+// entrada lleva el marcador {IN}, que se reemplaza por "-i -" (asi el filtro de
+// cajas queda DESPUES de la entrada, como exige libavfilter). Si el marcador no
+// esta, "-i -" se agrega al final.
+// cuadros: punteros a los bloques de bytes, en orden. Se escriben tal cual.
+// Devuelve el codigo de salida de ffmpeg (-1 si no arranco).
+// ----------------------------------------------------------------------------
+int RunFfmpegWithStdin(const std::string& argsSinInput,
+                       const std::vector<const std::vector<unsigned char>*>& cuadros,
+                       const std::string& logf, std::string& salida) {
+    std::string cmdLine = argsSinInput;
+    const std::string marcador = "{IN}";
+    const size_t pos = cmdLine.find(marcador);
+    if (pos != std::string::npos) {
+        cmdLine.replace(pos, marcador.size(), "-i -");
+    } else {
+        cmdLine += " -i -";
+    }
+
     SECURITY_ATTRIBUTES sa{};
     sa.nLength = sizeof(sa);
     sa.bInheritHandle = TRUE;
+
+    HANDLE hRead = INVALID_HANDLE_VALUE;
+    HANDLE hWrite = INVALID_HANDLE_VALUE;
+    if (!CreatePipe(&hRead, &hWrite, &sa, 0)) {
+        salida = "CreatePipe fallo, error " + std::to_string(GetLastError());
+        return -1;
+    }
+    // El hijo hereda SOLO el extremo de lectura (su stdin). Si heredara tambien
+    // el de escritura, el pipe nunca veria EOF al cerrar el nuestro y ffmpeg se
+    // quedaria esperando cuadros para siempre (el volcado se colgaria en vez de
+    // cerrar el MP4).
+    SetHandleInformation(hWrite, HANDLE_FLAG_INHERIT, 0);
 
     HANDLE hLog = CreateFileA(logf.c_str(), GENERIC_WRITE, FILE_SHARE_READ, &sa,
                               CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -1080,20 +1063,60 @@ int RunProcessHidden(const std::string& cmdLine, const std::string& logf, std::s
     si.cb = sizeof(si);
     si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
     si.wShowWindow = SW_HIDE;
+    si.hStdInput  = hRead;
     si.hStdOutput = (hLog != INVALID_HANDLE_VALUE) ? hLog : GetStdHandle(STD_OUTPUT_HANDLE);
     si.hStdError  = (hLog != INVALID_HANDLE_VALUE) ? hLog : GetStdHandle(STD_ERROR_HANDLE);
-    si.hStdInput  = GetStdHandle(STD_INPUT_HANDLE);
 
     PROCESS_INFORMATION pi{};
     std::vector<char> buf(cmdLine.begin(), cmdLine.end());
     buf.push_back('\0');
 
     int rc = -1;
+    bool cortado = false;
+    DWORD errWrite = 0;
+    long long escritos = 0;
+
     const BOOL ok = CreateProcessA(nullptr, buf.data(), nullptr, nullptr, TRUE,
                                    CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
     if (!ok) {
         salida = "CreateProcess fallo, error " + std::to_string(GetLastError());
+        // CreateProcess fallo: nadie va a leer el pipe, se cierran los dos
+        // extremos para no dejar handles colgados.
+        CloseHandle(hWrite);
+        CloseHandle(hRead);
     } else {
+        // El padre ya no necesita el extremo de lectura: lo tiene el hijo.
+        CloseHandle(hRead);
+
+        // Escritura en el hilo que llama, en trozos: si ffmpeg muere, WriteFile
+        // falla (ERROR_BROKEN_PIPE / ERROR_NO_DATA) y se corta en el acto en vez
+        // de quedarse esperando. Nadie lee el buffer despues de esto.
+        for (size_t i = 0; i < cuadros.size() && !cortado; ++i) {
+            const std::vector<unsigned char>* c = cuadros[i];
+            if (c == nullptr || c->empty()) {
+                continue;
+            }
+            const unsigned char* p = c->data();
+            size_t quedan = c->size();
+            while (quedan > 0) {
+                const DWORD trozo = static_cast<DWORD>(quedan > (1024u * 1024u)
+                                                           ? (1024u * 1024u)
+                                                           : quedan);
+                DWORD n = 0;
+                if (!WriteFile(hWrite, p, trozo, &n, nullptr) || n == 0) {
+                    errWrite = GetLastError();
+                    cortado = true;
+                    break;
+                }
+                p += n;
+                quedan -= n;
+                escritos += static_cast<long long>(n);
+            }
+        }
+        // Cerrar el extremo de escritura es el EOF que ffmpeg necesita para
+        // terminar de comprimir y cerrar el MP4.
+        CloseHandle(hWrite);
+
         // 10 min de techo: una carrera de 120 s son 3600 cuadros a comprimir.
         WaitForSingleObject(pi.hProcess, 600000);
         DWORD code = 1;
@@ -1107,18 +1130,31 @@ int RunProcessHidden(const std::string& cmdLine, const std::string& logf, std::s
     }
 
     FILE* f = nullptr;
+    std::string log;
     if (fopen_s(&f, logf.c_str(), "rb") == 0 && f != nullptr) {
         char tmp[512];
         const size_t n = fread(tmp, 1, sizeof(tmp) - 1, f);
         tmp[n] = '\0';
-        salida += tmp;
+        log = tmp;
         fclose(f);
     }
-
-    for (size_t i = 0; i < salida.size(); ++i) {
-        if (salida[i] == '\n' || salida[i] == '\r' || salida[i] == '\t') salida[i] = ' ';
+    for (size_t i = 0; i < log.size(); ++i) {
+        if (log[i] == '\n' || log[i] == '\r' || log[i] == '\t') log[i] = ' ';
     }
-    while (!salida.empty() && salida.back() == ' ') salida.pop_back();
+    while (!log.empty() && log.back() == ' ') log.pop_back();
+
+    if (cortado) {
+        // ffmpeg murio a mitad del volcado: se reporta el error de escritura
+        // junto con lo que haya dejado en el log (no se reintenta a ciegas).
+        salida = "escritura al stdin de ffmpeg cortada (error " + std::to_string(errWrite) +
+                 ", " + std::to_string(escritos) + " bytes escritos)" +
+                 (log.empty() ? std::string() : (". Salida: " + log));
+        if (rc == 0) {
+            rc = -1;    // ffmpeg "termino bien" pero no recibio todo: MP4 incompleto
+        }
+    } else {
+        salida += log;
+    }
     return rc;
 }
 
@@ -1306,7 +1342,6 @@ void RankingMeasure::DumpRace() {
         }
 
         const std::string stamp = ClipStamp();
-        const std::string raw = m_config.saveDir + "\\_race_cam" + std::to_string(cam) + ".uyvy";
         const std::string mp4 = m_config.saveDir + "\\carrera_cam" + std::to_string(cam) +
                                 "_" + stamp + ".mp4";
         // .ass de las cajas (draw_boxes): se escribe junto al MP4 y se borra si
@@ -1334,11 +1369,12 @@ void RankingMeasure::DumpRace() {
                      " cuadros=" + std::to_string(cuadros.size()) + " (" +
                      std::to_string(primero) + ".." + std::to_string(ultimo) + " ms) -> " + mp4);
 
-        // El volcado del crudo (GB a disco) y ffmpeg van en un hilo APARTE: el
-        // hilo medidor y el de captura no esperan. El hilo no toca `this`.
+        // Los cuadros van a ffmpeg por un PIPE (stdin) dentro de un hilo APARTE:
+        // el hilo medidor y el de captura no esperan. No se escribe ningun
+        // archivo crudo. El hilo no toca `this`.
         try {
             std::thread(&RankingMeasure::RaceDumpWorker, std::move(cuadros), cam, w, h,
-                        m_config.saveFps, m_config.drawBoxes, ffmpeg, raw, mp4, ass, logf,
+                        m_config.saveFps, m_config.drawBoxes, ffmpeg, mp4, ass, logf,
                         gate).detach();
         } catch (...) {
             std::lock_guard<std::mutex> lock(gate->m);
@@ -1352,15 +1388,16 @@ void RankingMeasure::DumpRace() {
 
 void RankingMeasure::RaceDumpWorker(std::deque<RaceFrame> cuadros, int camera,
                                     unsigned int width, unsigned int height, int fps,
-                                    bool drawBoxes, std::string ffmpeg, std::string raw,
+                                    bool drawBoxes, std::string ffmpeg,
                                     std::string mp4, std::string ass, std::string logf,
                                     std::shared_ptr<RaceDumpGate> gate) {
     const size_t totalCuadros = cuadros.size();
 
-    // Cajas del detector (draw_boxes): se arman ANTES de volcar el crudo, porque
-    // el bucle de abajo va liberando cada cuadro. Tiempos relativos al PRIMER
-    // cuadro del video (el MP4 arranca ahi). Con draw_boxes=false no se llama a
-    // nada de esto y el comando de ffmpeg no cambia.
+    // Cajas del detector (draw_boxes): se arman ANTES de mandar los cuadros a
+    // ffmpeg, y el .ass queda escrito antes de lanzar el proceso. Tiempos
+    // relativos al PRIMER cuadro del video (el MP4 arranca ahi). Con
+    // draw_boxes=false no se llama a nada de esto y el comando de ffmpeg no
+    // cambia (AssFilterArgs("") devuelve vacio).
     if (drawBoxes && !ass.empty() && width > 0 && height > 0 && !cuadros.empty()) {
         const int fpsSeguro = (fps > 0) ? fps : kRaceFps;
         const int64_t primeroMs = cuadros.front().epochMs;
@@ -1397,58 +1434,41 @@ void RankingMeasure::RaceDumpWorker(std::deque<RaceFrame> cuadros, int camera,
         }
     }
 
-    // 1. Volcado del crudo: un solo archivo con los cuadros seguidos. Se va
-    //    liberando cada cuadro a medida que se escribe (14 GB en el peor caso).
+    // 1. Nada de archivo crudo: se pasan los punteros a los cuadros y
+    //    RunFfmpegWithStdin los escribe por el pipe. El deque NO se libera
+    //    mientras dura el volcado: el reintento sin cajas necesita los mismos
+    //    bytes, y la memoria ya estaba reservada por el anillo (con 60 s de
+    //    1080p UYVY son los mismos ~7,4 GB de antes, sin la copia a disco).
+    std::vector<const std::vector<unsigned char>*> lote;
+    lote.reserve(cuadros.size());
     long long escritos = 0;
-    {
-        FILE* f = nullptr;
-        if (fopen_s(&f, raw.c_str(), "wb") == 0 && f != nullptr) {
-            while (!cuadros.empty()) {
-                const std::vector<unsigned char>& datos = cuadros.front().datos;
-                if (!datos.empty()) {
-                    const size_t n = fwrite(datos.data(), 1, datos.size(), f);
-                    escritos += static_cast<long long>(n);
-                }
-                cuadros.pop_front();
-            }
-            fclose(f);
-        } else {
-            Logger::Warning("RankingMeasure: no se pudo crear " + raw +
-                            " para la carrera cam" + std::to_string(camera));
+    for (const auto& cuadro : cuadros) {
+        if (cuadro.datos.empty()) {
+            continue;
         }
+        lote.push_back(&cuadro.datos);
+        escritos += static_cast<long long>(cuadro.datos.size());
     }
 
     bool mp4Ok = false;
-    if (escritos > 0) {
+    if (!lote.empty()) {
+        // {IN} lo cambia el helper por "-i -": los cuadros llegan por stdin.
         const std::string cmdLine = "\"" + ffmpeg + "\" -y -v error -f rawvideo -pix_fmt uyvy422 -s " +
                                     std::to_string(width) + "x" + std::to_string(height) +
                                     " -framerate " + std::to_string(fps) +
-                                    " -i \"" + raw + "\" -c:v libx264 -pix_fmt yuv420p -crf 20" +
-                                    AssFilterArgs(ass) + " \"" + mp4 + "\"";
+                                    " {IN}" + AssFilterArgs(ass) +
+                                    " -c:v libx264 -pix_fmt yuv420p -crf 20 \"" + mp4 + "\"";
         // Mismo comando sin el filtro: red por si el ffmpeg no trae libass.
         const std::string cmdSinCajas = "\"" + ffmpeg +
                                         "\" -y -v error -f rawvideo -pix_fmt uyvy422 -s " +
                                         std::to_string(width) + "x" + std::to_string(height) +
                                         " -framerate " + std::to_string(fps) +
-                                        " -i \"" + raw +
-                                        "\" -c:v libx264 -pix_fmt yuv420p -crf 20 \"" + mp4 + "\"";
-        // ffmpeg puede no poder abrir el crudo recien escrito: Windows Defender
-        // lo escanea y lo deja bloqueado un momento (medido 4-nov: cam1 y cam2
-        // dieron "Permission denied" con el archivo completo y cerrado). Se
-        // reintenta con una pausa corta.
+                                        " {IN} -c:v libx264 -pix_fmt yuv420p -crf 20 \"" + mp4 + "\"";
+        // Sin reintentos "por Defender": ya no hay archivo crudo recien escrito
+        // que bloquear (era la causa de rc=-13 EACCES). Si ffmpeg falla, el
+        // helper devuelve rc + el log y se rehace SIN cajas si habia .ass.
         std::string salida;
-        int rc = -1;
-        for (int intento = 0; intento < 4; ++intento) {
-            salida.clear();
-            rc = RunProcessHidden(cmdLine, logf, salida);
-            if (rc == 0) {
-                break;
-            }
-            Logger::Warning("RankingMeasure: carrera cam" + std::to_string(camera) +
-                            " ffmpeg rc=" + std::to_string(rc) + " (intento " +
-                            std::to_string(intento + 1) + " de 4); reintento en 2 s");
-            std::this_thread::sleep_for(std::chrono::milliseconds(2000));
-        }
+        int rc = RunFfmpegWithStdin(cmdLine, lote, logf, salida);
         // Si el ffmpeg del equipo no trae el filtro "ass" (libass), el MP4 no se
         // produce: las cajas son diagnostico, se rehace SIN cajas.
         if (rc != 0 && !ass.empty()) {
@@ -1456,11 +1476,10 @@ void RankingMeasure::RaceDumpWorker(std::deque<RaceFrame> cuadros, int camera,
                             std::to_string(camera) + " (rc=" + std::to_string(rc) +
                             "); se rehace SIN cajas");
             salida.clear();
-            rc = RunProcessHidden(cmdSinCajas, logf, salida);
+            rc = RunFfmpegWithStdin(cmdSinCajas, lote, logf, salida);
         }
         mp4Ok = (rc == 0);
         if (mp4Ok) {
-            DeleteFileA(raw.c_str());     // el crudo solo servia para armar el MP4
             DeleteFileA(logf.c_str());
             if (!ass.empty()) {
                 DeleteFileA(ass.c_str()); // ya quedo quemado en el MP4
@@ -1468,7 +1487,7 @@ void RankingMeasure::RaceDumpWorker(std::deque<RaceFrame> cuadros, int camera,
         } else {
             Logger::Warning("RankingMeasure: ffmpeg de la carrera cam" +
                             std::to_string(camera) + " fallo (rc=" + std::to_string(rc) +
-                            ", crudo=" + std::to_string(escritos) + " bytes, cuadros=" +
+                            ", bytes=" + std::to_string(escritos) + ", cuadros=" +
                             std::to_string(totalCuadros) + "). Comando: " + cmdLine +
                             " . Salida: " + (salida.empty() ? std::string("(vacia)") : salida));
         }
