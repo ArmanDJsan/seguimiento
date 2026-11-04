@@ -1583,7 +1583,9 @@ bool RunRunningMode(bool serviceMode = false) {
     Logger::Info("====================================");
     
     bool running = true;
-    if (controlApiFailed) {
+    // Solo en modo servicio el fallo de la API impide operar (no hay teclado).
+    // En modo normal se avisa y se sigue con el menu: la API es opcional.
+    if (controlApiFailed && serviceMode) {
         running = false;
     }
     auto lastStatusLog = std::chrono::steady_clock::now();

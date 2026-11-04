@@ -296,7 +296,7 @@
     "description": "PTZ tracking control parameters - thresholds in normalized coordinates (0.0-1.0)"
   },
   "control_api": {
-    "enabled": true,
+    "enabled": false,
     "port": 8090,
     "api_key": "CAMBIAR",
     "arm_camera": 1,
