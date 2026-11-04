@@ -52,6 +52,10 @@ std::atomic<RankingMeasure*> g_attachedCoordinator{nullptr};
 // Initialize() la usa antes de su definicion.
 std::string ExpandEnvVars(const std::string& in);
 
+// Definida mas abajo en este mismo namespace anonimo; se declara aca porque
+// ClipStop() (que esta antes) la usa para el reintento sin cajas.
+int RunProcessHidden(const std::string& cmdLine, const std::string& logf, std::string& salida);
+
 } // namespace
 
 // ============================================================================
@@ -317,7 +321,12 @@ bool RankingMeasure::Initialize(const RankingPublisherConfig& pubConfig,
                          " s desde la compuerta; tope del anillo " +
                          std::to_string(m_config.raceMaxSeconds) +
                          " s x 30 fps por camara, se descarta lo mas viejo)")
-                      : std::string(" (no se reserva RAM de carrera)")));
+                      : std::string(" (no se reserva RAM de carrera)")) +
+                 ", draw_boxes=" + (m_config.drawBoxes ? "true" : "false") +
+                 (m_config.drawBoxes
+                      ? " (se queman las cajas del detector en los MP4 desde las "
+                        "detecciones guardadas, al comprimir)"
+                      : " (MP4 sin cajas, igual que siempre)"));
     return true;
 }
 
@@ -530,15 +539,195 @@ std::string ClipPad4(int n) {
     return s;
 }
 
+// ----------------------------------------------------------------------------
+// Cajas del detector quemadas en el MP4 (draw_boxes)
+//
+// Nada de esto dibuja en la captura ni en el zero-copy: el MP4 se arma desde el
+// crudo UYVY y las detecciones YA GUARDADAS, y las cajas entran como subtitulos
+// ASS que ffmpeg quema al comprimir (-vf ass=...). Con draw_boxes=false no se
+// llama a ninguna de estas funciones y el comando de ffmpeg no cambia.
+// ----------------------------------------------------------------------------
+
+// Una caja a dibujar: centro + tamano en PIXELES del cuadro (no normalizado).
+struct AssBox {
+    float x = 0.0f;
+    float y = 0.0f;
+    float w = 0.0f;
+    float h = 0.0f;
+    int   cls = 0;
+    float conf = 0.0f;
+};
+
+// Las cajas de UN cuadro, con el instante RELATIVO al primer cuadro del video.
+struct AssFrame {
+    int64_t tMs = 0;
+    std::vector<AssBox> boxes;
+};
+
+// Techo de cajas por cuadro: una salida patologica del modelo (miles de cajas)
+// no puede inflar el .ass ni la RAM del anillo de la carrera.
+constexpr size_t kMaxCajasPorCuadro = 64;
+
+int AssRound(float v) {
+    return static_cast<int>((v >= 0.0f) ? (v + 0.5f) : (v - 0.5f));
+}
+
+// Tiempo de ASS: h:mm:ss.cc (centesimas). Ejemplo: 0:00:01.47
+std::string AssTime(int64_t ms) {
+    if (ms < 0) {
+        ms = 0;
+    }
+    const int64_t cs = ms / 10;
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%lld:%02lld:%02lld.%02lld",
+                  static_cast<long long>(cs / 360000),
+                  static_cast<long long>((cs / 6000) % 60),
+                  static_cast<long long>((cs / 100) % 60),
+                  static_cast<long long>(cs % 100));
+    return std::string(buf);
+}
+
+// Escribe el .ass (PlayResX/Y = tamano real del cuadro, un estilo "caja" y un
+// Dialogue de 33 ms por caja con el rectangulo dibujado por \p1 y la etiqueta
+// "B<clase>" arriba a la izquierda). Devuelve false si no pudo escribirlo.
+//
+// El rectangulo se dibuja como CONTORNO (4 barras finas) y no como poligono
+// relleno: una caja rellena taparia justo la esfera que se quiere mirar.
+bool WriteAssFile(const std::string& path, unsigned int width, unsigned int height,
+                  const std::vector<AssFrame>& frames) {
+    if (path.empty() || width == 0 || height == 0) {
+        return false;
+    }
+    FILE* f = nullptr;
+    if (fopen_s(&f, path.c_str(), "wb") != 0 || f == nullptr) {
+        return false;
+    }
+
+    std::ostringstream oss;
+    oss << "[Script Info]\r\n"
+           "ScriptType: v4.00+\r\n"
+           "PlayResX: " << width << "\r\n"
+           "PlayResY: " << height << "\r\n"
+           "WrapStyle: 2\r\n"
+           "ScaledBorderAndShadow: yes\r\n"
+           "\r\n[V4+ Styles]\r\n"
+           "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
+           "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, "
+           "ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, "
+           "MarginL, MarginR, MarginV, Encoding\r\n"
+           "Style: caja,Arial,28,&H0000FFFF,&H0000FFFF,&H00000000,&H00000000,"
+           "0,0,0,0,100,100,0,0,1,3,0,7,0,0,0,1\r\n"
+           "\r\n[Events]\r\n"
+           "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, "
+           "Effect, Text\r\n";
+
+    const int wMax = static_cast<int>(width) - 1;
+    const int hMax = static_cast<int>(height) - 1;
+    for (const auto& fr : frames) {
+        const std::string ini = AssTime(fr.tMs);
+        const std::string fin = AssTime(fr.tMs + 33);
+        for (const auto& b : fr.boxes) {
+            // x,y es el CENTRO de la caja (asi lo devuelve el motor); el
+            // rectangulo se arma con medio ancho/alto a cada lado.
+            int x0 = AssRound(b.x - b.w * 0.5f);
+            int y0 = AssRound(b.y - b.h * 0.5f);
+            int x1 = AssRound(b.x + b.w * 0.5f);
+            int y1 = AssRound(b.y + b.h * 0.5f);
+            if (x0 < 0) x0 = 0;
+            if (y0 < 0) y0 = 0;
+            if (x1 > wMax) x1 = wMax;
+            if (y1 > hMax) y1 = hMax;
+            if (x1 <= x0 || y1 <= y0) {
+                continue;   // caja degenerada o fuera del cuadro
+            }
+            const int bw = x1 - x0;
+            const int bh = y1 - y0;
+            // Grosor del contorno: proporcional al alto del cuadro (4 px en
+            // 1080p, 2 px en 720p), achicado en cajas chicas para que las cuatro
+            // barras entren sin taparse entre si.
+            int t = static_cast<int>(height) / 270;
+            if (t < 2) t = 2;
+            if (t > 6) t = 6;
+            const int menor = (bw < bh) ? bw : bh;
+            if (menor < 4 * t) {
+                t = menor / 4;
+                if (t < 1) t = 1;
+            }
+
+            // 1) Contorno: 4 barras (arriba, abajo, izquierda, derecha).
+            oss << "Dialogue: 0," << ini << "," << fin << ",caja,,0,0,0,,"
+                << "{\\an7\\pos(" << x0 << "," << y0 << ")\\p1\\bord0\\shad0"
+                << "\\1c&H0000FFFF&}"
+                << "m 0 0 l " << bw << " 0 l " << bw << " " << t << " l 0 " << t
+                << "m 0 " << (bh - t) << " l " << bw << " " << (bh - t) << " l " << bw
+                << " " << bh << " l 0 " << bh
+                << "m 0 " << t << " l " << t << " " << t << " l " << t << " " << (bh - t)
+                << " l 0 " << (bh - t)
+                << "m " << (bw - t) << " " << t << " l " << bw << " " << t << " l " << bw
+                << " " << (bh - t) << " l " << (bw - t) << " " << (bh - t) << "\r\n";
+
+            // 2) Etiqueta "B<clase>" justo arriba de la caja, alineada a su
+            // izquierda (\an1 = el texto termina en ese punto). Si la caja esta
+            // pegada al borde de arriba, la etiqueta se queda dentro del cuadro.
+            int etiquetaY = y0 - 2;
+            if (etiquetaY < 30) etiquetaY = 30;
+            oss << "Dialogue: 0," << ini << "," << fin << ",caja,,0,0,0,,"
+                << "{\\an1\\pos(" << x0 << "," << etiquetaY
+                << ")\\bord3\\shad0\\1c&H0000FFFF&}B" << b.cls << "\r\n";
+        }
+    }
+
+    const std::string texto = oss.str();
+    const size_t escritos = fwrite(texto.data(), 1, texto.size(), f);
+    fclose(f);
+    if (escritos != texto.size()) {
+        DeleteFileA(path.c_str());
+        return false;
+    }
+    return true;
+}
+
+// Ruta apta para el filtro "ass" de ffmpeg: barras normales (Windows las
+// acepta) y los ':' escapados, porque libavfilter usa ':' como separador de
+// opciones y '\\' como escape.
+std::string AssFilterPath(const std::string& path) {
+    std::string out;
+    out.reserve(path.size() + 8);
+    for (size_t i = 0; i < path.size(); ++i) {
+        const char c = path[i];
+        if (c == '\\') {
+            out += '/';
+        } else if (c == ':') {
+            out += "\\:";
+        } else {
+            out += c;
+        }
+    }
+    return out;
+}
+
+// Trozo de linea de comando que quema el .ass. Vacio si no hay .ass: asi el
+// comando de ffmpeg con draw_boxes=false queda caracter por caracter igual.
+std::string AssFilterArgs(const std::string& assPath) {
+    if (assPath.empty()) {
+        return std::string();
+    }
+    return " -vf \"ass='" + AssFilterPath(assPath) + "'\"";
+}
+
 } // namespace
 
-void RankingMeasure::ClipStartLocked(int punto, unsigned int width, unsigned int height) {
+void RankingMeasure::ClipStartLocked(int punto, unsigned int width, unsigned int height,
+                                     int64_t epochMs) {
     m_clipRecording = false;
     m_clipFailed = false;
     m_clipFrames = 0;
     m_clipPunto = punto;
     m_clipW = width;
     m_clipH = height;
+    // Referencia de los tiempos del .ass de las cajas: este es el primer cuadro
+    // del MP4 (el que abre el clip).
+    m_clipFirstMs = epochMs;
     m_clipDir.clear();
 
     // ffmpeg ya se probo en Initialize: aca no se arranca ningun proceso.
@@ -607,6 +796,8 @@ void RankingMeasure::ClipStop() {
     std::vector<unsigned char> buffer;
     int cuadros = 0;
     int punto = 0;
+    int cam = -1;
+    int64_t firstMs = 0;
     unsigned int clipW = 0;
     unsigned int clipH = 0;
     {
@@ -618,6 +809,8 @@ void RankingMeasure::ClipStop() {
         cuadros = m_clipFrames;
         m_clipFrames = 0;
         punto = m_clipPunto;
+        cam = m_clipCamera;
+        firstMs = m_clipFirstMs;
         clipW = m_clipW;
         clipH = m_clipH;
         dir = m_clipDir;
@@ -655,17 +848,81 @@ void RankingMeasure::ClipStop() {
         }
     }
 
+    // Cajas del detector (draw_boxes): se arman AHORA, junto al crudo y desde la
+    // historia de detecciones de ESA camara (misma ventana que el clip). Los
+    // tiempos van relativos al PRIMER cuadro del clip: el MP4 arranca ahi y el
+    // crudo no tiene marcas de tiempo, la unica referencia valida es esa.
+    // Con draw_boxes=false este bloque no corre y no se crea ningun .ass.
+    std::string ass;
+    if (m_config.drawBoxes && cam >= 0 && cam < kMaxCameras && firstMs > 0 &&
+        clipW > 0 && clipH > 0) {
+        const int fps = (m_config.saveFps > 0) ? m_config.saveFps : 30;
+        const int64_t durMs = static_cast<int64_t>(cuadros) * 1000 / fps;
+        std::vector<FrameSample> muestras;
+        SnapshotHistory(cam, firstMs, firstMs + durMs + 100, muestras);
+
+        std::vector<AssFrame> cajas;
+        cajas.reserve(muestras.size());
+        for (const auto& m : muestras) {
+            int64_t t = m.epochMs - firstMs;
+            if (t < 0) t = 0;
+            if (t > durMs) t = durMs;    // nunca mas alla del ultimo cuadro
+            AssFrame fr;
+            fr.tMs = t;
+            fr.boxes.reserve(m.dets.size());
+            for (const auto& d : m.dets) {
+                if (d.w <= 0.0f || d.h <= 0.0f) {
+                    continue;
+                }
+                AssBox b;
+                b.x = d.x;      // ya vienen en PIXELES (OnDetections convierte)
+                b.y = d.y;
+                b.w = d.w;
+                b.h = d.h;
+                b.cls = d.ballID;
+                b.conf = d.conf;
+                fr.boxes.push_back(b);
+            }
+            if (!fr.boxes.empty()) {
+                cajas.push_back(std::move(fr));
+            }
+        }
+
+        if (!cajas.empty()) {
+            const std::string assPath = dir + "\\clip.ass";
+            if (WriteAssFile(assPath, clipW, clipH, cajas)) {
+                ass = assPath;
+            } else {
+                Logger::Warning("RankingMeasure: no se pudo escribir el .ass de cajas en " +
+                                assPath + "; el clip se comprime sin cajas");
+            }
+        } else {
+            Logger::Debug("RankingMeasure: clip punto=" + std::to_string(punto) +
+                          " sin detecciones en la ventana; se comprime sin cajas");
+        }
+    }
+
     const std::string ffmpeg = m_clipFfmpeg.empty() ? ExpandEnvVars(m_config.ffmpegCmd) : m_clipFfmpeg;
+    // Con draw_boxes=false AssFilterArgs("") devuelve vacio: la linea de comando
+    // queda exactamente igual que antes de este cambio.
     const std::string cmdLine = "\"" + ffmpeg + "\" -y -v error -f rawvideo -pix_fmt uyvy422 -s " +
                                 std::to_string(clipW) + "x" + std::to_string(clipH) +
                                 " -framerate " + std::to_string(m_config.saveFps) +
-                                " -i \"" + raw + "\" -c:v libx264 -pix_fmt yuv420p -crf 20 \"" + mp4 + "\"";
+                                " -i \"" + raw + "\" -c:v libx264 -pix_fmt yuv420p -crf 20" +
+                                AssFilterArgs(ass) + " \"" + mp4 + "\"";
+    // Mismo comando sin el filtro: solo se usa como red si el ffmpeg del equipo
+    // no trae el filtro "ass" (libass), para no perder el MP4 por las cajas.
+    const std::string cmdSinCajas = "\"" + ffmpeg + "\" -y -v error -f rawvideo -pix_fmt uyvy422 -s " +
+                                    std::to_string(clipW) + "x" + std::to_string(clipH) +
+                                    " -framerate " + std::to_string(m_config.saveFps) +
+                                    " -i \"" + raw + "\" -c:v libx264 -pix_fmt yuv420p -crf 20 \"" +
+                                    mp4 + "\"";
 
     // El MP4 se arma en un hilo APARTE. ffmpeg tarda ~1 s y bloqueaba el hilo
     // medidor: la medicion siguiente arrancaba tarde y, como el anillo guarda 8
     // cuadros, los de su ventana ya no existian (medido 3-nov-2026: 3 de 9
     // puntos juntaron 1-9 cuadros y el clip salio vacio).
-    std::thread([cmdLine, raw, mp4, logf, crudoBytes, cuadros, punto]() {
+    std::thread([cmdLine, cmdSinCajas, raw, mp4, logf, ass, crudoBytes, cuadros, punto]() {
         // Se llama a ffmpeg DIRECTO con CreateProcess, sin cmd.exe: el shell era
         // el que fallaba ("El sistema no puede encontrar la ruta") aunque la ruta
         // fuese correcta. La salida de ffmpeg va al archivo de log.
@@ -724,10 +981,24 @@ void RankingMeasure::ClipStop() {
         }
         while (!salida.empty() && salida.back() == ' ') salida.pop_back();
 
+        // Si el ffmpeg del equipo no trae el filtro "ass" (libass) el MP4 no se
+        // produce. Las cajas son diagnostico: se rehace SIN cajas antes que
+        // quedarse sin la evidencia del punto.
+        if (rc != 0 && !ass.empty()) {
+            Logger::Warning("RankingMeasure: ffmpeg con las cajas fallo (rc=" +
+                            std::to_string(rc) + "); se rehace el clip punto=" +
+                            std::to_string(punto) + " SIN cajas");
+            salida.clear();
+            rc = RunProcessHidden(cmdSinCajas, logf, salida);
+        }
+
         const bool mp4Ok = (rc == 0);
         if (mp4Ok) {
             DeleteFileA(raw.c_str());
             DeleteFileA(logf.c_str());
+            if (!ass.empty()) {
+                DeleteFileA(ass.c_str());   // ya quedo quemado en el MP4
+            }
         } else {
             Logger::Warning("RankingMeasure: ffmpeg fallo (rc=" + std::to_string(rc) +
                             ", crudo=" + std::to_string(crudoBytes) + " bytes, cuadros=" +
@@ -822,7 +1093,8 @@ int RunProcessHidden(const std::string& cmdLine, const std::string& logf, std::s
 } // namespace
 
 void RankingMeasure::RacePush(int camera, const void* devicePtr, size_t bytes,
-                              int64_t epochMs, unsigned int width, unsigned int height) {
+                              int64_t epochMs, unsigned int width, unsigned int height,
+                              const std::vector<BallDetection>& dets) {
     // Doble chequeo: con save_race=false no se reserva ni un byte ni se copia
     // nada (el primer chequeo ya esta en OnDetections, antes de llamar aca), y
     // con la carrera sin arrancar (m_raceActiva=false) tampoco: el anillo se
@@ -866,6 +1138,29 @@ void RankingMeasure::RacePush(int camera, const void* devicePtr, size_t bytes,
     RaceFrame f;
     f.epochMs = epochMs;
     f.datos.assign(host.begin(), host.end());
+
+    // Cajas para quemar en el MP4 de la carrera (draw_boxes). Se guardan en
+    // PIXELES y tal como las dio el modelo en este cuadro (sin dedupe: es lo que
+    // el modelo vio). Con draw_boxes=false no se guarda ni una caja.
+    if (m_config.drawBoxes && width > 0 && height > 0 && !dets.empty()) {
+        const size_t n = (std::min)(dets.size(), kMaxCajasPorCuadro);
+        const float W = static_cast<float>(width);
+        const float H = static_cast<float>(height);
+        f.dets.reserve(n);
+        for (size_t i = 0; i < n; ++i) {
+            if (dets[i].width <= 0.0f || dets[i].height <= 0.0f) {
+                continue;
+            }
+            FrameDetection d;
+            d.x = dets[i].x * W;
+            d.y = dets[i].y * H;
+            d.w = dets[i].width * W;
+            d.h = dets[i].height * H;
+            d.ballID = dets[i].ballID;
+            d.conf = dets[i].confidence;
+            f.dets.push_back(d);
+        }
+    }
 
     {
         std::lock_guard<std::mutex> lock(m_raceMutex);
@@ -982,6 +1277,13 @@ void RankingMeasure::DumpRace() {
         const std::string raw = m_config.saveDir + "\\_race_cam" + std::to_string(cam) + ".uyvy";
         const std::string mp4 = m_config.saveDir + "\\carrera_cam" + std::to_string(cam) +
                                 "_" + stamp + ".mp4";
+        // .ass de las cajas (draw_boxes): se escribe junto al MP4 y se borra si
+        // el MP4 sale bien. Con draw_boxes=false la ruta queda vacia y el
+        // comando de ffmpeg no cambia.
+        const std::string ass = m_config.drawBoxes
+                                    ? (m_config.saveDir + "\\carrera_cam" + std::to_string(cam) +
+                                       "_" + stamp + ".ass")
+                                    : std::string();
         const std::string logf = m_config.saveDir + "\\carrera_cam" + std::to_string(cam) +
                                  "_" + stamp + ".log";
         const std::string ffmpeg = m_clipFfmpeg.empty() ? ExpandEnvVars(m_config.ffmpegCmd)
@@ -1004,7 +1306,8 @@ void RankingMeasure::DumpRace() {
         // hilo medidor y el de captura no esperan. El hilo no toca `this`.
         try {
             std::thread(&RankingMeasure::RaceDumpWorker, std::move(cuadros), cam, w, h,
-                        m_config.saveFps, ffmpeg, raw, mp4, logf, gate).detach();
+                        m_config.saveFps, m_config.drawBoxes, ffmpeg, raw, mp4, ass, logf,
+                        gate).detach();
         } catch (...) {
             std::lock_guard<std::mutex> lock(gate->m);
             --gate->inFlight;
@@ -1017,10 +1320,50 @@ void RankingMeasure::DumpRace() {
 
 void RankingMeasure::RaceDumpWorker(std::deque<RaceFrame> cuadros, int camera,
                                     unsigned int width, unsigned int height, int fps,
-                                    std::string ffmpeg, std::string raw,
-                                    std::string mp4, std::string logf,
+                                    bool drawBoxes, std::string ffmpeg, std::string raw,
+                                    std::string mp4, std::string ass, std::string logf,
                                     std::shared_ptr<RaceDumpGate> gate) {
     const size_t totalCuadros = cuadros.size();
+
+    // Cajas del detector (draw_boxes): se arman ANTES de volcar el crudo, porque
+    // el bucle de abajo va liberando cada cuadro. Tiempos relativos al PRIMER
+    // cuadro del video (el MP4 arranca ahi). Con draw_boxes=false no se llama a
+    // nada de esto y el comando de ffmpeg no cambia.
+    if (drawBoxes && !ass.empty() && width > 0 && height > 0 && !cuadros.empty()) {
+        const int fpsSeguro = (fps > 0) ? fps : kRaceFps;
+        const int64_t primeroMs = cuadros.front().epochMs;
+        const int64_t durMs = static_cast<int64_t>(cuadros.size()) * 1000 / fpsSeguro;
+
+        std::vector<AssFrame> cajas;
+        cajas.reserve(cuadros.size());
+        for (const auto& cuadro : cuadros) {
+            if (cuadro.dets.empty()) {
+                continue;
+            }
+            int64_t t = cuadro.epochMs - primeroMs;
+            if (t < 0) t = 0;
+            if (t > durMs) t = durMs;
+            AssFrame fr;
+            fr.tMs = t;
+            fr.boxes.reserve(cuadro.dets.size());
+            for (const auto& d : cuadro.dets) {
+                AssBox b;
+                b.x = d.x;      // ya vienen en PIXELES (los convierte RacePush)
+                b.y = d.y;
+                b.w = d.w;
+                b.h = d.h;
+                b.cls = d.ballID;
+                b.conf = d.conf;
+                fr.boxes.push_back(b);
+            }
+            cajas.push_back(std::move(fr));
+        }
+        if (!cajas.empty() && !WriteAssFile(ass, width, height, cajas)) {
+            Logger::Warning("RankingMeasure: no se pudo escribir el .ass de cajas de la carrera cam" +
+                            std::to_string(camera) + " (" + ass + "); se comprime sin cajas");
+            ass.clear();    // sin .ass no se agrega el filtro
+        }
+    }
 
     // 1. Volcado del crudo: un solo archivo con los cuadros seguidos. Se va
     //    liberando cada cuadro a medida que se escribe (14 GB en el peor caso).
@@ -1048,8 +1391,15 @@ void RankingMeasure::RaceDumpWorker(std::deque<RaceFrame> cuadros, int camera,
         const std::string cmdLine = "\"" + ffmpeg + "\" -y -v error -f rawvideo -pix_fmt uyvy422 -s " +
                                     std::to_string(width) + "x" + std::to_string(height) +
                                     " -framerate " + std::to_string(fps) +
-                                    " -i \"" + raw + "\" -c:v libx264 -pix_fmt yuv420p -crf 20 \"" +
-                                    mp4 + "\"";
+                                    " -i \"" + raw + "\" -c:v libx264 -pix_fmt yuv420p -crf 20" +
+                                    AssFilterArgs(ass) + " \"" + mp4 + "\"";
+        // Mismo comando sin el filtro: red por si el ffmpeg no trae libass.
+        const std::string cmdSinCajas = "\"" + ffmpeg +
+                                        "\" -y -v error -f rawvideo -pix_fmt uyvy422 -s " +
+                                        std::to_string(width) + "x" + std::to_string(height) +
+                                        " -framerate " + std::to_string(fps) +
+                                        " -i \"" + raw +
+                                        "\" -c:v libx264 -pix_fmt yuv420p -crf 20 \"" + mp4 + "\"";
         // ffmpeg puede no poder abrir el crudo recien escrito: Windows Defender
         // lo escanea y lo deja bloqueado un momento (medido 4-nov: cam1 y cam2
         // dieron "Permission denied" con el archivo completo y cerrado). Se
@@ -1067,10 +1417,22 @@ void RankingMeasure::RaceDumpWorker(std::deque<RaceFrame> cuadros, int camera,
                             std::to_string(intento + 1) + " de 4); reintento en 2 s");
             std::this_thread::sleep_for(std::chrono::milliseconds(2000));
         }
+        // Si el ffmpeg del equipo no trae el filtro "ass" (libass), el MP4 no se
+        // produce: las cajas son diagnostico, se rehace SIN cajas.
+        if (rc != 0 && !ass.empty()) {
+            Logger::Warning("RankingMeasure: ffmpeg con las cajas fallo en la carrera cam" +
+                            std::to_string(camera) + " (rc=" + std::to_string(rc) +
+                            "); se rehace SIN cajas");
+            salida.clear();
+            rc = RunProcessHidden(cmdSinCajas, logf, salida);
+        }
         mp4Ok = (rc == 0);
         if (mp4Ok) {
             DeleteFileA(raw.c_str());     // el crudo solo servia para armar el MP4
             DeleteFileA(logf.c_str());
+            if (!ass.empty()) {
+                DeleteFileA(ass.c_str()); // ya quedo quemado en el MP4
+            }
         } else {
             Logger::Warning("RankingMeasure: ffmpeg de la carrera cam" +
                             std::to_string(camera) + " fallo (rc=" + std::to_string(rc) +
@@ -1220,7 +1582,9 @@ void RankingMeasure::OnDetections(int camera, int64_t epochMs,
     // asi el anillo no se llena con cuadros previos a la carrera.
     if (m_config.saveRace && m_raceActiva.load() &&
         deviceFrame != nullptr && frameBytes > 0) {
-        RacePush(camera, deviceFrame, frameBytes, epochMs, width, height);
+        // Las detecciones van solo para quemar las cajas en el MP4 de la carrera
+        // (draw_boxes); con draw_boxes=false RacePush no guarda ni una caja.
+        RacePush(camera, deviceFrame, frameBytes, epochMs, width, height, dets);
     }
 
     // Evidencia: si hay ventana abierta para esta camara, el cuadro va al clip.
@@ -1233,7 +1597,7 @@ void RankingMeasure::OnDetections(int camera, int64_t epochMs,
                 Logger::Warning("RankingMeasure: habia un clip sin cerrar (medicion "
                                 "descartada por cola llena); se descarta su evidencia");
             }
-            ClipStartLocked(m_ventanaPunto, width, height);
+            ClipStartLocked(m_ventanaPunto, width, height, epochMs);
             m_clipCamera = camera;
             m_ventanaCam = -1;
         }

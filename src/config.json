@@ -212,8 +212,9 @@
     "race_max_seconds": 50,
     "race_seconds": 45,
     "strict_classes": false,
+    "draw_boxes": false,
     "ffmpeg_cmd": "%LOCALAPPDATA%\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.1.1-full_build\\bin\\ffmpeg.exe",
-    "description": "RankingMeasure — duracion de la rafaga de medicion por punto y techo de extension si no salen las 10 esferas."
+    "description": "RankingMeasure — duracion de la rafaga de medicion por punto y techo de extension si no salen las 10 esferas. draw_boxes=true quema las cajas del detector en los MP4 (clips por punto y carrera) al comprimir."
   },
   "ports": [
     { "index": 1, "name": "CAM_01", "role": "stream", "is_output": true },

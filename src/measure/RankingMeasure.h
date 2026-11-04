@@ -164,6 +164,15 @@ struct RankingMeasureConfig {
     // Se admite %LOCALAPPDATA% y demas variables: las expande cmd, asi que la
     // ruta puede tener acentos sin problema de codificacion en el codigo.
     std::string ffmpegCmd = "ffmpeg";
+
+    // Quemar las cajas del detector en los MP4 (clips por punto y carrera).
+    //
+    // Se dibujan AL COMPRIMIR y desde las detecciones YA GUARDADAS: se arma un
+    // .ass con un rectangulo por caja y se le pasa a ffmpeg con -vf ass=... .
+    // NO se toca la captura ni el zero-copy (no hay ni un pixel dibujado en el
+    // camino caliente). Apagado por defecto: con false no se genera un solo
+    // .ass y el comando de ffmpeg es exactamente el de siempre.
+    bool drawBoxes = false;
 };
 
 /**
@@ -358,13 +367,18 @@ private:
     std::string m_clipDir;
     std::string m_clipFfmpeg;      // ruta de ffmpeg YA expandida (%VAR% resuelto en C++)
     std::vector<unsigned char> m_clipHost;
+    // Instante (epoch ms) del PRIMER cuadro del clip. Es la referencia de los
+    // tiempos del .ass de las cajas (draw_boxes): el MP4 arranca en ese cuadro,
+    // asi que todo tiempo dibujado es epochMs - m_clipFirstMs.
+    int64_t m_clipFirstMs = 0;
     // Cuadros de la rafaga acumulados en RAM. Se escriben a disco de una sola vez
     // en ClipStop: escribir 4 MB por cuadro DENTRO del bucle de recoleccion hacia
     // que el medidor no llegue a copiar del anillo y perdiera cuadros (medido
     // 3-nov: 1 cuadro de 150 en una rafaga de 5 s).
     std::vector<unsigned char> m_clipBuffer;
 
-    void ClipStartLocked(int punto, unsigned int width, unsigned int height);  // sin lock
+    void ClipStartLocked(int punto, unsigned int width, unsigned int height,
+                         int64_t epochMs);  // sin lock
     void ClipPush(const void* devicePtr, size_t bytes);
     void ClipStop();
 
@@ -379,6 +393,9 @@ private:
     struct RaceFrame {
         int64_t epochMs = 0;
         std::vector<unsigned char> datos;   // UYVY tal cual vino del device
+        // Detecciones de ESE cuadro en PIXELES, solo para quemar las cajas en el
+        // MP4 (draw_boxes). Vacio con draw_boxes=false: no se guarda ni una caja.
+        std::vector<FrameDetection> dets;
     };
     std::array<std::deque<RaceFrame>, kMaxCameras> m_race;
     std::array<size_t, kMaxCameras> m_raceBytes{};      // bytes vivos por camara
@@ -409,12 +426,13 @@ private:
     std::shared_ptr<RaceDumpGate> m_raceGate;
 
     void RacePush(int camera, const void* devicePtr, size_t bytes, int64_t epochMs,
-                  unsigned int width, unsigned int height);
+                  unsigned int width, unsigned int height,
+                  const std::vector<BallDetection>& dets);
     // Estatico: NO usa `this` (corre desprendido del objeto).
     static void RaceDumpWorker(std::deque<RaceFrame> cuadros, int camera,
                                unsigned int width, unsigned int height, int fps,
-                               std::string ffmpeg, std::string raw,
-                               std::string mp4, std::string logf,
+                               bool drawBoxes, std::string ffmpeg, std::string raw,
+                               std::string mp4, std::string ass, std::string logf,
                                std::shared_ptr<RaceDumpGate> gate);
 
     // Anillos por camara
