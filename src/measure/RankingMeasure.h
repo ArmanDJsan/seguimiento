@@ -8,7 +8,7 @@
  *
  *   hilo coreografia -> EnqueueMeasure() -> sigue
  *                            |
- *                   hilo medidor: frames -> inferencia -> orden -> 1x sendto()
+ *                   hilo medidor: historia -> orden -> 1x sendto()
  *
  * Reglas duras (ver plan del dueno):
  *  - El hilo medidor NO llama CallPreset, NO manda comandos a vMix y NO toca
@@ -20,9 +20,10 @@
  *    frame de ANTES del disparo.
  *  - Anillo sin lock global: seqlock por slot (contador de generacion) para que
  *    una camara atrasada no frene la captura de las otras tres.
- *  - Inferencia con instancia propia de InferenceEngine (contexto de ejecucion
- *    y buffers propios): NO se reusa el camino de inferencia de las 4 PTZ.
- *  - Sin ROI: se infiere el frame completo 1080p (el recorte es fase 2).
+ *  - NO infiere: el pipeline ya infiere cada cuadro de las 4 camaras y se lo
+ *    pasa por OnDetections. El medidor solo guarda historia y arma la evidencia.
+ *  - Clip de evidencia POR CAMARA (un contexto por slot, kMaxCameras): dos
+ *    mediciones solapadas en camaras distintas graban cada una su MP4.
  */
 
 #pragma once
@@ -163,8 +164,8 @@ struct MeasureJob {
 };
 
 /**
- * RankingMeasure - duenio del anillo, la cola, el hilo medidor, la
- * inferencia propia y el publisher UDP.
+ * RankingMeasure - duenio del anillo, la historia por camara, la cola, el hilo
+ * medidor, el publisher UDP y los clips de evidencia (uno por camara).
  */
 class RankingMeasure {
 public:
@@ -280,13 +281,12 @@ private:
     };
     std::array<std::deque<MuestraCamara>, kMaxCameras> m_historia;
     std::mutex m_historiaMutex;
-    int m_clipCamera = -1;
-    // Ventana pedida por la coreografia y todavia sin cuadros: el clip NO se abre
-    // en Enqueue (hilo de la linea de tiempo), se abre con el primer cuadro que
-    // llega por OnDetections.
-    int m_ventanaCam = -1;
-    int m_ventanaPunto = 0;
-    // El estado del clip lo tocan 3 hilos (coreografia, captura, medidor).
+    // Ventanas pedidas por la coreografia y todavia sin cuadros, UNA POR CAMARA
+    // (-1 = sin ventana en esa camara). El clip NO se abre en Enqueue (hilo de la
+    // linea de tiempo), se abre con el primer cuadro de ESA camara en
+    // OnDetections.
+    std::array<int, kMaxCameras> m_ventanaPunto;
+    // El estado de los clips lo tocan 3 hilos (coreografia, captura, medidor).
     std::mutex m_clipMutex;
     bool m_clipToolOk = false;   // ffmpeg responde (probado UNA vez en Initialize)
 
@@ -309,24 +309,36 @@ private:
 
     // Evidencia: grabacion de la rafaga (ver Clip* en el .cpp). No bloquea la
     // medicion: si algo falla se corta la grabacion y el punto sigue igual.
-    bool m_clipRecording = false;
-    bool m_clipFailed = false;
-    int m_clipFrames = 0;
-    int m_clipPunto = 0;
-    unsigned int m_clipW = 0;
-    unsigned int m_clipH = 0;
-    std::string m_clipDir;
+    //
+    // UN contexto por camara: dos ventanas solapadas en camaras distintas graban
+    // cada una su MP4. Todo lo que hay aca se toca con m_clipMutex tomado.
+    // saveMaxFrames es el unico tope (no se cierra el clip mas viejo: hay RAM de
+    // sobra y cerrarlo perderia el video de una medicion viva).
+    struct ClipCtx {
+        bool recording = false;
+        bool failed = false;
+        int frames = 0;
+        int punto = 0;
+        unsigned int w = 0;
+        unsigned int h = 0;
+        std::string dir;
+        std::vector<unsigned char> host;    // staging del cuadro (device -> host)
+        // Cuadros de la rafaga acumulados en RAM. Se escriben a disco de una sola
+        // vez en ClipStop: escribir 4 MB por cuadro DENTRO del bucle de
+        // recoleccion hacia que el medidor no llegue a copiar del anillo y
+        // perdiera cuadros (medido 3-nov: 1 cuadro de 150 en una rafaga de 5 s).
+        std::vector<unsigned char> buffer;
+    };
+    std::array<ClipCtx, kMaxCameras> m_clips;
     std::string m_clipFfmpeg;      // ruta de ffmpeg YA expandida (%VAR% resuelto en C++)
-    std::vector<unsigned char> m_clipHost;
-    // Cuadros de la rafaga acumulados en RAM. Se escriben a disco de una sola vez
-    // en ClipStop: escribir 4 MB por cuadro DENTRO del bucle de recoleccion hacia
-    // que el medidor no llegue a copiar del anillo y perdiera cuadros (medido
-    // 3-nov: 1 cuadro de 150 en una rafaga de 5 s).
-    std::vector<unsigned char> m_clipBuffer;
 
-    void ClipStartLocked(int punto, unsigned int width, unsigned int height);  // sin lock
-    void ClipPush(const void* devicePtr, size_t bytes);
-    void ClipStop();
+    // Se llama con m_clipMutex TOMADO (viene de OnDetections).
+    void ClipStartLocked(int camera, int punto, unsigned int width, unsigned int height);
+    // Toma el lock y solo empuja si ESA camara esta grabando.
+    void ClipPush(int camera, const void* devicePtr, size_t bytes);
+    // Toma el lock solo para sacar copias; el volcado del crudo y ffmpeg van
+    // FUERA del lock. Nunca se llama teniendo m_clipMutex tomado.
+    void ClipStop(int camera);
 
     // Anillos por camara
     std::array<std::unique_ptr<FrameRing>, kMaxCameras> m_rings;
