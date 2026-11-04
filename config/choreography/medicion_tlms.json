@@ -357,18 +357,18 @@
     },
     {
       "type": "Timer",
-      "ms": 1000
+      "ms": 2500
     },
     {
       "type": "MeasurePoint",
       "camera": 1,
       "punto": 8,
-      "burst_ms": 5000,
-      "max_ms": 6000
+      "burst_ms": 6000,
+      "max_ms": 7000
     },
     {
       "type": "Timer",
-      "ms": 17000
+      "ms": 15500
     },
     {
       "type": "OverlayInputXOut",
