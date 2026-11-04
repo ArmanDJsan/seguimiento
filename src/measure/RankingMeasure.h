@@ -151,7 +151,7 @@ struct RankingMeasureConfig {
     bool saveRace = false;
     // Tope de RAM por camara, en segundos a 30 fps. 120 s x 4,15 MB = ~15 GB por
     // camara (60 GB las 4). Acota el anillo: el cuadro mas viejo se descarta.
-    int raceMaxSeconds = 120;
+    int raceMaxSeconds = 60;
     // Ejecutable de ffmpeg. Puede ser "ffmpeg" (PATH) o una ruta completa.
     // Se admite %LOCALAPPDATA% y demas variables: las expande cmd, asi que la
     // ruta puede tener acentos sin problema de codificacion en el codigo.
