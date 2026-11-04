@@ -242,19 +242,35 @@ bool RankingMeasure::Initialize(const RankingPublisherConfig& pubConfig,
     m_config = measureConfig;
     (void)inferenceConfig;   // ya no hay motor propio: el pipeline infiere
 
+    // save_race: el tope de RAM por camara no puede quedar en 0 (dejaria el
+    // anillo sin un solo cuadro) ni sin techo. Rango: 1 s .. 1 h.
+    if (m_config.raceMaxSeconds < 1) {
+        m_config.raceMaxSeconds = 1;
+    }
+    if (m_config.raceMaxSeconds > 3600) {
+        m_config.raceMaxSeconds = 3600;
+    }
+    // El cerrojo de volcados solo existe si hay carrera que grabar: con
+    // save_race=false no se reserva absolutamente nada para esto.
+    if (m_config.saveRace) {
+        m_raceGate = std::make_shared<RaceDumpGate>();
+    }
+
     // El probe de ffmpeg va UNA vez aca. Antes se hacia en ClipStart, que corre
     // en el hilo de la coreografia: arrancar un proceso ahi son decenas de ms
     // por punto y Enqueue tiene que ser instantaneo.
+    // Se prueba tambien cuando solo esta pedido save_race: el volcado de la
+    // carrera usa el mismo ejecutable.
     m_clipToolOk = false;
-    if (m_config.saveClip) {
+    if (m_config.saveClip || m_config.saveRace) {
         m_clipFfmpeg = ExpandEnvVars(m_config.ffmpegCmd);
         const std::string probe = "\"" + m_clipFfmpeg + "\" -version >nul 2>&1";
         m_clipToolOk = (system(probe.c_str()) == 0);
         if (m_clipToolOk) {
             Logger::Info("RankingMeasure: ffmpeg = " + m_clipFfmpeg);
         } else {
-            Logger::Warning("RankingMeasure: save_clip=true pero ffmpeg no responde (" +
-                            m_clipFfmpeg + "); no se graban clips");
+            Logger::Warning("RankingMeasure: save_clip/save_race encendido pero ffmpeg no responde (" +
+                            m_clipFfmpeg + "); no se graban clips ni la carrera");
         }
     }
 
@@ -280,6 +296,13 @@ bool RankingMeasure::Initialize(const RankingPublisherConfig& pubConfig,
     Logger::Info("RankingMeasure: inicializado (cola tope=" +
                  std::to_string(kQueueCapacity) + ", anillo=" +
                  std::to_string(FrameRing::kSlots) + " frames/camara, sin ROI)");
+    Logger::Info(std::string("RankingMeasure: save_race=") +
+                 (m_config.saveRace ? "true" : "false") +
+                 ", race_max_seconds=" + std::to_string(m_config.raceMaxSeconds) +
+                 (m_config.saveRace
+                      ? (" (tope ~" + std::to_string(m_config.raceMaxSeconds) +
+                         " s x 30 fps por camara, se descarta lo mas viejo)")
+                      : std::string(" (no se reserva RAM de carrera)")));
     return true;
 }
 
@@ -291,6 +314,21 @@ void RankingMeasure::Shutdown() {
         m_worker.request_stop();
         m_queueCv.notify_all();
         m_worker.join();
+    }
+
+    // 1b. La carrera que quedo en RAM se vuelca ANTES de liberar. El volcado a
+    //     disco y ffmpeg corren en hilos aparte; aca se espera de forma acotada
+    //     para que el proceso no termine con el MP4 a medio escribir.
+    DumpRace();
+    if (m_raceGate) {
+        std::shared_ptr<RaceDumpGate> gate = m_raceGate;
+        std::unique_lock<std::mutex> lock(gate->m);
+        gate->cv.wait_for(lock, std::chrono::seconds(600),
+                          [&gate] { return gate->inFlight == 0; });
+        if (gate->inFlight != 0) {
+            Logger::Warning("RankingMeasure: quedan " + std::to_string(gate->inFlight) +
+                            " volcados de carrera sin terminar; se apaga igual");
+        }
     }
 
     {
@@ -684,6 +722,298 @@ void RankingMeasure::ClipStop() {
     }).detach();
 }
 
+// ============================================================================
+// Carrera completa en RAM (save_race)
+//
+//   OnDetections (hilo del pipeline, por camara)
+//        -> RacePush: cudaMemcpy D2H + push al deque de ESA camara
+//                     (tope = race_max_seconds x 30 fps x bytes de cuadro;
+//                      al pasarse se descartan los MAS VIEJOS)
+//   DumpRace (Shutdown o evento de fin de carrera)
+//        -> swap del deque de cada camara (libera el anillo)
+//        -> hilo aparte por camara: vuelca _race_cam<N>.uyvy + ffmpeg -> MP4
+// ============================================================================
+
+namespace {
+
+// Cuadros por segundo que se asumen para acotar el anillo por tiempo. La
+// captura de la pista corre a 30p, igual que save_fps por defecto.
+constexpr int kRaceFps = 30;
+
+// Lanza un proceso escondido (ffmpeg) SIN cmd.exe, con la salida a un archivo de
+// log. Es la misma invocacion que ya usa ClipStop, extraida para no duplicarla.
+// Devuelve el codigo de salida (-1 si no arranco).
+int RunProcessHidden(const std::string& cmdLine, const std::string& logf, std::string& salida) {
+    SECURITY_ATTRIBUTES sa{};
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+
+    HANDLE hLog = CreateFileA(logf.c_str(), GENERIC_WRITE, FILE_SHARE_READ, &sa,
+                              CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (hLog == INVALID_HANDLE_VALUE) {
+        Logger::Warning("RankingMeasure: no se pudo crear " + logf + " para la salida de ffmpeg");
+    }
+
+    STARTUPINFOA si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    si.hStdOutput = (hLog != INVALID_HANDLE_VALUE) ? hLog : GetStdHandle(STD_OUTPUT_HANDLE);
+    si.hStdError  = (hLog != INVALID_HANDLE_VALUE) ? hLog : GetStdHandle(STD_ERROR_HANDLE);
+    si.hStdInput  = GetStdHandle(STD_INPUT_HANDLE);
+
+    PROCESS_INFORMATION pi{};
+    std::vector<char> buf(cmdLine.begin(), cmdLine.end());
+    buf.push_back('\0');
+
+    int rc = -1;
+    const BOOL ok = CreateProcessA(nullptr, buf.data(), nullptr, nullptr, TRUE,
+                                   CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+    if (!ok) {
+        salida = "CreateProcess fallo, error " + std::to_string(GetLastError());
+    } else {
+        // 10 min de techo: una carrera de 120 s son 3600 cuadros a comprimir.
+        WaitForSingleObject(pi.hProcess, 600000);
+        DWORD code = 1;
+        GetExitCodeProcess(pi.hProcess, &code);
+        rc = static_cast<int>(code);
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+    }
+    if (hLog != INVALID_HANDLE_VALUE) {
+        CloseHandle(hLog);
+    }
+
+    FILE* f = nullptr;
+    if (fopen_s(&f, logf.c_str(), "rb") == 0 && f != nullptr) {
+        char tmp[512];
+        const size_t n = fread(tmp, 1, sizeof(tmp) - 1, f);
+        tmp[n] = '\0';
+        salida += tmp;
+        fclose(f);
+    }
+
+    for (size_t i = 0; i < salida.size(); ++i) {
+        if (salida[i] == '\n' || salida[i] == '\r' || salida[i] == '\t') salida[i] = ' ';
+    }
+    while (!salida.empty() && salida.back() == ' ') salida.pop_back();
+    return rc;
+}
+
+} // namespace
+
+void RankingMeasure::RacePush(int camera, const void* devicePtr, size_t bytes,
+                              int64_t epochMs, unsigned int width, unsigned int height) {
+    // Doble chequeo: con save_race=false no se reserva ni un byte ni se copia
+    // nada (el primer chequeo ya esta en OnDetections, antes de llamar aca).
+    if (!m_config.saveRace || devicePtr == nullptr || bytes == 0) {
+        return;
+    }
+    if (camera < 0 || camera >= kMaxCameras) {
+        return;
+    }
+    // Techo de cuadro: un tamano inesperado se descarta ANTES de reservar.
+    if (bytes > kMaxFrameBytes) {
+        Logger::Warning("RankingMeasure: cuadro de " + std::to_string(bytes) +
+                        " bytes excede el maximo de la carrera; se descarta");
+        return;
+    }
+
+    // La copia D2H va FUERA del lock y en un buffer thread_local: el pipeline
+    // puede llamar desde el hilo de cada camara y un buffer compartido seria una
+    // carrera. Son ~4 MB por cuadro por camara (~500 MB/s las 4).
+    static thread_local std::vector<unsigned char> host;
+    if (host.size() != bytes) {
+        host.resize(bytes);
+    }
+    if (cudaMemcpy(host.data(), devicePtr, bytes, cudaMemcpyDeviceToHost) != cudaSuccess) {
+        Logger::Warning("RankingMeasure: cudaMemcpy de la carrera fallo; se pierde el cuadro");
+        return;
+    }
+
+    // Tope de RAM de esa camara: race_max_seconds a 30 fps. Se mide con el
+    // tamano real del cuadro (w*h*2 en UYVY); si no vinieron las dimensiones, con
+    // los bytes copiados.
+    size_t bytesPorCuadro = bytes;
+    if (width > 0 && height > 0) {
+        bytesPorCuadro = static_cast<size_t>(width) * static_cast<size_t>(height) * 2u;
+    }
+    const size_t capCuadros = static_cast<size_t>(m_config.raceMaxSeconds) *
+                              static_cast<size_t>(kRaceFps);
+    const size_t capBytes = capCuadros * bytesPorCuadro;
+
+    RaceFrame f;
+    f.epochMs = epochMs;
+    f.datos.assign(host.begin(), host.end());
+
+    {
+        std::lock_guard<std::mutex> lock(m_raceMutex);
+        const bool primero = m_race[camera].empty();
+        m_race[camera].push_back(std::move(f));
+        m_raceBytes[camera] += bytes;
+        m_raceW[camera] = width;
+        m_raceH[camera] = height;
+
+        // Tope SIEMPRE: se descartan los cuadros mas viejos hasta entrar en el
+        // presupuesto de bytes y de cuadros de esa camara.
+        while (!m_race[camera].empty() &&
+               (m_raceBytes[camera] > capBytes || m_race[camera].size() > capCuadros)) {
+            m_raceBytes[camera] -= m_race[camera].front().datos.size();
+            m_race[camera].pop_front();
+        }
+        if (primero) {
+            Logger::Info("RankingMeasure: grabando carrera en RAM cam" +
+                         std::to_string(camera) + " (tope " +
+                         std::to_string(m_config.raceMaxSeconds) + " s)");
+        }
+    }
+}
+
+void RankingMeasure::DumpRace() {
+    if (!m_config.saveRace) {
+        return;   // nunca se grabo nada: no hay anillo que volcar
+    }
+
+    CreateDirectoryA(m_config.saveDir.c_str(), nullptr);
+
+    for (int cam = 0; cam < kMaxCameras; ++cam) {
+        std::deque<RaceFrame> cuadros;
+        unsigned int w = 0;
+        unsigned int h = 0;
+        size_t tamanosDistintos = 0;
+        int64_t primero = 0;
+        int64_t ultimo = 0;
+        {
+            std::lock_guard<std::mutex> lock(m_raceMutex);
+            if (m_race[cam].empty()) {
+                continue;
+            }
+            cuadros.swap(m_race[cam]);      // el anillo de esta camara queda libre
+            m_raceBytes[cam] = 0;
+            w = m_raceW[cam];
+            h = m_raceH[cam];
+            primero = cuadros.front().epochMs;
+            ultimo = cuadros.back().epochMs;
+            const size_t tam = cuadros.front().datos.size();
+            for (size_t i = 0; i < cuadros.size(); ++i) {
+                if (cuadros[i].datos.size() != tam) {
+                    ++tamanosDistintos;
+                }
+            }
+        }
+
+        if (w == 0 || h == 0) {
+            // Sin dimensiones no hay forma de armar el raw: mejor no escribir un
+            // MP4 con la geometria equivocada.
+            Logger::Warning("RankingMeasure: carrera cam" + std::to_string(cam) +
+                            " sin dimensiones; se descarta (" +
+                            std::to_string(cuadros.size()) + " cuadros)");
+            continue;
+        }
+        if (tamanosDistintos > 0) {
+            Logger::Warning("RankingMeasure: carrera cam" + std::to_string(cam) + " con " +
+                            std::to_string(tamanosDistintos) +
+                            " cuadros de tamano distinto; el MP4 puede salir mal");
+        }
+
+        const std::string stamp = ClipStamp();
+        const std::string raw = m_config.saveDir + "\\_race_cam" + std::to_string(cam) + ".uyvy";
+        const std::string mp4 = m_config.saveDir + "\\carrera_cam" + std::to_string(cam) +
+                                "_" + stamp + ".mp4";
+        const std::string logf = m_config.saveDir + "\\carrera_cam" + std::to_string(cam) +
+                                 "_" + stamp + ".log";
+        const std::string ffmpeg = m_clipFfmpeg.empty() ? ExpandEnvVars(m_config.ffmpegCmd)
+                                                        : m_clipFfmpeg;
+
+        std::shared_ptr<RaceDumpGate> gate = m_raceGate;
+        if (!gate) {
+            gate = std::make_shared<RaceDumpGate>();
+        }
+        {
+            std::lock_guard<std::mutex> lock(gate->m);
+            ++gate->inFlight;
+        }
+
+        Logger::Info("RankingMeasure: volcando carrera cam" + std::to_string(cam) +
+                     " cuadros=" + std::to_string(cuadros.size()) + " (" +
+                     std::to_string(primero) + ".." + std::to_string(ultimo) + " ms) -> " + mp4);
+
+        // El volcado del crudo (GB a disco) y ffmpeg van en un hilo APARTE: el
+        // hilo medidor y el de captura no esperan. El hilo no toca `this`.
+        try {
+            std::thread(&RankingMeasure::RaceDumpWorker, std::move(cuadros), cam, w, h,
+                        m_config.saveFps, ffmpeg, raw, mp4, logf, gate).detach();
+        } catch (...) {
+            std::lock_guard<std::mutex> lock(gate->m);
+            --gate->inFlight;
+            gate->cv.notify_all();
+            Logger::Warning("RankingMeasure: no se pudo lanzar el volcado de la carrera cam" +
+                            std::to_string(cam) + "; se descarta");
+        }
+    }
+}
+
+void RankingMeasure::RaceDumpWorker(std::deque<RaceFrame> cuadros, int camera,
+                                    unsigned int width, unsigned int height, int fps,
+                                    std::string ffmpeg, std::string raw,
+                                    std::string mp4, std::string logf,
+                                    std::shared_ptr<RaceDumpGate> gate) {
+    const size_t totalCuadros = cuadros.size();
+
+    // 1. Volcado del crudo: un solo archivo con los cuadros seguidos. Se va
+    //    liberando cada cuadro a medida que se escribe (14 GB en el peor caso).
+    long long escritos = 0;
+    {
+        FILE* f = nullptr;
+        if (fopen_s(&f, raw.c_str(), "wb") == 0 && f != nullptr) {
+            while (!cuadros.empty()) {
+                const std::vector<unsigned char>& datos = cuadros.front().datos;
+                if (!datos.empty()) {
+                    const size_t n = fwrite(datos.data(), 1, datos.size(), f);
+                    escritos += static_cast<long long>(n);
+                }
+                cuadros.pop_front();
+            }
+            fclose(f);
+        } else {
+            Logger::Warning("RankingMeasure: no se pudo crear " + raw +
+                            " para la carrera cam" + std::to_string(camera));
+        }
+    }
+
+    bool mp4Ok = false;
+    if (escritos > 0) {
+        const std::string cmdLine = "\"" + ffmpeg + "\" -y -v error -f rawvideo -pix_fmt uyvy422 -s " +
+                                    std::to_string(width) + "x" + std::to_string(height) +
+                                    " -framerate " + std::to_string(fps) +
+                                    " -i \"" + raw + "\" -c:v libx264 -pix_fmt yuv420p -crf 20 \"" +
+                                    mp4 + "\"";
+        std::string salida;
+        const int rc = RunProcessHidden(cmdLine, logf, salida);
+        mp4Ok = (rc == 0);
+        if (mp4Ok) {
+            DeleteFileA(raw.c_str());     // el crudo solo servia para armar el MP4
+            DeleteFileA(logf.c_str());
+        } else {
+            Logger::Warning("RankingMeasure: ffmpeg de la carrera cam" +
+                            std::to_string(camera) + " fallo (rc=" + std::to_string(rc) +
+                            ", crudo=" + std::to_string(escritos) + " bytes, cuadros=" +
+                            std::to_string(totalCuadros) + "). Comando: " + cmdLine +
+                            " . Salida: " + (salida.empty() ? std::string("(vacia)") : salida));
+        }
+    }
+
+    Logger::Info("RankingMeasure: carrera cam" + std::to_string(camera) +
+                 " cuadros=" + std::to_string(totalCuadros) + " mp4=" +
+                 (mp4Ok ? std::string("si") : std::string("no")));
+
+    if (gate) {
+        std::lock_guard<std::mutex> lock(gate->m);
+        --gate->inFlight;
+        gate->cv.notify_all();
+    }
+}
+
 void RankingMeasure::ProcessJob(const MeasureJob& job) {
     const int64_t t0 = job.requestedEpochMs;
     const int64_t burstEnd = t0 + job.burstMs;
@@ -789,6 +1119,13 @@ void RankingMeasure::OnDetections(int camera, int64_t epochMs,
                                   unsigned int width, unsigned int height) {
     if (camera < 0 || camera >= kMaxCameras) {
         return;
+    }
+
+    // Carrera completa en RAM (save_race). El if va ANTES de cualquier
+    // cudaMemcpy y antes de tocar el anillo: con save_race=false (default) este
+    // bloque no reserva ni un byte ni copia ni un cuadro.
+    if (m_config.saveRace && deviceFrame != nullptr && frameBytes > 0) {
+        RacePush(camera, deviceFrame, frameBytes, epochMs, width, height);
     }
 
     // Evidencia: si hay ventana abierta para esta camara, el cuadro va al clip.

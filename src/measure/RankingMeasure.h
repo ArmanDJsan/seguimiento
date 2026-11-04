@@ -145,6 +145,13 @@ struct RankingMeasureConfig {
     std::string saveDir = "measure_clips";
     int saveFps = 30;
     int saveMaxFrames = 90;
+    // Carrera COMPLETA en RAM, una por camara, para volcarla a MP4 al final.
+    // Apagado por defecto: con false NO se reserva memoria ni se copia un solo
+    // cuadro (el if va antes de cualquier cudaMemcpy, ver OnDetections).
+    bool saveRace = false;
+    // Tope de RAM por camara, en segundos a 30 fps. 120 s x 4,15 MB = ~15 GB por
+    // camara (60 GB las 4). Acota el anillo: el cuadro mas viejo se descarta.
+    int raceMaxSeconds = 120;
     // Ejecutable de ffmpeg. Puede ser "ffmpeg" (PATH) o una ruta completa.
     // Se admite %LOCALAPPDATA% y demas variables: las expande cmd, asi que la
     // ruta puede tener acentos sin problema de codificacion en el codigo.
@@ -224,6 +231,17 @@ public:
                       const std::vector<BallDetection>& dets,
                       const void* deviceFrame, size_t frameBytes,
                       unsigned int width, unsigned int height);
+
+    /**
+     * Vuelca a MP4 la carrera completa que esta en RAM (una por camara) y libera
+     * el anillo de esa camara. NO bloquea: el volcado del crudo a disco y ffmpeg
+     * corren en un hilo aparte por camara.
+     *
+     * Es publico a proposito: se llama en Shutdown() y se puede enganchar a un
+     * evento de la coreografia (fin de carrera) sin tocar el motor de eventos.
+     * Con save_race=false es un no-op (no hay nada grabado).
+     */
+    void DumpRace();
 
     /**
      * Anillo de una camara (para que DeckLinkCapture lo llene).
@@ -327,6 +345,43 @@ private:
     void ClipStartLocked(int punto, unsigned int width, unsigned int height);  // sin lock
     void ClipPush(const void* devicePtr, size_t bytes);
     void ClipStop();
+
+    // ------------------------------------------------------------------------
+    // Carrera completa en RAM (save_race). Un anillo por camara, acotado por
+    // race_max_seconds: al pasarse del tope se descartan los cuadros MAS VIEJOS.
+    //
+    // Mutex PROPIO (m_raceMutex), distinto de m_clipMutex: el clip es la ventana
+    // de 2 s de un punto y esto es la carrera entera. Nunca se toman los dos a
+    // la vez (en OnDetections el bloque del clip cierra su lock antes de esto).
+    // ------------------------------------------------------------------------
+    struct RaceFrame {
+        int64_t epochMs = 0;
+        std::vector<unsigned char> datos;   // UYVY tal cual vino del device
+    };
+    std::array<std::deque<RaceFrame>, kMaxCameras> m_race;
+    std::array<size_t, kMaxCameras> m_raceBytes{};      // bytes vivos por camara
+    std::array<unsigned int, kMaxCameras> m_raceW{};
+    std::array<unsigned int, kMaxCameras> m_raceH{};
+    std::mutex m_raceMutex;
+
+    // Volcados en curso, compartidos con los hilos de volcado por shared_ptr:
+    // asi un hilo de volcado NO toca `this` y no puede quedar apuntando a un
+    // medidor ya destruido.
+    struct RaceDumpGate {
+        std::mutex m;
+        std::condition_variable cv;
+        int inFlight = 0;
+    };
+    std::shared_ptr<RaceDumpGate> m_raceGate;
+
+    void RacePush(int camera, const void* devicePtr, size_t bytes, int64_t epochMs,
+                  unsigned int width, unsigned int height);
+    // Estatico: NO usa `this` (corre desprendido del objeto).
+    static void RaceDumpWorker(std::deque<RaceFrame> cuadros, int camera,
+                               unsigned int width, unsigned int height, int fps,
+                               std::string ffmpeg, std::string raw,
+                               std::string mp4, std::string logf,
+                               std::shared_ptr<RaceDumpGate> gate);
 
     // Anillos por camara
     std::array<std::unique_ptr<FrameRing>, kMaxCameras> m_rings;
