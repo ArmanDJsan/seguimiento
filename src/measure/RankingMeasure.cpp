@@ -988,8 +988,23 @@ void RankingMeasure::RaceDumpWorker(std::deque<RaceFrame> cuadros, int camera,
                                     " -framerate " + std::to_string(fps) +
                                     " -i \"" + raw + "\" -c:v libx264 -pix_fmt yuv420p -crf 20 \"" +
                                     mp4 + "\"";
+        // ffmpeg puede no poder abrir el crudo recien escrito: Windows Defender
+        // lo escanea y lo deja bloqueado un momento (medido 4-nov: cam1 y cam2
+        // dieron "Permission denied" con el archivo completo y cerrado). Se
+        // reintenta con una pausa corta.
         std::string salida;
-        const int rc = RunProcessHidden(cmdLine, logf, salida);
+        int rc = -1;
+        for (int intento = 0; intento < 4; ++intento) {
+            salida.clear();
+            rc = RunProcessHidden(cmdLine, logf, salida);
+            if (rc == 0) {
+                break;
+            }
+            Logger::Warning("RankingMeasure: carrera cam" + std::to_string(camera) +
+                            " ffmpeg rc=" + std::to_string(rc) + " (intento " +
+                            std::to_string(intento + 1) + " de 4); reintento en 2 s");
+            std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+        }
         mp4Ok = (rc == 0);
         if (mp4Ok) {
             DeleteFileA(raw.c_str());     // el crudo solo servia para armar el MP4
