@@ -363,8 +363,8 @@
       "type": "MeasurePoint",
       "camera": 1,
       "punto": 8,
-      "burst_ms": 6000,
-      "max_ms": 7000
+      "burst_ms": 9000,
+      "max_ms": 10000
     },
     {
       "type": "Timer",
