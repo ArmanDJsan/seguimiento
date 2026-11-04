@@ -37,6 +37,11 @@
 #endif
 #include <windows.h>
 
+namespace {
+// Definida mas abajo; se declara aca porque Initialize la usa antes.
+std::string ExpandEnvVars(const std::string& in);
+}  // namespace
+
 namespace Measure {
 
 namespace {
@@ -372,17 +377,12 @@ void RankingMeasure::Enqueue(int camera, int punto, int burstMs, int maxMs) {
     }
     m_queueCv.notify_one();
 
-    // Si quedo un clip abierto (medicion descartada por cola llena, o el anterior
-    // sin cerrar), se cierra ANTES de abrir el nuevo: si no, su buffer se pierde
-    // y el punto queda mal etiquetado.
-    ClipStop();
-
-    // La ventana se abre ACA (no en el hilo): el clip y la ventana tienen que
-    // empezar en el instante del disparo, no cuando el hilo llega.
+    // La ventana se anota ACA (instantaneo, sin I/O): el clip lo abre el hilo de
+    // captura con el primer cuadro y lo cierra el hilo medidor al vencer.
     {
-        // Las dimensiones reales llegan con el primer cuadro de la ventana.
-        m_clipCamera = camera;
-        ClipStart(job.punto, 0, 0);
+        std::lock_guard<std::mutex> lock(m_clipMutex);
+        m_ventanaCam = camera;
+        m_ventanaPunto = job.punto;
     }
 
     Logger::Debug("RankingMeasure: encolado punto=" + std::to_string(job.punto) +
@@ -475,6 +475,11 @@ std::string ClipPad4(int n) {
 } // namespace
 
 void RankingMeasure::ClipStart(int punto, unsigned int width, unsigned int height) {
+    std::lock_guard<std::mutex> lock(m_clipMutex);
+    ClipStartLocked(punto, width, height);
+}
+
+void RankingMeasure::ClipStartLocked(int punto, unsigned int width, unsigned int height) {
     m_clipRecording = false;
     m_clipFailed = false;
     m_clipFrames = 0;
@@ -779,12 +784,21 @@ void RankingMeasure::OnDetections(int camera, int64_t epochMs,
     }
 
     // Evidencia: si hay ventana abierta para esta camara, el cuadro va al clip.
-    if (m_clipRecording && camera == m_clipCamera && deviceFrame && frameBytes > 0) {
-        {
-            std::lock_guard<std::mutex> lock(m_clipMutex);
-            m_clipW = width;     // dimensiones reales del primer cuadro
-            m_clipH = height;
+    // Clip: si esta camara tiene una ventana pedida, el clip se abre con ESTE
+    // cuadro (asi las dimensiones son las reales) y se empuja despues.
+    {
+        std::lock_guard<std::mutex> lock(m_clipMutex);
+        if (m_ventanaCam == camera) {
+            if (m_clipRecording) {
+                Logger::Warning("RankingMeasure: habia un clip sin cerrar (medicion "
+                                "descartada por cola llena); se descarta su evidencia");
+            }
+            ClipStartLocked(m_ventanaPunto, width, height);
+            m_clipCamera = camera;
+            m_ventanaCam = -1;
         }
+    }
+    if (deviceFrame && frameBytes > 0) {
         ClipPush(deviceFrame, frameBytes);
     }
 

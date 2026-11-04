@@ -281,6 +281,11 @@ private:
     std::array<std::deque<MuestraCamara>, kMaxCameras> m_historia;
     std::mutex m_historiaMutex;
     int m_clipCamera = -1;
+    // Ventana pedida por la coreografia y todavia sin cuadros: el clip NO se abre
+    // en Enqueue (hilo de la linea de tiempo), se abre con el primer cuadro que
+    // llega por OnDetections.
+    int m_ventanaCam = -1;
+    int m_ventanaPunto = 0;
     // El estado del clip lo tocan 3 hilos (coreografia, captura, medidor).
     std::mutex m_clipMutex;
     bool m_clipToolOk = false;   // ffmpeg responde (probado UNA vez en Initialize)
@@ -320,6 +325,7 @@ private:
     std::vector<unsigned char> m_clipBuffer;
 
     void ClipStart(int punto, unsigned int width, unsigned int height);
+    void ClipStartLocked(int punto, unsigned int width, unsigned int height);  // sin lock
     void ClipPush(const void* devicePtr, size_t bytes);
     void ClipStop();
 
