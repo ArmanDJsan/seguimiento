@@ -294,5 +294,14 @@
     "min_sphere_count": 3,
     "smoothing_window": 5,
     "description": "PTZ tracking control parameters - thresholds in normalized coordinates (0.0-1.0)"
+  },
+  "control_api": {
+    "enabled": true,
+    "port": 8090,
+    "api_key": "CAMBIAR",
+    "arm_camera": 1,
+    "arm_burst_ms": 0,
+    "arm_max_ms": 0,
+    "description": "API HTTP de control para el backend (modo --service). Solo loopback y tailnet (100.64.0.0/10), con X-Api-Key. GET /status, POST /arm {race_id}, POST /start, POST /abort, POST /shutdown. Cambiar api_key antes de produccion."
   }
 }

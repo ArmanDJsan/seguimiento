@@ -242,6 +242,15 @@
     "ffmpeg_cmd": "%LOCALAPPDATA%\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.1.1-full_build\\bin\\ffmpeg.exe",
     "description": "RankingMeasure — duracion de la rafaga de medicion por punto y techo de extension si no salen las 10 esferas. draw_boxes=true quema las cajas del detector en los MP4 (clips por punto y carrera) al comprimir."
   },
+  "control_api": {
+    "enabled": true,
+    "port": 8090,
+    "api_key": "CAMBIAR",
+    "arm_camera": 1,
+    "arm_burst_ms": 0,
+    "arm_max_ms": 0,
+    "description": "API HTTP de control para el backend (modo --service). Escucha en 0.0.0.0:port y solo acepta loopback (127.0.0.1) y la tailnet (100.64.0.0/10), con el header X-Api-Key obligatorio. GET /status, POST /arm {race_id}, POST /start, POST /abort, POST /shutdown. Cambiar api_key antes de produccion. arm_camera es 1-indexed como el guion; arm_burst_ms/arm_max_ms en 0 = usar ranking_measure (y si el guion tiene MeasurePoint del punto 1, mandan la camara y la ventana del guion)."
+  },
   "ports": [
     {
       "index": 1,

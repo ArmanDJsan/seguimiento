@@ -58,6 +58,7 @@
 #include "../control/TrackPhysicalController.h"
 #include "../control/VMixController.h"
 #include "../control/PTZController.h"
+#include "../control/ControlApi.h"
 #include "../choreography/ChoreographyEngine.h"
 #include "../verification/SphereVerifier.h"
 #include "../verification/ArrivalOrderStabilizer.h"
@@ -744,6 +745,29 @@ Config LoadConfig(const std::string& path) {
                         (config.rankingMeasureConfig.drawBoxes ? "true" : "false"));
         }
         
+        // Parse control_api section (API HTTP de control para el backend, modo
+        // --service). La clave NUNCA se loguea.
+        if (j.contains("control_api") && j["control_api"].is_object()) {
+            auto& ca = j["control_api"];
+            if (ca.contains("enabled")) config.controlApiConfig.enabled = ca["enabled"].get<bool>();
+            if (ca.contains("port")) config.controlApiConfig.port = ca["port"].get<int>();
+            if (ca.contains("api_key")) config.controlApiConfig.apiKey = ca["api_key"].get<std::string>();
+            if (ca.contains("arm_camera")) config.controlApiConfig.armCamera = ca["arm_camera"].get<int>();
+            if (ca.contains("arm_burst_ms")) config.controlApiConfig.armBurstMs = ca["arm_burst_ms"].get<int>();
+            if (ca.contains("arm_max_ms")) config.controlApiConfig.armMaxMs = ca["arm_max_ms"].get<int>();
+
+            Logger::Info("Control API config: enabled=" +
+                        std::string(config.controlApiConfig.enabled ? "true" : "false") +
+                        ", port=" + std::to_string(config.controlApiConfig.port) +
+                        ", api_key=" +
+                        (config.controlApiConfig.apiKey.empty()
+                            ? std::string("(VACIA)")
+                            : ("(configurada, " + std::to_string(config.controlApiConfig.apiKey.size()) + " chars)")) +
+                        ", arm_camera=" + std::to_string(config.controlApiConfig.armCamera));
+        } else if (config.controlApiConfig.enabled) {
+            Logger::Warning("Config: control_api.enabled pero falta el bloque en config.json");
+        }
+
         // Parse ptz_cameras section
         if (j.contains("ptz_cameras") && j["ptz_cameras"].is_object()) {
             auto& ptz = j["ptz_cameras"];
@@ -885,10 +909,23 @@ bool RunPhase2(VideoHubClient& videoHub, int targetSpheres) {
 /**
  * Ejecutar el modo normal de operación (RUNNING MODE)
  * Contiene toda la lógica de inicialización y captura continua
+ * @param serviceMode true = modo --service: sin menu y sin teclas, la carrera
+ *        se dispara por la API HTTP de control (GET /status, POST /arm|start|abort).
+ *        false (default) = comportamiento de siempre, con menu y teclas.
  * @return true si finalizó correctamente, false si hubo error
  */
-bool RunRunningMode() {
-    Logger::Info("=== INICIANDO RUNNING MODE ===");
+bool RunRunningMode(bool serviceMode = false) {
+    Logger::Info(serviceMode ? "=== INICIANDO RUNNING MODE (--service, sin menu) ==="
+                             : "=== INICIANDO RUNNING MODE ===");
+
+    // En --service no se leen teclas: el control es la API HTTP. Sin --service
+    // esto es exactamente GetAsyncKeyState(vk) & 0x8000, como siempre.
+    auto KeyDown = [serviceMode](int vk) -> bool {
+        if (serviceMode) {
+            return false;
+        }
+        return (GetAsyncKeyState(vk) & 0x8000) != 0;
+    };
     
     // ============================================================================
     // System Optimization Diagnostics (Threadripper PRO + RTX 5080)
@@ -1494,6 +1531,36 @@ bool RunRunningMode() {
     // Main monitoring loop
     // ============================================================================
     Logger::Info("=== Sistema en Modo de Operacion ===");
+
+    // ============================================================================
+    // API HTTP de control (modo --service)
+    // ============================================================================
+    // Se levanta DESPUES de arrancar la captura: /arm mide el punto 1 sobre los
+    // cuadros que ya estan entrando por OnDetections.
+    std::unique_ptr<ControlApi> controlApi;
+    bool controlApiFailed = false;
+    if (config.controlApiConfig.enabled) {
+        controlApi = std::make_unique<ControlApi>();
+        if (!controlApi->Start(config.controlApiConfig, choreographyEngine.get(),
+                               rankingMeasure.get(), config.choreographyConfig.scriptPath)) {
+            Logger::Error("ControlApi: no se pudo levantar la API de control (puerto " +
+                          std::to_string(config.controlApiConfig.port) + ")");
+            controlApiFailed = true;
+            controlApi.reset();
+        }
+    } else if (serviceMode) {
+        // Sin API no hay forma de disparar la carrera y tampoco hay teclado: no
+        // tiene sentido quedarse corriendo un VIB que nadie puede mandar.
+        Logger::Error("--service requiere control_api.enabled=true en config.json");
+        controlApiFailed = true;
+    }
+
+    if (serviceMode && !controlApiFailed) {
+        Logger::Info("--- Modo SERVICIO: menu y teclas deshabilitados ---");
+        Logger::Info("--- Control: GET /status  POST /arm /start /abort /shutdown ---");
+    }
+
+    if (!serviceMode) {
     Logger::Info("ESC - Volver al menu principal");
     Logger::Info("F2  - Reducir a 2 camaras (throttle)");
     Logger::Info("F3  - Restaurar a 4 camaras");
@@ -1512,9 +1579,13 @@ bool RunRunningMode() {
         Logger::Info("--- Choreography Controls ---");
         Logger::Info("F12 - Start/Pause/Resume choreography");
     }
+    }
     Logger::Info("====================================");
     
     bool running = true;
+    if (controlApiFailed) {
+        running = false;
+    }
     auto lastStatusLog = std::chrono::steady_clock::now();
     const auto statusInterval = std::chrono::seconds(10);
     
@@ -1543,14 +1614,21 @@ bool RunRunningMode() {
     std::thread ptzChoreographyThread;
     
     while (running) {
+        // Unico apagado ordenado en --service: POST /shutdown (no hay teclado).
+        if (serviceMode && (!controlApi || controlApi->ShutdownRequested())) {
+            Logger::Info("[SERVICE] apagado pedido por la API");
+            running = false;
+            break;
+        }
+
         // Check for exit condition
-        if (GetAsyncKeyState(VK_ESCAPE) & 0x8000) {
+        if (KeyDown(VK_ESCAPE)) {
             Logger::Info("ESC presionado - Volviendo al menu principal...");
             running = false;
         }
         
         // F2 - Reduce active cameras
-        if (GetAsyncKeyState(VK_F2) & 0x8000) {
+        if (KeyDown(VK_F2)) {
             if (!f2Pressed) {
                 f2Pressed = true;
                 config.selectorTopK = 2;
@@ -1562,7 +1640,7 @@ bool RunRunningMode() {
         }
         
         // F3 - Restore active cameras
-        if (GetAsyncKeyState(VK_F3) & 0x8000) {
+        if (KeyDown(VK_F3)) {
             if (!f3Pressed) {
                 f3Pressed = true;
                 config.selectorTopK = 4;
@@ -1573,7 +1651,7 @@ bool RunRunningMode() {
         }
         
         // F4 - Emergency stop
-        if (GetAsyncKeyState(VK_F4) & 0x8000) {
+        if (KeyDown(VK_F4)) {
             if (!f4Pressed) {
                 f4Pressed = true;
                 running = false;
@@ -1584,7 +1662,7 @@ bool RunRunningMode() {
         }
         
         // F5 - Reset telemetry
-        if (GetAsyncKeyState(VK_F5) & 0x8000) {
+        if (KeyDown(VK_F5)) {
             if (!f5Pressed) {
                 f5Pressed = true;
                 auto now = std::chrono::system_clock::now();
@@ -1607,7 +1685,7 @@ bool RunRunningMode() {
         // PTZ Choreography Option 7 (F8)
         // Cycles through presets 1, 2, 3 with 5-second delays on PTZ_START camera
         // ============================================================================
-        if (GetAsyncKeyState(VK_F8) & 0x8000) {
+        if (KeyDown(VK_F8)) {
             if (!f8KeyPressed && ptzController && ptzController->IsInitialized()) {
                 f8KeyPressed = true;
                 
@@ -1675,7 +1753,7 @@ bool RunRunningMode() {
         // ============================================================================
         // Choreography Controls (F12)
         // ============================================================================
-        if (GetAsyncKeyState(VK_F12) & 0x8000) {
+        if (KeyDown(VK_F12)) {
             if (!f12KeyPressed && choreographyEngine) {
                 f12KeyPressed = true;
                 auto state = choreographyEngine->GetState();
@@ -1725,7 +1803,7 @@ bool RunRunningMode() {
         // ============================================================================
         
         // M - Toggle AUTO/MANUAL mode
-        if (GetAsyncKeyState('M') & 0x8000) {
+        if (KeyDown('M')) {
             if (!mKeyPressed && sceneManager) {
                 mKeyPressed = true;
                 SceneMode currentMode = sceneManager->GetMode();
@@ -1740,7 +1818,7 @@ bool RunRunningMode() {
         }
         
         // F1 - Select config_a (index 0) in MANUAL mode
-        if (GetAsyncKeyState(VK_F1) & 0x8000) {
+        if (KeyDown(VK_F1)) {
             if (!f1KeyPressed && sceneManager && sceneManager->GetMode() == SceneMode::MANUAL) {
                 f1KeyPressed = true;
                 sceneManager->SelectConfig(0);
@@ -1750,7 +1828,7 @@ bool RunRunningMode() {
         }
         
         // F6 - Select config_b (index 1) in MANUAL mode
-        if (GetAsyncKeyState(VK_F6) & 0x8000) {
+        if (KeyDown(VK_F6)) {
             if (!f6KeyPressed && sceneManager && sceneManager->GetMode() == SceneMode::MANUAL) {
                 f6KeyPressed = true;
                 sceneManager->SelectConfig(1);
@@ -1760,7 +1838,7 @@ bool RunRunningMode() {
         }
         
         // F7 - Select config_c (index 2) in MANUAL mode
-        if (GetAsyncKeyState(VK_F7) & 0x8000) {
+        if (KeyDown(VK_F7)) {
             if (!f7KeyPressed && sceneManager && sceneManager->GetMode() == SceneMode::MANUAL) {
                 f7KeyPressed = true;
                 sceneManager->SelectConfig(2);
@@ -1770,7 +1848,7 @@ bool RunRunningMode() {
         }
         
         // G - Toggle group in MANUAL mode
-        if (GetAsyncKeyState('G') & 0x8000) {
+        if (KeyDown('G')) {
             if (!gKeyPressed && sceneManager && sceneManager->GetMode() == SceneMode::MANUAL) {
                 gKeyPressed = true;
                 sceneManager->ToggleGroup();
@@ -1780,7 +1858,7 @@ bool RunRunningMode() {
         }
         
         // 1-4 - Select camera in group (MANUAL mode)
-        if (GetAsyncKeyState('1') & 0x8000) {
+        if (KeyDown('1')) {
             if (!key1Pressed && sceneManager && sceneManager->GetMode() == SceneMode::MANUAL) {
                 key1Pressed = true;
                 sceneManager->SelectCameraInGroup(0);
@@ -1789,7 +1867,7 @@ bool RunRunningMode() {
             key1Pressed = false;
         }
         
-        if (GetAsyncKeyState('2') & 0x8000) {
+        if (KeyDown('2')) {
             if (!key2Pressed && sceneManager && sceneManager->GetMode() == SceneMode::MANUAL) {
                 key2Pressed = true;
                 sceneManager->SelectCameraInGroup(1);
@@ -1798,7 +1876,7 @@ bool RunRunningMode() {
             key2Pressed = false;
         }
         
-        if (GetAsyncKeyState('3') & 0x8000) {
+        if (KeyDown('3')) {
             if (!key3Pressed && sceneManager && sceneManager->GetMode() == SceneMode::MANUAL) {
                 key3Pressed = true;
                 sceneManager->SelectCameraInGroup(2);
@@ -1807,7 +1885,7 @@ bool RunRunningMode() {
             key3Pressed = false;
         }
         
-        if (GetAsyncKeyState('4') & 0x8000) {
+        if (KeyDown('4')) {
             if (!key4Pressed && sceneManager && sceneManager->GetMode() == SceneMode::MANUAL) {
                 key4Pressed = true;
                 sceneManager->SelectCameraInGroup(3);
@@ -1885,6 +1963,14 @@ bool RunRunningMode() {
     
     // Cleanup
     Logger::Info("Cerrando modo running...");
+
+    // La API de control primero: referencia al motor y al medidor, que se
+    // destruyen mas abajo.
+    if (controlApi) {
+        Logger::Info("Stopping ControlApi...");
+        controlApi->Stop();
+        controlApi.reset();
+    }
     
     // Stop PTZ choreography thread if running
     if (ptzChoreographyRunning) {
@@ -1939,7 +2025,7 @@ bool RunRunningMode() {
     }
     
     Logger::Info("Running mode finalizado");
-    return true;
+    return !controlApiFailed;
 }
 
 /**
@@ -3580,6 +3666,28 @@ bool RunTrainingCapture() {
 int main(int argc, char* argv[]) {
     Logger::Init("VIB_System");
     Logger::Info("Visual Intelligence Bypass v2.0 Starting...");
+
+    // --service: modo sin menu. La carrera la dispara el backend por la API HTTP
+    // de control (bloque "control_api" de config.json). Sin el argumento, todo
+    // funciona igual que siempre (menu interactivo).
+    bool serviceMode = false;
+    for (int i = 1; i < argc; ++i) {
+        const std::string arg = (argv[i] != nullptr) ? argv[i] : "";
+        if (arg == "--service") {
+            serviceMode = true;
+        } else if (arg == "--help" || arg == "-h" || arg == "/?") {
+            std::cout << "Uso: VIB.exe [--service]\n"
+                      << "  (sin argumentos)  menu interactivo de siempre\n"
+                      << "  --service         sin menu: control por la API HTTP\n"
+                      << "                    (bloque control_api de config.json)\n";
+            return 0;
+        } else {
+            Logger::Warning("Argumento desconocido ignorado: " + arg);
+        }
+    }
+    if (serviceMode) {
+        Logger::Info("Argumento --service: sin menu, control por la API HTTP");
+    }
     
     // Initialize COM for DeckLink SDK (Component Object Model)
     HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -3593,6 +3701,17 @@ int main(int argc, char* argv[]) {
     UserMenu menu;
     bool keepRunning = true;
     int exitCode = 0;
+
+    if (serviceMode) {
+        // En servicio no hay menu: se corre el modo de operacion y se vuelve
+        // cuando la API pide POST /shutdown (o si la API no pudo levantarse).
+        Logger::Info("[SERVICE] arrancando el modo de operacion sin menu");
+        if (!RunRunningMode(true)) {
+            Logger::Error("[SERVICE] el modo de operacion termino con error");
+            exitCode = 2;
+        }
+        keepRunning = false;
+    }
     
     while (keepRunning) {
         try {

@@ -34,6 +34,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -185,6 +186,11 @@ struct MeasureJob {
     int burstMs = 400;              // rafaga corta
     int maxMs = 2000;               // tope si no aparecen las 10 esferas
     int64_t requestedEpochMs = 0;   // instante del disparo (epoch ms)
+    int64_t jobId = 0;              // identificador para emparejar el resultado
+    // Sonda (API de control, /arm): NO abre clip ni publica por UDP. Solo mide
+    // y reporta por el callback de resultados. Se encola igual que todo lo
+    // demas, asi que no bloquea ni toca el hilo de captura.
+    bool probe = false;
 };
 
 /**
@@ -200,6 +206,25 @@ public:
     // (1920x1080 UYVY = 4,15 MB), asi que se reserva una vez en Initialize y
     // nunca se reasigna (el hilo medidor es unico y lo usa en serie).
     static constexpr size_t kMaxFrameBytes = 1920u * 1080u * 2u;
+
+    /**
+     * Resultado de UNA medicion, para observadores externos (API de control).
+     * No cambia en nada la medicion: es un aviso de lo que ya se resolvio.
+     */
+    struct MeasureResult {
+        int64_t jobId = 0;
+        int camera = 0;         // 0-based
+        int punto = 0;
+        int spheres = 0;        // esferas resueltas (posiciones.size())
+        int maxDetections = 0;  // pico de detecciones en la rafaga
+        bool published = false; // se mando el datagrama UDP del punto
+        bool probe = false;     // sonda de /arm (no publica)
+        std::string motivo;     // por que no se publico (vacio si publico)
+        int64_t epochMs = 0;    // instante del frame que resolvio el punto
+    };
+
+    /** Se llama en el HILO MEDIDOR: el callback no debe bloquear. */
+    using MeasureResultCallback = std::function<void(const MeasureResult&)>;
 
     RankingMeasure();
     ~RankingMeasure();
@@ -226,8 +251,35 @@ public:
     /**
      * Encola una medicion. NO bloquea: si la cola esta llena se descarta la
      * mas vieja. Esto es lo unico que llama el `case` del motor.
+     * @param probe true = sonda de /arm: no abre clip ni publica por UDP
+     * @return jobId para emparejar el resultado (0 si se rechazo)
      */
-    void Enqueue(int camera, int punto, int burstMs, int maxMs);
+    int64_t Enqueue(int camera, int punto, int burstMs, int maxMs, bool probe = false);
+
+    /**
+     * Sonda de la API de control (/arm): mide una camara sin publicar nada.
+     * @param burstMs 0 = default de ranking_measure
+     * @param maxMs   0 = default de ranking_measure
+     * @return jobId para emparejar el resultado (0 si se rechazo)
+     */
+    int64_t EnqueueProbe(int camera, int burstMs, int maxMs);
+
+    /**
+     * Observador de resultados (API de control). Se guarda/protege con mutex;
+     * nullptr lo desengancha.
+     */
+    void SetResultCallback(MeasureResultCallback callback);
+
+    /**
+     * Copia thread-safe del ULTIMO ranking publicado (ballIDs en orden de
+     * llegada). El "final" es el ultimo punto publicado de la carrera: la
+     * agregacion entre puntos no es parte de esto.
+     * @return false si todavia no se publico ningun punto
+     */
+    bool GetLastRanking(std::vector<int>& posiciones, int& punto, int64_t& epochMs) const;
+
+    /** Borra el ranking recordado (arranque de una carrera nueva). */
+    void ClearLastRanking();
 
     /**
      * Crea (idempotente) el anillo de una camara y el buffer de device propio
@@ -484,6 +536,25 @@ private:
     std::atomic<uint64_t> m_measureCount{0};
     std::atomic<uint64_t> m_droppedCount{0};
     std::atomic<bool> m_stopRequested{false};   // corte del hilo medidor en shutdown
+
+    // --- Observadores externos (API de control) -----------------------------
+    // jobId de cada trabajo encolado: /arm empareja SU sonda con SU resultado.
+    std::atomic<int64_t> m_nextJobId{1};
+
+    // Callback de resultados. Se copia bajo m_resultCbMutex en cada uso para
+    // que SetResultCallback(nullptr) durante el shutdown no corra una carrera
+    // con el hilo medidor.
+    mutable std::mutex m_resultCbMutex;
+    MeasureResultCallback m_resultCallback;
+
+    // Ultimo ranking publicado (copia thread-safe). Lo escribe el hilo medidor
+    // al publicar el punto; lo lee la API de control.
+    mutable std::mutex m_lastRankingMutex;
+    std::vector<int> m_lastRanking;
+    int m_lastRankingPunto = 0;
+    int64_t m_lastRankingEpochMs = 0;
+
+    void ReportResult(const MeasureResult& result);
 };
 
 /**

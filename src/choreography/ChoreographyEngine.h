@@ -204,6 +204,24 @@ public:
      * Check if script is loaded
      */
     bool HasScript() const { return m_scriptLoaded; }
+
+    /**
+     * true si la ultima ejecucion llego al final del guion POR SI SOLA (no por
+     * Stop() ni por un error de evento). Se limpia en Start() y en Stop().
+     * Lo consulta la API de control para pasar a "finished".
+     */
+    bool IsFinished() const { return m_finished.load(); }
+
+    /**
+     * Busca el evento MeasurePoint de un punto en el guion cargado. Sirve para
+     * que /arm verifique el punto 1 con la MISMA camara y la MISMA ventana que
+     * va a usar la carrera.
+     * @param camera1Based [out] camara del evento (1-indexed, como el guion)
+     * @param burstMs      [out] rafaga corta del evento
+     * @param maxMs        [out] techo del evento
+     * @return false si no hay guion cargado o ese punto no existe
+     */
+    bool GetMeasurePointFor(int punto, int& camera1Based, int& burstMs, int& maxMs) const;
     
     /**
      * Get current status
@@ -278,6 +296,8 @@ private:
     std::atomic<bool> m_stopRequested;
     std::atomic<bool> m_pauseRequested;
     std::atomic<bool> m_skipRequested;
+    // Termino el guion completo por si solo (ver IsFinished()).
+    std::atomic<bool> m_finished{false};
     std::chrono::steady_clock::time_point m_startTime;
     int m_errorCount;
     std::string m_lastError;

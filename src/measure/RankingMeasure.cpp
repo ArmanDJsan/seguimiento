@@ -421,10 +421,10 @@ FrameRing* RankingMeasure::GetRing(int cameraID) {
     return m_rings[cameraID].get();
 }
 
-void RankingMeasure::Enqueue(int camera, int punto, int burstMs, int maxMs) {
+int64_t RankingMeasure::Enqueue(int camera, int punto, int burstMs, int maxMs, bool probe) {
     if (!m_initialized) {
         Logger::Warning("RankingMeasure: evento MeasurePoint ignorado (medidor no inicializado)");
-        return;
+        return 0;
     }
     // La ventana es un slot por camara: un indice fuera de rango seria memoria
     // invalida, y ademas no hay historia que muestrear para esa camara.
@@ -432,12 +432,14 @@ void RankingMeasure::Enqueue(int camera, int punto, int burstMs, int maxMs) {
         Logger::Warning("RankingMeasure: evento MeasurePoint con camara " +
                         std::to_string(camera) + " fuera de rango (0.." +
                         std::to_string(kMaxCameras - 1) + "), se ignora");
-        return;
+        return 0;
     }
 
     MeasureJob job;
+    job.jobId = m_nextJobId.fetch_add(1);
     job.camera = camera;
     job.punto = punto;
+    job.probe = probe;
     job.burstMs = (burstMs > 0) ? burstMs : m_config.burstMs;
     job.maxMs = (maxMs > 0) ? maxMs : m_config.maxMs;
     if (job.maxMs < job.burstMs) {
@@ -449,7 +451,8 @@ void RankingMeasure::Enqueue(int camera, int punto, int burstMs, int maxMs) {
     // CreateDirectory/ffmpeg aca: este es el hilo de la linea de tiempo). El
     // worker no puede procesar el trabajo sin verla y el clip lo abre el hilo de
     // captura con el primer cuadro de la camara.
-    {
+    // Una SONDA (API de control) no abre clip: no toca la ventana de la camara.
+    if (!job.probe) {
         std::lock_guard<std::mutex> lock(m_clipMutex);
         m_ventanaPunto[camera] = job.punto;
     }
@@ -472,7 +475,47 @@ void RankingMeasure::Enqueue(int camera, int punto, int burstMs, int maxMs) {
     Logger::Debug("RankingMeasure: encolado punto=" + std::to_string(job.punto) +
                   " camara=" + std::to_string(job.camera) +
                   " burst=" + std::to_string(job.burstMs) + "ms" +
-                  " max=" + std::to_string(job.maxMs) + "ms");
+                  " max=" + std::to_string(job.maxMs) + "ms" +
+                  (job.probe ? " (sonda)" : "") +
+                  " jobId=" + std::to_string(job.jobId));
+    return job.jobId;
+}
+
+int64_t RankingMeasure::EnqueueProbe(int camera, int burstMs, int maxMs) {
+    // punto 0 = no es un punto del guion: la sonda no publica y no se registra
+    // como punto medido. Solo reporta por el callback de resultados.
+    return Enqueue(camera, 0, burstMs, maxMs, /*probe=*/true);
+}
+
+void RankingMeasure::SetResultCallback(MeasureResultCallback callback) {
+    std::lock_guard<std::mutex> lock(m_resultCbMutex);
+    m_resultCallback = std::move(callback);
+}
+
+bool RankingMeasure::GetLastRanking(std::vector<int>& posiciones, int& punto,
+                                    int64_t& epochMs) const {
+    std::lock_guard<std::mutex> lock(m_lastRankingMutex);
+    posiciones = m_lastRanking;
+    punto = m_lastRankingPunto;
+    epochMs = m_lastRankingEpochMs;
+    return !m_lastRanking.empty();
+}
+
+void RankingMeasure::ClearLastRanking() {
+    std::lock_guard<std::mutex> lock(m_lastRankingMutex);
+    m_lastRanking.clear();
+    m_lastRankingPunto = 0;
+    m_lastRankingEpochMs = 0;
+}
+
+void RankingMeasure::ReportResult(const MeasureResult& result) {
+    // Se invoca CON el lock tomado a proposito: asi SetResultCallback(nullptr)
+    // (shutdown de la API de control) no vuelve mientras hay un callback en
+    // curso, y el observador no puede quedar con un `this` ya destruido.
+    std::lock_guard<std::mutex> lock(m_resultCbMutex);
+    if (m_resultCallback) {
+        m_resultCallback(result);
+    }
 }
 
 void RankingMeasure::ResetIdentity() {
@@ -1505,11 +1548,21 @@ void RankingMeasure::RaceDumpWorker(std::deque<RaceFrame> cuadros, int camera,
 }
 
 void RankingMeasure::ProcessJob(const MeasureJob& job) {
+    // Resultado para observadores externos (API de control): se completa en
+    // CADA salida. /arm necesita el numero de esferas, no un ok vacio.
+    MeasureResult result;
+    result.jobId = job.jobId;
+    result.camera = job.camera;
+    result.punto = job.punto;
+    result.probe = job.probe;
+
     // Blindaje del indice del array de clips (Enqueue ya valida).
     if (job.camera < 0 || job.camera >= kMaxCameras) {
         Logger::Warning("RankingMeasure: trabajo con camara " + std::to_string(job.camera) +
                         " fuera de rango, se descarta");
         m_droppedCount++;
+        result.motivo = "camara fuera de rango";
+        ReportResult(result);
         return;
     }
 
@@ -1557,8 +1610,12 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
                         " sin cuadros en la ventana (camara " +
                         std::to_string(job.camera) + "), se descarta");
         m_droppedCount++;
+        result.motivo = "sin cuadros en la ventana (camara " +
+                        std::to_string(job.camera) + ")";
+        ReportResult(result);
         return;
     }
+    result.maxDetections = MaxDetections(samples);
 
     std::vector<int> posiciones;
     int64_t resolvedEpochMs = 0;
@@ -1566,8 +1623,13 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
         Logger::Warning("RankingMeasure: punto=" + std::to_string(job.punto) +
                         " sin detecciones en la rafaga, se descarta");
         m_droppedCount++;
+        result.spheres = 0;
+        result.motivo = "sin detecciones en la rafaga";
+        ReportResult(result);
         return;
     }
+    result.spheres = static_cast<int>(posiciones.size());
+    result.epochMs = resolvedEpochMs;
 
     {
         std::ostringstream oss;
@@ -1595,14 +1657,35 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
                         " posiciones y se exigen " + std::to_string(kTargetSpheres) +
                         " exactas, no se publica");
         m_droppedCount++;
+        result.motivo = std::to_string(posiciones.size()) + " esferas resueltas y se exigen " +
+                        std::to_string(kTargetSpheres);
+        ReportResult(result);
         return;
     }
 
-    if (m_publisher && m_publisher->PublishMeasurePoint(job.punto, resolvedEpochMs, posiciones)) {
-        m_measureCount++;
+    // Una sonda de la API de control (/arm) NO publica: solo verifica.
+    if (!job.probe) {
+        if (m_publisher && m_publisher->PublishMeasurePoint(job.punto, resolvedEpochMs, posiciones)) {
+            m_measureCount++;
+            result.published = true;
+            // Copia thread-safe para GET /status y el final de la carrera.
+            {
+                std::lock_guard<std::mutex> lock(m_lastRankingMutex);
+                m_lastRanking = posiciones;
+                m_lastRankingPunto = job.punto;
+                m_lastRankingEpochMs = resolvedEpochMs;
+            }
+        } else {
+            m_droppedCount++;
+            result.motivo = "no se pudo publicar el punto (publisher)";
+        }
     } else {
-        m_droppedCount++;
+        Logger::Info("RankingMeasure: sonda camara=" + std::to_string(job.camera) +
+                     " con " + std::to_string(posiciones.size()) +
+                     " esferas (no se publica)");
     }
+
+    ReportResult(result);
 }
 
 // ----------------------------------------------------------------------------

@@ -20,6 +20,7 @@
 #include "../measure/RankingPublisher.h" // RankingPublisherConfig
 #include "../measure/RankingMeasure.h"   // RankingMeasureConfig
 #include "../control/PTZController.h"    // PTZCameraConfig, PTZTrackingConfig
+#include "../control/ControlApi.h"       // ControlApiConfig (API HTTP de control)
 
 /**
  * Choreography configuration
@@ -142,6 +143,11 @@ struct Config {
     // techo por punto. Si el evento MeasurePoint trae burst_ms/max_ms, gana el
     // evento.
     Measure::RankingMeasureConfig rankingMeasureConfig;
+
+    // API HTTP de control (bloque "control_api"): solo se usa en modo
+    // --service, para que el backend arranque la carrera por la tailnet sin
+    // menu ni F12.
+    ControlApiConfig controlApiConfig;
     
     // PTZ cameras configuration
     PTZCamerasConfig ptzCamerasConfig;

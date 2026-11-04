@@ -237,6 +237,7 @@ bool ChoreographyEngine::Start() {
     m_stopRequested = false;
     m_pauseRequested = false;
     m_skipRequested = false;
+    m_finished = false;
     m_currentEventIndex = 0;
     m_errorCount = 0;
     m_startTime = std::chrono::steady_clock::now();
@@ -266,6 +267,7 @@ void ChoreographyEngine::Stop() {
     }
     
     SetState(EngineState::Ready);
+    m_finished = false;   // stop pedido a mano: no es "termino solo"
     Logger::Info("ChoreographyEngine: Stopped");
 }
 
@@ -311,6 +313,23 @@ bool ChoreographyEngine::JumpToEvent(size_t index) {
     m_currentEventIndex = index;
     Logger::Info("ChoreographyEngine: Jumped to event " + std::to_string(index));
     return true;
+}
+
+bool ChoreographyEngine::GetMeasurePointFor(int punto, int& camera1Based,
+                                            int& burstMs, int& maxMs) const {
+    for (const auto& event : m_script.events) {
+        if (event.type != EventType::MeasurePoint) {
+            continue;
+        }
+        const auto* params = std::get_if<MeasurePointParams>(&event.params);
+        if (params && params->punto == punto) {
+            camera1Based = params->camera;
+            burstMs = params->burstMs;
+            maxMs = params->maxMs;
+            return true;
+        }
+    }
+    return false;
 }
 
 EngineStatus ChoreographyEngine::GetStatus() const {
@@ -409,6 +428,11 @@ void ChoreographyEngine::ExecutionThreadFunc() {
     }
     
     if (m_state == EngineState::Running) {
+        // Termino por si sola: la API de control lo reporta como "finished".
+        // Con m_stopRequested (Stop() manual) NO es un final natural.
+        if (!m_stopRequested.load()) {
+            m_finished = true;
+        }
         SetState(EngineState::Ready);
         Logger::Info("ChoreographyEngine: Execution completed, " + 
                     std::to_string(m_errorCount) + " errors");
