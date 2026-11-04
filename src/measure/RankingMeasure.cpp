@@ -1,20 +1,21 @@
 /**
  * RankingMeasure.cpp
  *
- * Medidor por evento (fase 1). Ver RankingMeasure.h para el contrato
- * y las reglas duras.
+ * Medidor por evento. Ver RankingMeasure.h para el contrato y las reglas duras.
  *
  * Flujo por evento:
- *   1. El motor de coreografia encola (Enqueue: push a una cola de tope 8).
- *   2. El hilo medidor toma el trabajo, busca el frame de pre-roll en el anillo,
- *      y va ingiriendo frames [t0, t0+burst_ms]; si no resolvio las 10 esferas
- *      sigue hasta t0+max_ms o hasta completarlas.
- *   3. Por cada frame: cudaMemcpyAsync a un buffer propio -> inferenceEngine
- *      propio (contexto de ejecucion propio) -> lista de x.
- *   4. Resolucion: emparejar esferas entre frames por vecino mas cercano en x
- *      (identidad provisoria) y ordenar por la MEDIANA de x (mas adelantada =
- *      posicion 1). No se resuelve por un frame suelto.
- *   5. Un solo sendto() por punto con el orden final.
+ *   1. El motor de coreografia encola (Enqueue: anota la ventana de ESA camara y
+ *      hace un push a una cola de tope 8). Nada de E/S en este hilo.
+ *   2. El pipeline ya infiere cada cuadro de las 4 camaras y lo entrega por
+ *      OnDetections: ahi se guarda la historia de esa camara y, si tiene ventana,
+ *      se abre su clip y se empujan los cuadros crudos.
+ *   3. El hilo medidor espera el fin de la ventana (burst_ms, luego max_ms) y
+ *      resuelve el orden sobre la historia: emparejar esferas por movimiento y
+ *      votar la clase de cada una.
+ *   4. Cierra el clip de SU camara (ClipStop) y manda UN sendto() por punto.
+ *
+ * El clip es POR CAMARA (m_clips[camera]): dos mediciones solapadas en camaras
+ * distintas no se pisan.
  */
 
 #include "RankingMeasure.h"
@@ -229,6 +230,8 @@ void AttachCoordinator(RankingMeasure* coordinator) {
 // ============================================================================
 
 RankingMeasure::RankingMeasure() {
+    // -1 = esa camara no tiene ventana pedida.
+    m_ventanaPunto.fill(-1);
 }
 
 RankingMeasure::~RankingMeasure() {
@@ -333,7 +336,12 @@ bool RankingMeasure::Initialize(const RankingPublisherConfig& pubConfig,
 void RankingMeasure::Shutdown() {
     // 1. Parar el hilo medidor antes de liberar anillos/GPU
     m_stopRequested.store(true);
-    ClipStop();   // que no quede un clip abierto al apagar
+    // Cerrar el clip de CADA camara: no debe quedar ninguna ventana ni evidencia
+    // a medio volcar al apagar. ClipStop toma el lock por su cuenta y hace el
+    // volcado fuera de el, asi que se puede llamar aca sin riesgo de deadlock.
+    for (int cam = 0; cam < kMaxCameras; ++cam) {
+        ClipStop(cam);
+    }
     if (m_worker.joinable()) {
         m_worker.request_stop();
         m_queueCv.notify_all();
@@ -415,6 +423,14 @@ void RankingMeasure::Enqueue(int camera, int punto, int burstMs, int maxMs) {
         Logger::Warning("RankingMeasure: evento MeasurePoint ignorado (medidor no inicializado)");
         return;
     }
+    // La ventana es un slot por camara: un indice fuera de rango seria memoria
+    // invalida, y ademas no hay historia que muestrear para esa camara.
+    if (camera < 0 || camera >= kMaxCameras) {
+        Logger::Warning("RankingMeasure: evento MeasurePoint con camara " +
+                        std::to_string(camera) + " fuera de rango (0.." +
+                        std::to_string(kMaxCameras - 1) + "), se ignora");
+        return;
+    }
 
     MeasureJob job;
     job.camera = camera;
@@ -426,12 +442,13 @@ void RankingMeasure::Enqueue(int camera, int punto, int burstMs, int maxMs) {
     }
     job.requestedEpochMs = NowEpochMs();
 
-    // La ventana se anota ANTES de encolar: el worker no puede procesar el
-    // trabajo sin verla (el clip lo abre el hilo de captura al verla).
+    // La ventana de ESA camara se anota ANTES de encolar y SIN E/S (nada de
+    // CreateDirectory/ffmpeg aca: este es el hilo de la linea de tiempo). El
+    // worker no puede procesar el trabajo sin verla y el clip lo abre el hilo de
+    // captura con el primer cuadro de la camara.
     {
         std::lock_guard<std::mutex> lock(m_clipMutex);
-        m_ventanaCam = camera;
-        m_ventanaPunto = job.punto;
+        m_ventanaPunto[camera] = job.punto;
     }
 
     {
@@ -448,9 +465,6 @@ void RankingMeasure::Enqueue(int camera, int punto, int burstMs, int maxMs) {
         m_queue.push_back(job);
     }
     m_queueCv.notify_one();
-
-    // La ventana se anota ACA (instantaneo, sin I/O): el clip lo abre el hilo de
-    // captura con el primer cuadro y lo cierra el hilo medidor al vencer.
 
     Logger::Debug("RankingMeasure: encolado punto=" + std::to_string(job.punto) +
                   " camara=" + std::to_string(job.camera) +
@@ -717,18 +731,21 @@ std::string AssFilterArgs(const std::string& assPath) {
 
 } // namespace
 
-void RankingMeasure::ClipStartLocked(int punto, unsigned int width, unsigned int height,
+void RankingMeasure::ClipStartLocked(int camera, int punto, unsigned int width, unsigned int height,
                                      int64_t epochMs) {
-    m_clipRecording = false;
-    m_clipFailed = false;
-    m_clipFrames = 0;
-    m_clipPunto = punto;
-    m_clipW = width;
-    m_clipH = height;
+    // Se llama con m_clipMutex TOMADO y con camera ya validada por OnDetections.
+    ClipCtx& clip = m_clips[camera];
+    clip.recording = false;
+    clip.failed = false;
+    clip.frames = 0;
+    clip.punto = punto;
+    clip.w = width;
+    clip.h = height;
     // Referencia de los tiempos del .ass de las cajas: este es el primer cuadro
-    // del MP4 (el que abre el clip).
-    m_clipFirstMs = epochMs;
-    m_clipDir.clear();
+    // del MP4 de ESA camara (el que abre su clip).
+    clip.firstMs = epochMs;
+    clip.dir.clear();
+    clip.buffer.clear();
 
     // ffmpeg ya se probo en Initialize: aca no se arranca ningun proceso.
     if (!m_config.saveClip || !m_clipToolOk) {
@@ -736,10 +753,14 @@ void RankingMeasure::ClipStartLocked(int punto, unsigned int width, unsigned int
     }
 
     CreateDirectoryA(m_config.saveDir.c_str(), nullptr);
-    m_clipDir = m_config.saveDir + "\\punto_" + std::to_string(punto) + "_" + ClipStamp();
-    if (!CreateDirectoryA(m_clipDir.c_str(), nullptr) && GetLastError() != ERROR_ALREADY_EXISTS) {
-        Logger::Warning("RankingMeasure: no se pudo crear la carpeta del clip (" + m_clipDir + "), no se graba");
-        m_clipFailed = true;
+    // El nombre lleva la camara: dos ventanas solapadas pueden grabar el mismo
+    // numero de punto y caer en el mismo segundo, y antes colisionaban (una
+    // pisaba el MP4 de la otra).
+    clip.dir = m_config.saveDir + "\\punto_" + std::to_string(punto) + "_cam" +
+               std::to_string(camera) + "_" + ClipStamp();
+    if (!CreateDirectoryA(clip.dir.c_str(), nullptr) && GetLastError() != ERROR_ALREADY_EXISTS) {
+        Logger::Warning("RankingMeasure: no se pudo crear la carpeta del clip (" + clip.dir + "), no se graba");
+        clip.failed = true;
         return;
     }
 
@@ -750,48 +771,58 @@ void RankingMeasure::ClipStartLocked(int punto, unsigned int width, unsigned int
     // cuadros se acumulan en RAM y se vuelcan al final.
     {
         FILE* f = nullptr;
-        if (fopen_s(&f, (m_clipDir + "\\clip.uyvy").c_str(), "wb") != 0 || f == nullptr) {
-            Logger::Warning("RankingMeasure: no se pudo crear clip.uyvy en " + m_clipDir + "; no se graba");
-            m_clipFailed = true;
+        if (fopen_s(&f, (clip.dir + "\\clip.uyvy").c_str(), "wb") != 0 || f == nullptr) {
+            Logger::Warning("RankingMeasure: no se pudo crear clip.uyvy en " + clip.dir + "; no se graba");
+            clip.failed = true;
             return;
         }
         fclose(f);
     }
-    m_clipBuffer.clear();
 
-    m_clipRecording = true;
+    clip.recording = true;
     Logger::Info("RankingMeasure: grabando clip punto=" + std::to_string(punto) +
-                 " en " + m_clipDir + " (max " + std::to_string(m_config.saveMaxFrames) + " cuadros)");
+                 " camara=" + std::to_string(camera) +
+                 " en " + clip.dir + " (max " + std::to_string(m_config.saveMaxFrames) + " cuadros)");
 }
 
-void RankingMeasure::ClipPush(const void* devicePtr, size_t bytes) {
+void RankingMeasure::ClipPush(int camera, const void* devicePtr, size_t bytes) {
+    if (camera < 0 || camera >= kMaxCameras) {
+        return;
+    }
     std::lock_guard<std::mutex> lock(m_clipMutex);
-    if (!m_clipRecording || m_clipFailed || !devicePtr || bytes == 0) {
+    ClipCtx& clip = m_clips[camera];
+    if (!clip.recording || clip.failed || !devicePtr || bytes == 0) {
         return;
     }
-    if (m_config.saveMaxFrames > 0 && m_clipFrames >= m_config.saveMaxFrames) {
+    if (m_config.saveMaxFrames > 0 && clip.frames >= m_config.saveMaxFrames) {
         return;
     }
-    if (m_clipHost.size() != bytes) {
-        m_clipHost.resize(bytes);
+    if (clip.host.size() != bytes) {
+        clip.host.resize(bytes);
     }
-    if (cudaMemcpy(m_clipHost.data(), devicePtr, bytes, cudaMemcpyDeviceToHost) != cudaSuccess) {
-        Logger::Warning("RankingMeasure: cudaMemcpy del clip fallo, se corta la grabacion");
-        m_clipRecording = false;
-        m_clipFailed = true;
+    if (cudaMemcpy(clip.host.data(), devicePtr, bytes, cudaMemcpyDeviceToHost) != cudaSuccess) {
+        Logger::Warning("RankingMeasure: cudaMemcpy del clip fallo (camara " +
+                        std::to_string(camera) + "), se corta la grabacion");
+        clip.recording = false;
+        clip.failed = true;
         return;
     }
     // A RAM, no a disco: el volcado va una sola vez en ClipStop.
-    if (m_clipBuffer.capacity() == 0 && m_config.saveMaxFrames > 0) {
-        m_clipBuffer.reserve(static_cast<size_t>(m_config.saveMaxFrames) * bytes);
+    if (clip.buffer.capacity() == 0 && m_config.saveMaxFrames > 0) {
+        clip.buffer.reserve(static_cast<size_t>(m_config.saveMaxFrames) * bytes);
     }
-    m_clipBuffer.insert(m_clipBuffer.end(), m_clipHost.begin(), m_clipHost.end());
-    ++m_clipFrames;
+    clip.buffer.insert(clip.buffer.end(), clip.host.begin(), clip.host.end());
+    ++clip.frames;
 }
 
-void RankingMeasure::ClipStop() {
-    // Se saca TODO el estado bajo el lock y se trabaja con copias: mientras esto
-    // vuelca 600 MB, el hilo de captura sigue empujando cuadros de la ventana.
+void RankingMeasure::ClipStop(int camera) {
+    if (camera < 0 || camera >= kMaxCameras) {
+        return;
+    }
+    // Se saca TODO el estado de ESA camara bajo el lock y se trabaja con copias:
+    // mientras esto vuelca cientos de MB, el hilo de captura sigue empujando
+    // cuadros de la ventana. El lock se suelta ANTES de tocar el disco y de
+    // lanzar ffmpeg (nunca se llama a ClipStop con m_clipMutex tomado).
     std::string dir;
     std::vector<unsigned char> buffer;
     int cuadros = 0;
@@ -802,22 +833,22 @@ void RankingMeasure::ClipStop() {
     unsigned int clipH = 0;
     {
         std::lock_guard<std::mutex> lock(m_clipMutex);
-        if (!m_clipRecording && m_clipFrames == 0) {
+        ClipCtx& clip = m_clips[camera];
+        // La ventana de esta camara ya vencio: no debe abrir el clip de un punto
+        // posterior (el siguiente cuadro llegaria con otro numero de punto).
+        m_ventanaPunto[camera] = -1;
+        if (!clip.recording && clip.frames == 0) {
             return;
         }
-        m_clipRecording = false;
-        cuadros = m_clipFrames;
-        m_clipFrames = 0;
-        punto = m_clipPunto;
-        cam = m_clipCamera;
-        firstMs = m_clipFirstMs;
-        clipW = m_clipW;
-        clipH = m_clipH;
-        dir = m_clipDir;
-        buffer.swap(m_clipBuffer);
-        m_clipCamera = -1;
-        m_ventanaCam = -1;
-        m_ventanaPunto = 0;
+        clip.recording = false;
+        cuadros = clip.frames;
+        clip.frames = 0;
+        punto = clip.punto;
+        firstMs = clip.firstMs;
+        clipW = clip.w;
+        clipH = clip.h;
+        dir = clip.dir;
+        buffer.swap(clip.buffer);
     }
     if (cuadros == 0) {
         return;
@@ -836,8 +867,9 @@ void RankingMeasure::ClipStop() {
             }
             fclose(f);
         } else {
+            // No se toca el estado de la camara aca: este volcado corre FUERA del
+            // lock y el contexto ya quedo reseteado.
             Logger::Warning("RankingMeasure: no se pudo volcar clip.uyvy en " + dir);
-            m_clipFailed = true;
         }
     }
     long long crudoBytes = 0;
@@ -854,12 +886,11 @@ void RankingMeasure::ClipStop() {
     // crudo no tiene marcas de tiempo, la unica referencia valida es esa.
     // Con draw_boxes=false este bloque no corre y no se crea ningun .ass.
     std::string ass;
-    if (m_config.drawBoxes && cam >= 0 && cam < kMaxCameras && firstMs > 0 &&
-        clipW > 0 && clipH > 0) {
+    if (m_config.drawBoxes && firstMs > 0 && clipW > 0 && clipH > 0) {
         const int fps = (m_config.saveFps > 0) ? m_config.saveFps : 30;
         const int64_t durMs = static_cast<int64_t>(cuadros) * 1000 / fps;
         std::vector<FrameSample> muestras;
-        SnapshotHistory(cam, firstMs, firstMs + durMs + 100, muestras);
+        SnapshotHistory(camera, firstMs, firstMs + durMs + 100, muestras);
 
         std::vector<AssFrame> cajas;
         cajas.reserve(muestras.size());
@@ -922,7 +953,7 @@ void RankingMeasure::ClipStop() {
     // medidor: la medicion siguiente arrancaba tarde y, como el anillo guarda 8
     // cuadros, los de su ventana ya no existian (medido 3-nov-2026: 3 de 9
     // puntos juntaron 1-9 cuadros y el clip salio vacio).
-    std::thread([cmdLine, cmdSinCajas, raw, mp4, logf, ass, crudoBytes, cuadros, punto]() {
+    std::thread([cmdLine, cmdSinCajas, raw, mp4, logf, ass, crudoBytes, cuadros, punto, camera]() {
         // Se llama a ffmpeg DIRECTO con CreateProcess, sin cmd.exe: el shell era
         // el que fallaba ("El sistema no puede encontrar la ruta") aunque la ruta
         // fuese correcta. La salida de ffmpeg va al archivo de log.
@@ -1006,6 +1037,7 @@ void RankingMeasure::ClipStop() {
                             " . Salida: " + (salida.empty() ? std::string("(vacia)") : salida));
         }
         Logger::Info("RankingMeasure: clip punto=" + std::to_string(punto) +
+                     " camara=" + std::to_string(camera) +
                      " cuadros=" + std::to_string(cuadros) + " mp4=" +
                      (mp4Ok ? std::string("si") : std::string("no")));
     }).detach();
@@ -1454,15 +1486,25 @@ void RankingMeasure::RaceDumpWorker(std::deque<RaceFrame> cuadros, int camera,
 }
 
 void RankingMeasure::ProcessJob(const MeasureJob& job) {
+    // Blindaje del indice del array de clips (Enqueue ya valida).
+    if (job.camera < 0 || job.camera >= kMaxCameras) {
+        Logger::Warning("RankingMeasure: trabajo con camara " + std::to_string(job.camera) +
+                        " fuera de rango, se descarta");
+        m_droppedCount++;
+        return;
+    }
+
     const int64_t t0 = job.requestedEpochMs;
     const int64_t burstEnd = t0 + job.burstMs;
 
-    // El clip ya arranco en Enqueue, en el instante del disparo. Se cierra en
-    // CUALQUIER salida de esta funcion (la guardia llama a ClipStop).
+    // El clip de ESTA camara se cierra en CUALQUIER salida de esta funcion (la
+    // guardia llama a ClipStop). ClipStop toma el lock por su cuenta: la guardia
+    // nunca corre con m_clipMutex tomado.
     struct ClipGuard {
         RankingMeasure* self;
-        ~ClipGuard() { if (self) self->ClipStop(); }
-    } clipGuard{this};
+        int camara;
+        ~ClipGuard() { if (self) self->ClipStop(camara); }
+    } clipGuard{this, job.camera};
 
     // 1. Esperar a que cierre la ventana. Mientras tanto el pipeline sigue
     //    detectando y OnDetections junta las muestras de esta camara.
@@ -1474,8 +1516,8 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
     // dejar la marca puesta (abriria el clip de un punto posterior).
     {
         std::lock_guard<std::mutex> lock(m_clipMutex);
-        if (m_ventanaCam == job.camera && m_ventanaPunto == job.punto) {
-            m_ventanaCam = -1;
+        if (m_ventanaPunto[job.camera] == job.punto) {
+            m_ventanaPunto[job.camera] = -1;
         }
     }
 
@@ -1587,28 +1629,25 @@ void RankingMeasure::OnDetections(int camera, int64_t epochMs,
         RacePush(camera, deviceFrame, frameBytes, epochMs, width, height, dets);
     }
 
-    // Evidencia: si hay ventana abierta para esta camara, el cuadro va al clip.
-    // Clip: si esta camara tiene una ventana pedida, el clip se abre con ESTE
-    // cuadro (asi las dimensiones son las reales) y se empuja despues.
+    // Evidencia. El estado del clip es POR CAMARA: este cuadro solo puede caer en
+    // el clip de `camera`. Si esa camara tiene una ventana pedida, el clip se abre
+    // con ESTE cuadro (asi las dimensiones son las reales) y se empuja despues.
     {
         std::lock_guard<std::mutex> lock(m_clipMutex);
-        if (m_ventanaCam == camera) {
-            if (m_clipRecording) {
-                Logger::Warning("RankingMeasure: habia un clip sin cerrar (medicion "
-                                "descartada por cola llena); se descarta su evidencia");
+        if (m_ventanaPunto[camera] >= 0) {
+            if (m_clips[camera].recording) {
+                Logger::Warning("RankingMeasure: habia un clip sin cerrar en la camara " +
+                                std::to_string(camera) + " (medicion descartada por cola "
+                                "llena); se descarta su evidencia");
             }
-            ClipStartLocked(m_ventanaPunto, width, height, epochMs);
-            m_clipCamera = camera;
-            m_ventanaCam = -1;
+            ClipStartLocked(camera, m_ventanaPunto[camera], width, height, epochMs);
+            m_ventanaPunto[camera] = -1;
         }
     }
-    bool grabar = false;
-    {
-        std::lock_guard<std::mutex> lock(m_clipMutex);
-        grabar = m_clipRecording && (camera == m_clipCamera);
-    }
-    if (grabar && deviceFrame && frameBytes > 0) {
-        ClipPush(deviceFrame, frameBytes);   // vuelve a chequear adentro
+    // ClipPush toma el lock y solo empuja si ESA camara esta grabando: las otras
+    // tres camaras no aportan ni un byte a este clip.
+    if (deviceFrame && frameBytes > 0) {
+        ClipPush(camera, deviceFrame, frameBytes);
     }
 
     if (dets.empty()) {
