@@ -250,6 +250,18 @@ bool RankingMeasure::Initialize(const RankingPublisherConfig& pubConfig,
     if (m_config.raceMaxSeconds > 3600) {
         m_config.raceMaxSeconds = 3600;
     }
+    // race_seconds: ventana real de la carrera (de la compuerta al volcado). Rango
+    // 1 s .. 1 h. Si el tope del anillo quedo por debajo se sube al valor de la
+    // carrera: si no, el anillo descartaria justo los cuadros que hay que volcar.
+    if (m_config.raceSeconds < 1) {
+        m_config.raceSeconds = 1;
+    }
+    if (m_config.raceSeconds > 3600) {
+        m_config.raceSeconds = 3600;
+    }
+    if (m_config.raceMaxSeconds < m_config.raceSeconds) {
+        m_config.raceMaxSeconds = m_config.raceSeconds;
+    }
     // El cerrojo de volcados solo existe si hay carrera que grabar: con
     // save_race=false no se reserva absolutamente nada para esto.
     if (m_config.saveRace) {
@@ -299,8 +311,11 @@ bool RankingMeasure::Initialize(const RankingPublisherConfig& pubConfig,
     Logger::Info(std::string("RankingMeasure: save_race=") +
                  (m_config.saveRace ? "true" : "false") +
                  ", race_max_seconds=" + std::to_string(m_config.raceMaxSeconds) +
+                 ", race_seconds=" + std::to_string(m_config.raceSeconds) +
                  (m_config.saveRace
-                      ? (" (tope ~" + std::to_string(m_config.raceMaxSeconds) +
+                      ? (" (se graban " + std::to_string(m_config.raceSeconds) +
+                         " s desde la compuerta; tope del anillo " +
+                         std::to_string(m_config.raceMaxSeconds) +
                          " s x 30 fps por camara, se descarta lo mas viejo)")
                       : std::string(" (no se reserva RAM de carrera)")));
     return true;
@@ -316,9 +331,12 @@ void RankingMeasure::Shutdown() {
         m_worker.join();
     }
 
-    // 1b. La carrera que quedo en RAM se vuelca ANTES de liberar. El volcado a
-    //     disco y ffmpeg corren en hilos aparte; aca se espera de forma acotada
-    //     para que el proceso no termine con el MP4 a medio escribir.
+    // 1b. Red de seguridad: si la carrera siguio abierta (no se cumplio el corte
+    //     automatico de race_seconds, p. ej. porque se cerro el programa antes),
+    //     lo que quedo en RAM se vuelca ANTES de liberar. Si ya se volco, no hay
+    //     anillos ni marca y esto no hace nada. El volcado a disco y ffmpeg corren
+    //     en hilos aparte; aca se espera de forma acotada para que el proceso no
+    //     termine con el MP4 a medio escribir.
     DumpRace();
     if (m_raceGate) {
         std::shared_ptr<RaceDumpGate> gate = m_raceGate;
@@ -729,7 +747,8 @@ void RankingMeasure::ClipStop() {
 //        -> RacePush: cudaMemcpy D2H + push al deque de ESA camara
 //                     (tope = race_max_seconds x 30 fps x bytes de cuadro;
 //                      al pasarse se descartan los MAS VIEJOS)
-//   DumpRace (Shutdown o evento de fin de carrera)
+//   DumpRace (corte automatico a los race_seconds desde la compuerta;
+//             Shutdown solo como red de seguridad)
 //        -> swap del deque de cada camara (libera el anillo)
 //        -> hilo aparte por camara: vuelca _race_cam<N>.uyvy + ffmpeg -> MP4
 // ============================================================================
@@ -805,8 +824,10 @@ int RunProcessHidden(const std::string& cmdLine, const std::string& logf, std::s
 void RankingMeasure::RacePush(int camera, const void* devicePtr, size_t bytes,
                               int64_t epochMs, unsigned int width, unsigned int height) {
     // Doble chequeo: con save_race=false no se reserva ni un byte ni se copia
-    // nada (el primer chequeo ya esta en OnDetections, antes de llamar aca).
-    if (!m_config.saveRace || devicePtr == nullptr || bytes == 0) {
+    // nada (el primer chequeo ya esta en OnDetections, antes de llamar aca), y
+    // con la carrera sin arrancar (m_raceActiva=false) tampoco: el anillo se
+    // llena SOLO entre la compuerta y el corte de race_seconds.
+    if (!m_config.saveRace || !m_raceActiva.load() || devicePtr == nullptr || bytes == 0) {
         return;
     }
     if (camera < 0 || camera >= kMaxCameras) {
@@ -869,12 +890,53 @@ void RankingMeasure::RacePush(int camera, const void* devicePtr, size_t bytes,
     }
 }
 
+void RankingMeasure::RaceStart() {
+    if (!m_config.saveRace) {
+        return;   // sin save_race no hay anillo reservado ni marca que poner
+    }
+
+    int camaras = 0;
+    {
+        std::lock_guard<std::mutex> lock(m_raceMutex);
+        for (int cam = 0; cam < kMaxCameras; ++cam) {
+            // Vaciar el anillo de ESA camara: los cuadros (y sus buffers) se
+            // sueltan y el contador de bytes vuelve a cero.
+            m_race[cam].clear();
+            m_raceBytes[cam] = 0;
+            // Las dimensiones (m_raceW/m_raceH) se dejan como estan: las fija el
+            // primer cuadro que empuje RacePush y sirven para no escribir un MP4
+            // con la geometria equivocada.
+            if (m_rings[cam] && m_rings[cam]->IsInitialized()) {
+                ++camaras;
+            }
+        }
+        // Instante de la compuerta: contra esto se mide el corte automatico.
+        m_raceInicioMs.store(NowEpochMs());
+        // Recien aca se abre la compuerta del anillo: hasta este instante
+        // OnDetections NO copiaba ni un cuadro (el anillo no se llena antes).
+        m_raceActiva.store(true);
+    }
+
+    Logger::Info("RankingMeasure: carrera: anillo reiniciado (camaras " +
+                 std::to_string(camaras) + "), se vuelca solo a los " +
+                 std::to_string(m_config.raceSeconds) + " s");
+}
+
 void RankingMeasure::DumpRace() {
     if (!m_config.saveRace) {
         return;   // nunca se grabo nada: no hay anillo que volcar
     }
 
     CreateDirectoryA(m_config.saveDir.c_str(), nullptr);
+
+    {
+        // Fin de carrera: la marca se apaga ANTES de vaciar los anillos, para que
+        // el hilo de captura deje de empujar cuadros en el mismo instante del
+        // swap. Si quedara encendida, un segundo DumpRace (el de Shutdown)
+        // volveria a encontrar cuadros y los volcaria como otra carrera.
+        std::lock_guard<std::mutex> lock(m_raceMutex);
+        m_raceActiva.store(false);
+    }
 
     for (int cam = 0; cam < kMaxCameras; ++cam) {
         std::deque<RaceFrame> cuadros;
@@ -1136,10 +1198,28 @@ void RankingMeasure::OnDetections(int camera, int64_t epochMs,
         return;
     }
 
+    // Corte automatico de la carrera: a los race_seconds desde la compuerta
+    // (RaceStart) la carrera se cierra sola y se vuelca, sin esperar al fin del
+    // guion ni al cierre del programa. Se dispara UNA SOLA vez: el hilo de
+    // camara que gana el exchange es el unico que vuelca; los otros (y los
+    // cuadros siguientes de este) ven m_raceActiva=false y no hacen nada.
+    if (m_config.saveRace && m_raceActiva.load() &&
+        epochMs >= m_raceInicioMs.load() + static_cast<int64_t>(m_config.raceSeconds) * 1000) {
+        if (m_raceActiva.exchange(false)) {
+            Logger::Info("RankingMeasure: carrera: cumplidos " +
+                         std::to_string(m_config.raceSeconds) +
+                         " s desde la compuerta; se cierra y se vuelca");
+            DumpRace();
+        }
+    }
+
     // Carrera completa en RAM (save_race). El if va ANTES de cualquier
     // cudaMemcpy y antes de tocar el anillo: con save_race=false (default) este
-    // bloque no reserva ni un byte ni copia ni un cuadro.
-    if (m_config.saveRace && deviceFrame != nullptr && frameBytes > 0) {
+    // bloque no reserva ni un byte ni copia ni un cuadro. Y con la carrera sin
+    // arrancar (m_raceActiva=false, o sea antes de la compuerta) tampoco copia:
+    // asi el anillo no se llena con cuadros previos a la carrera.
+    if (m_config.saveRace && m_raceActiva.load() &&
+        deviceFrame != nullptr && frameBytes > 0) {
         RacePush(camera, deviceFrame, frameBytes, epochMs, width, height);
     }
 

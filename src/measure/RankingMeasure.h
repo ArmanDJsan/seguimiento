@@ -149,9 +149,17 @@ struct RankingMeasureConfig {
     // Apagado por defecto: con false NO se reserva memoria ni se copia un solo
     // cuadro (el if va antes de cualquier cudaMemcpy, ver OnDetections).
     bool saveRace = false;
-    // Tope de RAM por camara, en segundos a 30 fps. 120 s x 4,15 MB = ~15 GB por
-    // camara (60 GB las 4). Acota el anillo: el cuadro mas viejo se descarta.
-    int raceMaxSeconds = 60;
+    // Tope de RAM por camara, en segundos a 30 fps: 50 s x 30 fps x 4,15 MB =
+    // ~6,2 GB por camara. Presupuesto del dueno para las 4 camaras en el peor
+    // caso: ~56 GB (la maquina tiene 128 GB, esta previsto). Cubre los
+    // race_seconds de carrera (45 s) con margen y acota el anillo: el cuadro mas
+    // viejo se descarta.
+    int raceMaxSeconds = 50;
+    // Cuanto dura la carrera de verdad, contada desde que abre la compuerta
+    // (ESP32 "iniciar"). A los race_seconds se cierra la carrera y el anillo se
+    // vuelca solo: despues de eso no se graba nada mas. Medido: 42 s de carrera
+    // + 3 s de cola para que se vea la llegada asentarse.
+    int raceSeconds = 45;
     // Ejecutable de ffmpeg. Puede ser "ffmpeg" (PATH) o una ruta completa.
     // Se admite %LOCALAPPDATA% y demas variables: las expande cmd, asi que la
     // ruta puede tener acentos sin problema de codificacion en el codigo.
@@ -233,12 +241,26 @@ public:
                       unsigned int width, unsigned int height);
 
     /**
+     * Arranca la carrera: marca el instante de inicio, vacia el anillo de las 4
+     * camaras (deques + contadores de bytes) y deja la marca "grabando carrera"
+     * para que OnDetections empiece a empujar cuadros. NO hace E/S: el volcado y
+     * ffmpeg son de DumpRace().
+     *
+     * Se llama desde el motor de coreografia cuando se abre la compuerta
+     * (ESP32Command "iniciar"). Con save_race=false es un no-op (no hay anillo
+     * reservado ni marca que poner).
+     */
+    void RaceStart();
+
+    /**
      * Vuelca a MP4 la carrera completa que esta en RAM (una por camara) y libera
      * el anillo de esa camara. NO bloquea: el volcado del crudo a disco y ffmpeg
      * corren en un hilo aparte por camara.
      *
-     * Es publico a proposito: se llama en Shutdown() y se puede enganchar a un
-     * evento de la coreografia (fin de carrera) sin tocar el motor de eventos.
+     * Es publico a proposito. Se llama solo (una vez) al cumplirse race_seconds
+     * desde RaceStart, y en Shutdown() como red de seguridad. Al volcar deja
+     * m_raceActiva=false y los anillos vacios, asi que una segunda llamada (p.
+     * ej. el Shutdown) no vuelve a volcar lo mismo.
      * Con save_race=false es un no-op (no hay nada grabado).
      */
     void DumpRace();
@@ -363,6 +385,18 @@ private:
     std::array<unsigned int, kMaxCameras> m_raceW{};
     std::array<unsigned int, kMaxCameras> m_raceH{};
     std::mutex m_raceMutex;
+    // Marca "grabando carrera": la prende RaceStart() (compuerta) y la apaga el
+    // corte automatico a los race_seconds (o DumpRace). Mientras este en false NO
+    // se copia un cuadro al anillo, asi que el anillo no se llena antes de la
+    // compuerta ni se vuelve a llenar despues del volcado. Es atomica porque la
+    // lee el hilo de captura de cada camara sin tomar m_raceMutex (mismo criterio
+    // que m_stopRequested).
+    std::atomic<bool> m_raceActiva{false};
+    // Instante (epoch ms) en que RaceStart() abrio la carrera. Se escribe una vez
+    // por carrera, antes de poner m_raceActiva=true. Atomica por el mismo motivo
+    // que la marca: la leen los hilos de captura sin tomar m_raceMutex (y una
+    // segunda carrera puede reescribirla mientras miran).
+    std::atomic<int64_t> m_raceInicioMs{0};
 
     // Volcados en curso, compartidos con los hilos de volcado por shared_ptr:
     // asi un hilo de volcado NO toca `this` y no puede quedar apuntando a un

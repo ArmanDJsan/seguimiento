@@ -723,6 +723,9 @@ Config LoadConfig(const std::string& path) {
             // false no se reserva ni un byte ni se copia un cuadro)
             if (rm.contains("save_race")) config.rankingMeasureConfig.saveRace = rm["save_race"].get<bool>();
             if (rm.contains("race_max_seconds")) config.rankingMeasureConfig.raceMaxSeconds = rm["race_max_seconds"].get<int>();
+            // Ventana real de la carrera desde la compuerta: a los race_seconds se
+            // vuelca solo el anillo y no se graba nada mas.
+            if (rm.contains("race_seconds")) config.rankingMeasureConfig.raceSeconds = rm["race_seconds"].get<int>();
             if (rm.contains("ffmpeg_cmd")) config.rankingMeasureConfig.ffmpegCmd = rm["ffmpeg_cmd"].get<std::string>();
             if (rm.contains("strict_classes")) config.rankingMeasureConfig.strictClasses = rm["strict_classes"].get<bool>();
             Logger::Info("RankingMeasure config: burst=" +
@@ -730,7 +733,9 @@ Config LoadConfig(const std::string& path) {
                         std::to_string(config.rankingMeasureConfig.maxMs) + "ms, save_race=" +
                         (config.rankingMeasureConfig.saveRace ? "true" : "false") +
                         ", race_max_seconds=" +
-                        std::to_string(config.rankingMeasureConfig.raceMaxSeconds));
+                        std::to_string(config.rankingMeasureConfig.raceMaxSeconds) +
+                        ", race_seconds=" +
+                        std::to_string(config.rankingMeasureConfig.raceSeconds));
         }
         
         // Parse ptz_cameras section

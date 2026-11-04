@@ -522,6 +522,16 @@ EventResult ChoreographyEngine::ExecuteEventInternal(const ChoreographyEvent& ev
                     Logger::Debug("ChoreographyEngine: ESP32Command command=" + params->command);
                     // Map logical command names to TrackPhysicalController methods
                     if (params->command == "iniciar") {
+                        // "iniciar" es el comando que abre la compuerta (ver
+                        // TrackPhysicalController::openGate -> endpoint /iniciar):
+                        // ES el arranque de la carrera. Se reinicia el anillo de
+                        // la carrera (save_race) ANTES de abrir, asi el primer
+                        // cuadro del anillo es el de la compuerta y no se cuela
+                        // nada de antes de la carrera.
+                        if (Measure::RankingMeasure* coordinator =
+                                Measure::AttachedCoordinator()) {
+                            coordinator->RaceStart();
+                        }
                         result.success = m_trackController->openGate();
                     } else if (params->command == "finalizar") {
                         result.success = m_trackController->closeGates();
