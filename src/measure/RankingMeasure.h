@@ -281,6 +281,9 @@ private:
     std::array<std::deque<MuestraCamara>, kMaxCameras> m_historia;
     std::mutex m_historiaMutex;
     int m_clipCamera = -1;
+    // El estado del clip lo tocan 3 hilos (coreografia, captura, medidor).
+    std::mutex m_clipMutex;
+    bool m_clipToolOk = false;   // ffmpeg responde (probado UNA vez en Initialize)
 
     void SnapshotHistory(int camera, int64_t fromMs, int64_t toMs,
                          std::vector<FrameSample>& out);

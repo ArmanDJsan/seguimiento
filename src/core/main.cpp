@@ -1223,10 +1223,13 @@ bool RunRunningMode() {
         if (capture->Initialize(kCaptureDeviceBase + i, channelName, i)) {
             // Medidor por evento: el anillo corto lo llena el hilo de captura de
             // esta camara (pre-roll del disparo). Sin medidor queda nullptr.
+            // El anillo corto ya NO se usa: el medidor consume las detecciones que
+            // el pipeline produce. Llenarlo costaba 4 MB por cuadro por camara
+            // (~480 MB/s) en los hilos de captura, para nadie.
             if (rankingMeasure) {
                 const VideoChannel& channelInfo = capture->GetChannel();
-                capture->SetMeasureRing(rankingMeasure->SetupCamera(
-                    channelInfo.channelID, channelInfo.width, channelInfo.height));
+                rankingMeasure->SetupCamera(channelInfo.channelID,
+                                            channelInfo.width, channelInfo.height);
             }
             capture->SetFrameReadyHandler([ndiManager, cameraSelector, 
                                           perfMonitor, &config, inferenceStream,
@@ -1296,20 +1299,6 @@ bool RunRunningMode() {
                     // Save frame when there are detections (only once per channel)
                     // NOTE: This I/O operation adds latency (~10-20ms) but only executes once per channel
                     // TODO: Move to async thread pool for zero impact on critical path
-                    // El medidor NO infiere: consume lo que el pipeline ya vio.
-                    // Se le pasa cada cuadro (con o sin detecciones) porque de
-                    // aca sale tambien la ventana del clip.
-                    if (rankingMeasure && rankingMeasure->IsInitialized()) {
-                        const int64_t nsMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                            std::chrono::system_clock::now().time_since_epoch()).count();
-                        const size_t frameBytes =
-                            static_cast<size_t>(channel.width) * channel.height * 2u;
-                        rankingMeasure->OnDetections(
-                            channel.channelID, nsMs, ballDetections,
-                            channel.cudaYUVBuffer, frameBytes,
-                            channel.width, channel.height);
-                    }
-
                     if (!ballDetections.empty() && channel.channelID < kMaxNDIChannels && 
                         !framesSaved[channel.channelID].load()) {
                         
@@ -1331,7 +1320,22 @@ bool RunRunningMode() {
                     }
                 }
                 
-                std::vector<GlobalPosition> globalPositions;
+                // El medidor NO infiere: consume lo que el pipeline ya vio. Se le
+                // pasa cada cuadro, con o sin detecciones: de aca sale tambien el
+                // clip. Va FUERA del if de inferencia para que el clip se grabe
+                // aunque el motor del pipeline no haya inicializado.
+                if (rankingMeasure && rankingMeasure->IsInitialized()) {
+                    const int64_t nsMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count();
+                    const size_t frameBytes =
+                        static_cast<size_t>(channel.width) * channel.height * 2u;
+                    rankingMeasure->OnDetections(
+                        channel.channelID, nsMs, ballDetections,
+                        channel.cudaYUVBuffer, frameBytes,
+                        channel.width, channel.height);
+                }
+                
+                                std::vector<GlobalPosition> globalPositions;
                 if (!ballDetections.empty() && positionMapper && positionMapper->IsCalibrated()) {
                     int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::system_clock::now().time_since_epoch()).count();
