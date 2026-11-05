@@ -11,9 +11,18 @@
  * Endpoints (JSON):
  *   GET  /status  -> {"state":"idle|armed|running|finished","race_id":"...",
  *                     "point":N,"spheres":N,"ranking":[...],"t0":<epoch_ms>}
- *   POST /arm     {"race_id":"..."}  mide el punto 1 (una sola rafaga, encolada
- *                 como todas las mediciones) y responde 200 si hay 10 esferas
- *                 o 409 si no. Deja el sistema armed.
+ *   POST /arm     {"race_id":"..."}  ARMADO AUTOMATICO COMPLETO, en un solo
+ *                 pedido y sin intervencion humana:
+ *                   1) mide la META      -> tienen que estar las 10 esferas
+ *                                           (si no, 409 y NO manda el reload:
+ *                                           no se puede verificar arriba lo que
+ *                                           nunca estuvo abajo)
+ *                   2) ESP32 "reload"    -> suben a la salida
+ *                   3) espera N ms       (control_api.arm_reload_wait_ms)
+ *                   4) mide ARRIBA       -> punto 1 del guion, 10 esferas
+ *                 Si las tres etapas pasan, deja el sistema armed; cualquier
+ *                 falla responde 409 con "etapa" y deja state=idle (nunca se
+ *                 arma a medias).
  *   POST /start   dispara el guion (equivale a F12) si esta armed.
  *   POST /abort   detiene el guion y vuelve a idle.
  *   POST /shutdown (extra) apaga el proceso: en --service no hay teclado.
@@ -45,6 +54,12 @@ namespace Measure {
     class RankingMeasure;
 }
 
+namespace PTZ {
+    class PTZController;
+}
+
+class TrackPhysicalController;
+
 /**
  * Configuracion del bloque "control_api" de config.json.
  */
@@ -53,9 +68,39 @@ struct ControlApiConfig {
     int port = 8090;
     std::string apiKey;          // clave obligatoria en X-Api-Key (vacia = API no arranca)
 
-    // Chequeo de /arm. El guion manda: si el guion cargado tiene un MeasurePoint
-    // para el punto 1 se usan SU camara y SU ventana, para verificar exactamente
-    // lo que va a medir la carrera. Estos valores son el fallback.
+    // ---------------------------------------------------------------------
+    // Armado automatico: META -> reload -> espera -> ARRIBA
+    // ---------------------------------------------------------------------
+
+    // Camara de la META (donde estan las esferas ANTES del reload), 1-indexed
+    // como el guion. 0 = no declarada: /arm responde 409 con ese motivo en vez
+    // de medir una camara inventada. Produccion: 4 = PTZ_FINISH (la llegada),
+    // que es donde quedan las 10 esferas al terminar la carrera anterior.
+    int armMetaCamera = 4;
+    // Preset PTZ para ver la META de cerca. 0 = no mover la camara (se mide la
+    // vista en la que este). Produccion: 2 = closeup de la llegada, el mismo
+    // que usa inicio_carrera_tlms.json antes de medir el final.
+    int armMetaPreset = 2;
+    int armMetaBurstMs = 0;      // 0 = usar ranking_measure.burst_ms
+    int armMetaMaxMs = 0;        // 0 = usar ranking_measure.max_ms
+
+    // Preset PTZ de la salida (ARRIBA) antes de medir el punto 1. 0 = no mover.
+    // Produccion: 1 = vista de la salida (el preset que deja el guion al
+    // empezar).
+    int armArribaPreset = 1;
+
+    // Cuanto tarda el ascensor en subir las 10 esferas despues del reload.
+    // En el guion: reload en t=9,0 s y medicion del punto 1 en t=15,0 s -> 6 s.
+    int armReloadWaitMs = 6000;
+
+    // Asentamiento del PTZ despues de llamar un preset (el motor tarda en
+    // llegar y en enfocar; medir en movimiento da cajas borrosas).
+    int armPtzSettleMs = 2000;
+
+    // Chequeo de ARRIBA. El guion manda: si el guion cargado tiene un
+    // MeasurePoint para el punto 1 se usan SU camara y SU ventana, para
+    // verificar exactamente lo que va a medir la carrera. Estos valores son el
+    // fallback cuando el guion no tiene ese punto.
     int armCamera = 1;           // 1-indexed, como el guion
     int armBurstMs = 0;          // 0 = usar ranking_measure.burst_ms
     int armMaxMs = 0;            // 0 = usar ranking_measure.max_ms
@@ -65,7 +110,7 @@ class ControlApi {
 public:
     enum class State {
         Idle,       // sin carrera armada
-        Armed,      // /arm ok: punto 1 verificado con 10 esferas
+        Armed,      // /arm ok: 10 esferas en la META y 10 ARRIBA (armado completo)
         Running,    // guion disparado por /start
         Finished    // el guion termino solo
     };
@@ -82,12 +127,17 @@ public:
      * @param engine     motor de coreografia (puede ser null si esta deshabilitado)
      * @param measure    medidor por evento (puede ser null: /arm devuelve 409)
      * @param scriptPath guion a recargar si el motor no tiene ninguno cargado
+     * @param track      controlador del ESP32 (null: /arm no puede mandar el
+     *                   reload y responde 409 en esa etapa)
+     * @param ptz        controlador PTZ (null: /arm mide la vista actual)
      * @return true si el puerto quedo escuchando
      */
     bool Start(const ControlApiConfig& config,
                Choreography::ChoreographyEngine* engine,
                Measure::RankingMeasure* measure,
-               const std::string& scriptPath);
+               const std::string& scriptPath,
+               TrackPhysicalController* track = nullptr,
+               PTZ::PTZController* ptz = nullptr);
 
     /**
      * Baja el listener y espera al hilo. Idempotente.
@@ -132,9 +182,31 @@ private:
     bool DoArmProbe(int camera1Based, int burstMs, int maxMs,
                     int& spheres, std::string& motivo);
 
+    /**
+     * Llama un preset PTZ antes de medir una etapa del armado. Sin controlador
+     * PTZ o con preset<=0 no hace nada (se mide la vista actual) y lo deja
+     * dicho en el log: no se finge un encuadre que no se pidio.
+     * @return false solo si el preset se pidio y el VISCA lo rechazo
+     */
+    bool MoveArmCamera(int camera1Based, int preset, const char* etapa,
+                       std::string& motivo);
+
+    /**
+     * Espera del ascensor, cortable: duerme en tramos de 100 ms para que
+     * /abort y /shutdown no queden colgados 6 s detras de un /arm.
+     * @return false si la cancelo un /abort o un /shutdown
+     */
+    bool WaitArmDelay(int ms, std::string& motivo);
+
+    /** Responde 409 de una etapa del armado y deja el sistema en idle. */
+    void ArmFail(int& status, std::string& out, const char* etapa,
+                 int spheres, const std::string& motivo);
+
     ControlApiConfig m_config;
     Choreography::ChoreographyEngine* m_engine = nullptr;
     Measure::RankingMeasure* m_measure = nullptr;
+    TrackPhysicalController* m_track = nullptr;
+    PTZ::PTZController* m_ptz = nullptr;
     std::string m_scriptPath;
 
     std::unique_ptr<Impl> m_impl;
@@ -148,6 +220,9 @@ private:
     std::atomic<bool> m_listening{false};
     std::atomic<bool> m_shutdownRequested{false};
     std::atomic<bool> m_armInFlight{false};
+    // /abort durante un /arm: la espera del ascensor y las etapas que faltan
+    // se cortan en vez de seguir armando una carrera que ya nadie quiere.
+    std::atomic<bool> m_armCancelled{false};
     std::atomic<int64_t> m_shutdownAt{0};
 
     // Espera del resultado de la sonda de /arm (la entrega el hilo medidor).

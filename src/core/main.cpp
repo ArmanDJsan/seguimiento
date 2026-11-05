@@ -755,6 +755,14 @@ Config LoadConfig(const std::string& path) {
             if (ca.contains("arm_camera")) config.controlApiConfig.armCamera = ca["arm_camera"].get<int>();
             if (ca.contains("arm_burst_ms")) config.controlApiConfig.armBurstMs = ca["arm_burst_ms"].get<int>();
             if (ca.contains("arm_max_ms")) config.controlApiConfig.armMaxMs = ca["arm_max_ms"].get<int>();
+            // Armado automatico: META -> reload -> espera -> ARRIBA
+            if (ca.contains("arm_meta_camera")) config.controlApiConfig.armMetaCamera = ca["arm_meta_camera"].get<int>();
+            if (ca.contains("arm_meta_preset")) config.controlApiConfig.armMetaPreset = ca["arm_meta_preset"].get<int>();
+            if (ca.contains("arm_meta_burst_ms")) config.controlApiConfig.armMetaBurstMs = ca["arm_meta_burst_ms"].get<int>();
+            if (ca.contains("arm_meta_max_ms")) config.controlApiConfig.armMetaMaxMs = ca["arm_meta_max_ms"].get<int>();
+            if (ca.contains("arm_arriba_preset")) config.controlApiConfig.armArribaPreset = ca["arm_arriba_preset"].get<int>();
+            if (ca.contains("arm_reload_wait_ms")) config.controlApiConfig.armReloadWaitMs = ca["arm_reload_wait_ms"].get<int>();
+            if (ca.contains("arm_ptz_settle_ms")) config.controlApiConfig.armPtzSettleMs = ca["arm_ptz_settle_ms"].get<int>();
 
             Logger::Info("Control API config: enabled=" +
                         std::string(config.controlApiConfig.enabled ? "true" : "false") +
@@ -764,6 +772,14 @@ Config LoadConfig(const std::string& path) {
                             ? std::string("(VACIA)")
                             : ("(configurada, " + std::to_string(config.controlApiConfig.apiKey.size()) + " chars)")) +
                         ", arm_camera=" + std::to_string(config.controlApiConfig.armCamera));
+            Logger::Info("Control API armado: META cam=" +
+                        std::to_string(config.controlApiConfig.armMetaCamera) +
+                        " preset=" + std::to_string(config.controlApiConfig.armMetaPreset) +
+                        " -> reload -> espera " +
+                        std::to_string(config.controlApiConfig.armReloadWaitMs) + " ms" +
+                        " -> ARRIBA preset=" + std::to_string(config.controlApiConfig.armArribaPreset) +
+                        " (asentamiento PTZ " +
+                        std::to_string(config.controlApiConfig.armPtzSettleMs) + " ms)");
         } else if (config.controlApiConfig.enabled) {
             Logger::Warning("Config: control_api.enabled pero falta el bloque en config.json");
         }
@@ -1542,7 +1558,8 @@ bool RunRunningMode(bool serviceMode = false) {
     if (config.controlApiConfig.enabled) {
         controlApi = std::make_unique<ControlApi>();
         if (!controlApi->Start(config.controlApiConfig, choreographyEngine.get(),
-                               rankingMeasure.get(), config.choreographyConfig.scriptPath)) {
+                               rankingMeasure.get(), config.choreographyConfig.scriptPath,
+                               &trackController, ptzController.get())) {
             Logger::Error("ControlApi: no se pudo levantar la API de control (puerto " +
                           std::to_string(config.controlApiConfig.port) + ")");
             controlApiFailed = true;
