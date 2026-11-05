@@ -180,6 +180,7 @@
     <ClInclude Include="control\VideoHubClient.h" />
     <ClInclude Include="control\VMixController.h" />
     <ClInclude Include="control\ControlApi.h" />
+    <ClInclude Include="control\ArmLock.h" />
     <ClInclude Include="..\third_party\httplib.h" />
     <ClInclude Include="core\Config.h" />
     <ClInclude Include="ui\UserMenu.h" />

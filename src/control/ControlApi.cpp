@@ -244,11 +244,11 @@ bool ControlApi::Start(const ControlApiConfig& config,
 
     auto& server = m_impl->server;
 
-    // /arm es el armado completo: sonda de la META + reload + espera del
-    // ascensor + sonda de ARRIBA. El write timeout tiene que cubrir la suma de
-    // las dos rafagas, la espera y los movimientos de PTZ (holgado: 180 s).
+    // /arm es el armado completo: lock META (dos camaras) + reload + espera del
+    // ascensor + lock ARRIBA (dos camaras). El timeout tiene que cubrir CUATRO
+    // rafagas, sus asentamientos de PTZ y la espera (holgado: 240 s).
     server.set_read_timeout(15, 0);
-    server.set_write_timeout(180, 0);
+    server.set_write_timeout(240, 0);
     server.set_idle_interval(0, 200000);
     server.set_payload_max_length(64 * 1024);
 
@@ -391,10 +391,18 @@ bool ControlApi::Start(const ControlApiConfig& config,
                  ", esp32: " + (m_track ? "conectado (reload disponible)" : "SIN controlador (no se puede recargar)") +
                  ", ptz: " + (m_ptz ? "habilitado" : "SIN controlador (se mide la vista actual)") +
                  ", guion=" + (m_scriptPath.empty() ? std::string("(sin script_path)") : m_scriptPath));
-    Logger::Info("[API] armado automatico: META cam=" + std::to_string(m_config.armMetaCamera) +
-                 " preset=" + std::to_string(m_config.armMetaPreset) +
+    Logger::Info("[API] armado automatico (dos camaras por lock, AND): META cam=" +
+                 std::to_string(m_config.armMetaCamera) + "/" +
+                 std::to_string(m_config.armMetaCamera2) +
+                 " presets=" + std::to_string(m_config.armMetaPreset) + "/" +
+                 std::to_string(m_config.armMetaPreset2) +
                  " -> reload -> espera " + std::to_string(m_config.armReloadWaitMs) + " ms" +
-                 " -> ARRIBA preset=" + std::to_string(m_config.armArribaPreset));
+                 " -> ARRIBA cam=" +
+                 (m_config.armArribaCamera > 0 ? std::to_string(m_config.armArribaCamera)
+                                               : std::string("guion")) +
+                 "/" + std::to_string(m_config.armArribaCamera2) +
+                 " presets=" + std::to_string(m_config.armArribaPreset) + "/" +
+                 std::to_string(m_config.armArribaPreset2));
     return true;
 }
 
@@ -500,8 +508,9 @@ void ControlApi::HandleArm(const std::string& requestBody, int& status, std::str
         }
     }
 
-    // Un solo armado a la vez: el /arm completo dura ~10 s (dos rafagas + la
-    // espera del ascensor). El segundo pedido recibe 409, no otra sonda.
+    // Un solo armado a la vez: el /arm completo dura ~25 s (cuatro rafagas con
+    // sus asentamientos + la espera del ascensor). El segundo pedido recibe
+    // 409, no otra sonda.
     if (m_armInFlight.exchange(true)) {
         status = 409;
         out = "{\"ok\":false,\"spheres\":0,\"etapa\":\"arm\","
@@ -515,22 +524,32 @@ void ControlApi::HandleArm(const std::string& requestBody, int& status, std::str
     m_armCancelled = false;
 
     // Mientras se arma no hay nada armado: si una etapa falla, /start tiene que
-    // responder "no esta armado". Se pasa a armed recien con las dos
-    // mediciones en 10, al final.
+    // responder "no esta armado". Se pasa a armed recien al final, con los dos
+    // locks verificados en 10 por sus dos camaras.
     {
         std::lock_guard<std::mutex> lock(m_stateMutex);
         m_state = State::Idle;
         m_t0 = 0;
     }
 
-    // Camara y ventana de ARRIBA: manda el guion (es lo que va a medir la
-    // carrera en el punto 1). Si el guion no tiene ese punto, el fallback de
-    // control_api.
-    int arribaCamera = m_config.armCamera;
+    // Camara primaria y ventana de ARRIBA: manda el guion (es lo que va a medir
+    // la carrera en el punto 1), para verificar exactamente lo que va a medir
+    // la carrera. arm_arriba_camera NO pisa al guion: solo se usa cuando el
+    // guion no tiene ese punto (si no, el /arm estaria verificando una camara
+    // distinta de la que mide la carrera, que es el 10 falso que se evita).
+    // La segunda camara del lock (arm_arriba_camera2) es un testigo extra.
+    int arribaCamera = (m_config.armArribaCamera > 0) ? m_config.armArribaCamera
+                                                     : m_config.armCamera;
     int arribaBurst = m_config.armBurstMs;
     int arribaMax = m_config.armMaxMs;
     int scriptCamera = 0, scriptBurst = 0, scriptMax = 0;
     if (m_engine->GetMeasurePointFor(1, scriptCamera, scriptBurst, scriptMax)) {
+        if (m_config.armArribaCamera > 0 && m_config.armArribaCamera != scriptCamera) {
+            Logger::Warning("[API] /arm ARRIBA: arm_arriba_camera=" +
+                            std::to_string(m_config.armArribaCamera) + " se ignora porque el guion "
+                            "tiene el punto 1 en la camara " + std::to_string(scriptCamera) +
+                            ": manda el guion (la carrera mide esa camara)");
+        }
         arribaCamera = scriptCamera;
         arribaBurst = scriptBurst;
         arribaMax = scriptMax;
@@ -543,9 +562,15 @@ void ControlApi::HandleArm(const std::string& requestBody, int& status, std::str
                         std::to_string(arribaBurst) + "/" + std::to_string(arribaMax) + "ms)");
     }
 
-    // Camara de la META: NO se adivina. Sin declarar, se corta aca con un motivo
-    // que dice que configurar; medir otra camara daria un "10" falso y el
-    // armado dejaria de significar algo.
+    // ------------------------------------------------------------------
+    // Configuracion de los DOS locks, ANTES de mover nada.
+    // Cada lock exige DOS camaras (AND). Ninguna se adivina: sin declarar, se
+    // corta aca con un motivo que dice que clave configurar. Medir otra camara
+    // daria un "10" falso y el armado dejaria de significar algo.
+    // Se valida ARRIBA tambien ahora: si faltara su segunda camara, no tiene
+    // sentido mandar el reload y dejar las 10 esferas arriba para despues
+    // rechazar el armado.
+    // ------------------------------------------------------------------
     if (m_config.armMetaCamera <= 0) {
         ArmFail(status, out, "meta", 0,
                 "control_api.arm_meta_camera no configurada: no se sabe con que camara "
@@ -553,33 +578,82 @@ void ControlApi::HandleArm(const std::string& requestBody, int& status, std::str
         return;
     }
     const int metaCamera = m_config.armMetaCamera;
+    const int metaCamera2 = m_config.armMetaCamera2;
+    if (metaCamera2 <= 0) {
+        ArmFail(status, out, "meta", 0,
+                "control_api.arm_meta_camera2 no configurada: el lock META exige DOS camaras "
+                "(AND) y con una sola no hay verificacion cruzada");
+        return;
+    }
+    if (metaCamera2 == metaCamera) {
+        ArmFail(status, out, "meta", 0,
+                "las dos camaras del lock META son la misma (" + std::to_string(metaCamera) +
+                "): el AND no verificaria nada; declarar otra camara en arm_meta_camera2");
+        return;
+    }
+    if (arribaCamera <= 0) {
+        ArmFail(status, out, "arriba", 0,
+                "no se sabe con que camara se ve ARRIBA: el guion no tiene MeasurePoint para "
+                "el punto 1 y control_api.arm_camera/arm_arriba_camera tampoco");
+        return;
+    }
+    const int arribaCamera2 = m_config.armArribaCamera2;
+    if (arribaCamera2 <= 0) {
+        ArmFail(status, out, "arriba", 0,
+                "control_api.arm_arriba_camera2 no configurada: el lock ARRIBA exige DOS camaras "
+                "(AND) y con una sola no hay verificacion cruzada");
+        return;
+    }
+    if (arribaCamera2 == arribaCamera) {
+        ArmFail(status, out, "arriba", 0,
+                "las dos camaras del lock ARRIBA son la misma (" + std::to_string(arribaCamera) +
+                "): el AND no verificaria nada; declarar otra camara en arm_arriba_camera2");
+        return;
+    }
+
+    // Rango de las cuatro camaras, tambien antes de mover nada: una camara
+    // inexistente rechazaria la sonda recien en la etapa ARRIBA, o sea DESPUES
+    // del reload, con las 10 esferas ya arriba y el armado en idle.
+    auto fueraDeRango = [&](int camera, const char* etapa, const char* clave) {
+        const int maxCamera = Measure::RankingMeasure::kMaxCameras;
+        if (camera >= 1 && camera <= maxCamera) {
+            return false;
+        }
+        ArmFail(status, out, etapa, 0,
+                std::string(clave) + " = " + std::to_string(camera) +
+                ": fuera de rango (el medidor tiene " + std::to_string(maxCamera) +
+                " camaras, 1.." + std::to_string(maxCamera) + ")");
+        return true;
+    };
+    if (fueraDeRango(metaCamera, "meta", "control_api.arm_meta_camera") ||
+        fueraDeRango(metaCamera2, "meta", "control_api.arm_meta_camera2") ||
+        fueraDeRango(arribaCamera, "arriba", "la camara de ARRIBA (punto 1 del guion) / arm_camera") ||
+        fueraDeRango(arribaCamera2, "arriba", "control_api.arm_arriba_camera2")) {
+        return;
+    }
+
     const int64_t armStartMs = NowEpochMs();
     std::string motivo;
 
     // ------------------------------------------------------------------
-    // ETAPA 1: META. Sin 10 abajo no se manda el reload.
+    // ETAPA 1: lock META (dos camaras, AND). Sin 10 en las dos no se manda el
+    // reload.
     // ------------------------------------------------------------------
-    if (!MoveArmCamera(metaCamera, m_config.armMetaPreset, "META", motivo)) {
-        ArmFail(status, out, "meta", 0, motivo);
+    const std::vector<ArmLock::CameraSpec> metaCams = {
+        {metaCamera, m_config.armMetaPreset},
+        {metaCamera2, m_config.armMetaPreset2},
+    };
+    ArmLock::Verdict metaVerdict;
+    RunArmLock("META", metaCams, m_config.armMetaBurstMs, m_config.armMetaMaxMs, metaVerdict);
+    if (!metaVerdict.ok) {
+        ArmFail(status, out, "meta", metaVerdict.failingSpheres, metaVerdict.motivo,
+                metaVerdict.failingCamera, ArmCamerasJson(metaVerdict.readings));
         return;
     }
-
-    int metaSpheres = 0;
-    if (!DoArmProbe(metaCamera, m_config.armMetaBurstMs, m_config.armMetaMaxMs,
-                    metaSpheres, motivo)) {
-        ArmFail(status, out, "meta", metaSpheres, "no se pudo medir la META: " + motivo);
-        return;
-    }
-    if (metaSpheres != Measure::RankingMeasure::kTargetSpheres) {
-        const std::string why = motivo.empty()
-            ? ("en la META se midieron " + std::to_string(metaSpheres) + " esferas y se exigen " +
-               std::to_string(Measure::RankingMeasure::kTargetSpheres) + " (no se manda el reload)")
-            : motivo;
-        ArmFail(status, out, "meta", metaSpheres, why);
-        return;
-    }
-    Logger::Info("[API] /arm META OK: " + std::to_string(metaSpheres) +
-                 " esferas en la camara " + std::to_string(metaCamera));
+    // Conteo de la camara primaria: "spheres" del 200 y de las etapas que no
+    // miden (reload/espera) sigue siendo el mismo campo de siempre.
+    const int metaSpheres = metaVerdict.readings.front().spheres;
+    Logger::Info("[API] /arm META OK (AND de dos camaras): " + metaVerdict.detalle);
 
     // ------------------------------------------------------------------
     // ETAPA 2: reload del ESP32 (abre el ascensor: suben a la salida).
@@ -611,27 +685,22 @@ void ControlApi::HandleArm(const std::string& requestBody, int& status, std::str
     }
 
     // ------------------------------------------------------------------
-    // ETAPA 4: ARRIBA (salida). Tienen que haber llegado las 10.
+    // ETAPA 4: lock ARRIBA (salida), dos camaras y AND. Tienen que haber
+    // llegado las 10 a las dos vistas.
     // ------------------------------------------------------------------
-    if (!MoveArmCamera(arribaCamera, m_config.armArribaPreset, "ARRIBA", motivo)) {
-        ArmFail(status, out, "arriba", 0, motivo);
+    const std::vector<ArmLock::CameraSpec> arribaCams = {
+        {arribaCamera, m_config.armArribaPreset},
+        {arribaCamera2, m_config.armArribaPreset2},
+    };
+    ArmLock::Verdict arribaVerdict;
+    RunArmLock("ARRIBA", arribaCams, arribaBurst, arribaMax, arribaVerdict);
+    if (!arribaVerdict.ok) {
+        ArmFail(status, out, "arriba", arribaVerdict.failingSpheres, arribaVerdict.motivo,
+                arribaVerdict.failingCamera, ArmCamerasJson(arribaVerdict.readings));
         return;
     }
-
-    int arribaSpheres = 0;
-    if (!DoArmProbe(arribaCamera, arribaBurst, arribaMax, arribaSpheres, motivo)) {
-        ArmFail(status, out, "arriba", arribaSpheres, "no se pudo medir ARRIBA: " + motivo);
-        return;
-    }
-    if (arribaSpheres != Measure::RankingMeasure::kTargetSpheres) {
-        const std::string why = motivo.empty()
-            ? ("ARRIBA se midieron " + std::to_string(arribaSpheres) + " esferas y se exigen " +
-               std::to_string(Measure::RankingMeasure::kTargetSpheres) +
-               " (se quedo alguna en el camino)")
-            : motivo;
-        ArmFail(status, out, "arriba", arribaSpheres, why);
-        return;
-    }
+    const int arribaSpheres = arribaVerdict.readings.front().spheres;
+    Logger::Info("[API] /arm ARRIBA OK (AND de dos camaras): " + arribaVerdict.detalle);
 
     // Armado completo: recien aca el estado pasa a armed.
     {
@@ -640,7 +709,8 @@ void ControlApi::HandleArm(const std::string& requestBody, int& status, std::str
         m_raceId = raceId;
         m_t0 = 0;
     }
-    // Identidades limpias para la carrera: las dos sondas dejaron tracks propios.
+    // Identidades limpias para la carrera: las cuatro sondas (dos por lock)
+    // dejaron tracks propios.
     m_measure->ResetIdentity();
 
     const int64_t totalMs = NowEpochMs() - armStartMs;
@@ -649,21 +719,23 @@ void ControlApi::HandleArm(const std::string& requestBody, int& status, std::str
         << ",\"race_id\":\"" << JsonEscape(raceId) << "\""
         << ",\"meta\":{\"camera\":" << metaCamera
         << ",\"preset\":" << m_config.armMetaPreset
-        << ",\"spheres\":" << metaSpheres << "}"
+        << ",\"spheres\":" << metaSpheres
+        << ",\"cameras\":" << ArmCamerasJson(metaVerdict.readings) << "}"
         << ",\"reload\":{\"ok\":true,\"wait_ms\":" << m_config.armReloadWaitMs << "}"
         << ",\"arriba\":{\"camera\":" << arribaCamera
         << ",\"preset\":" << m_config.armArribaPreset
-        << ",\"spheres\":" << arribaSpheres << "}"
+        << ",\"spheres\":" << arribaSpheres
+        << ",\"cameras\":" << ArmCamerasJson(arribaVerdict.readings) << "}"
         << ",\"camera\":" << arribaCamera
         << ",\"total_ms\":" << totalMs
         << "}";
     status = 200;
     out = oss.str();
-    Logger::Info("[API] /arm OK race_id=" + raceId + ": " + std::to_string(metaSpheres) +
-                 " en la META (cam " + std::to_string(metaCamera) + ") -> reload -> " +
-                 std::to_string(m_config.armReloadWaitMs) + " ms -> " +
-                 std::to_string(arribaSpheres) + " ARRIBA (cam " + std::to_string(arribaCamera) +
-                 ") en " + std::to_string(totalMs) + " ms: state=armed");
+    Logger::Info("[API] /arm OK race_id=" + raceId + " (AND de dos camaras en cada lock): " +
+                 "META " + metaVerdict.detalle + " -> reload -> " +
+                 std::to_string(m_config.armReloadWaitMs) + " ms -> ARRIBA " +
+                 arribaVerdict.detalle + " en " + std::to_string(totalMs) +
+                 " ms: state=armed");
 }
 
 void ControlApi::HandleStart(int& status, std::string& out) {
@@ -816,17 +888,76 @@ void ControlApi::OnProbeResult(int64_t jobId, int spheres, const std::string& mo
 // Armado automatico: etapas que no son medicion
 // ---------------------------------------------------------------------------
 
+std::string ControlApi::ArmCamerasJson(const std::vector<ArmLock::CameraReading>& readings) {
+    std::ostringstream oss;
+    oss << "[";
+    for (size_t i = 0; i < readings.size(); ++i) {
+        const ArmLock::CameraReading& reading = readings[i];
+        if (i > 0) {
+            oss << ",";
+        }
+        oss << "{\"camera\":" << reading.camera
+            << ",\"preset\":" << reading.preset
+            << ",\"spheres\":" << reading.spheres
+            // "ok" de ESA camara: midio y dio el target. En el 409 queda claro
+            // cual fallo sin tener que restar.
+            << ",\"ok\":"
+            << ((reading.measured && reading.spheres == Measure::RankingMeasure::kTargetSpheres)
+                    ? "true" : "false")
+            << "}";
+    }
+    oss << "]";
+    return oss.str();
+}
+
+void ControlApi::RunArmLock(const char* etapa,
+                            const std::vector<ArmLock::CameraSpec>& cameras,
+                            int burstMs, int maxMs,
+                            ArmLock::Verdict& verdict) {
+    // La secuencia (encuadrar TODAS -> medir TODAS -> AND) y su veredicto viven
+    // en ArmLock.h, que se prueba en tests/test_arm_lock.cpp. Aca solo se
+    // conectan los tres verbos reales: PTZ, medidor y cancelacion.
+    auto move = [this, etapa](int camera, int preset, std::string& motivo) {
+        if (m_armCancelled.load() || m_shutdownRequested.load()) {
+            motivo = "armado cancelado (/abort o /shutdown) antes de encuadrar la camara " +
+                     std::to_string(camera);
+            return false;
+        }
+        return MoveArmCamera(camera, preset, etapa, motivo);
+    };
+    auto probe = [this, burstMs, maxMs](int camera, int /*preset*/, int& spheres,
+                                        std::string& motivo) {
+        if (m_armCancelled.load() || m_shutdownRequested.load()) {
+            motivo = "armado cancelado (/abort o /shutdown) antes de medir la camara " +
+                     std::to_string(camera);
+            return false;
+        }
+        return DoArmProbe(camera, burstMs, maxMs, spheres, motivo);
+    };
+
+    verdict = ArmLock::Run(cameras, Measure::RankingMeasure::kTargetSpheres, move, probe);
+
+    if (!verdict.ok) {
+        Logger::Warning(std::string("[API] /arm lock ") + etapa + " rechazado (cam " +
+                        std::to_string(verdict.failingCamera) + "): " + verdict.motivo);
+        return;
+    }
+    Logger::Info(std::string("[API] /arm lock ") + etapa + " OK: " + verdict.detalle);
+}
+
 bool ControlApi::MoveArmCamera(int camera1Based, int preset, const char* etapa,
                                std::string& motivo) {
     motivo.clear();
     if (preset <= 0) {
-        Logger::Info(std::string("[API] /arm ") + etapa +
-                     ": sin preset PTZ configurado, se mide la vista actual");
+        Logger::Info(std::string("[API] /arm ") + etapa + ": camara " +
+                     std::to_string(camera1Based) +
+                     " sin preset configurado, se mide la vista actual");
         return true;
     }
     if (!m_ptz) {
-        Logger::Warning(std::string("[API] /arm ") + etapa + ": preset " +
-                        std::to_string(preset) + " configurado pero no hay PTZController; "
+        Logger::Warning(std::string("[API] /arm ") + etapa + ": camara " +
+                        std::to_string(camera1Based) + " con preset " +
+                        std::to_string(preset) + " configurado pero sin PTZController; "
                         "se mide la vista actual (el encuadre NO se verifica)");
         return true;
     }
@@ -874,9 +1005,10 @@ bool ControlApi::WaitArmDelay(int ms, std::string& motivo) {
 }
 
 void ControlApi::ArmFail(int& status, std::string& out, const char* etapa,
-                         int spheres, const std::string& motivo) {
+                         int spheres, const std::string& motivo,
+                         int camera, const std::string& camerasJson) {
     // Un armado a medias no se puede disparar: state=idle y /start responde
-    // "no esta armado" hasta que un /arm completo pase las cuatro etapas.
+    // "no esta armado" hasta que un /arm completo pase las etapas.
     {
         std::lock_guard<std::mutex> lock(m_stateMutex);
         m_state = State::Idle;
@@ -884,6 +1016,18 @@ void ControlApi::ArmFail(int& status, std::string& out, const char* etapa,
     }
     status = 409;
     out = std::string("{\"ok\":false,\"spheres\":") + std::to_string(spheres) +
-          ",\"etapa\":\"" + etapa + "\",\"motivo\":\"" + JsonEscape(motivo) + "\"}";
-    Logger::Warning(std::string("[API] /arm rechazado en la etapa ") + etapa + ": " + motivo);
+          ",\"etapa\":\"" + etapa + "\"";
+    // El 409 de un lock nombra la camara que fallo y trae el conteo de las DOS:
+    // con un solo numero el backend no puede distinguir "una camara ciega" de
+    // "las dos a medias".
+    if (camera > 0) {
+        out += ",\"camera\":" + std::to_string(camera);
+    }
+    if (!camerasJson.empty()) {
+        out += ",\"camaras\":" + camerasJson;
+    }
+    out += ",\"motivo\":\"" + JsonEscape(motivo) + "\"}";
+    Logger::Warning(std::string("[API] /arm rechazado en la etapa ") + etapa +
+                    (camera > 0 ? (" (cam " + std::to_string(camera) + ")") : std::string()) +
+                    ": " + motivo);
 }

@@ -13,16 +13,20 @@
  *                     "point":N,"spheres":N,"ranking":[...],"t0":<epoch_ms>}
  *   POST /arm     {"race_id":"..."}  ARMADO AUTOMATICO COMPLETO, en un solo
  *                 pedido y sin intervencion humana:
- *                   1) mide la META      -> tienen que estar las 10 esferas
+ *                   1) lock META         -> DOS camaras, criterio AND: se
+ *                                           encuadra cada PTZ en su preset, se
+ *                                           espera el asentamiento, se miden
+ *                                           las dos y cada una tiene que dar 10
  *                                           (si no, 409 y NO manda el reload:
  *                                           no se puede verificar arriba lo que
  *                                           nunca estuvo abajo)
  *                   2) ESP32 "reload"    -> suben a la salida
  *                   3) espera N ms       (control_api.arm_reload_wait_ms)
- *                   4) mide ARRIBA       -> punto 1 del guion, 10 esferas
- *                 Si las tres etapas pasan, deja el sistema armed; cualquier
- *                 falla responde 409 con "etapa" y deja state=idle (nunca se
- *                 arma a medias).
+ *                   4) lock ARRIBA       -> punto 1 del guion, DOS camaras y el
+ *                                           mismo AND
+ *                 Si las etapas pasan, deja el sistema armed; cualquier falla
+ *                 responde 409 con "etapa", "camera" y el detalle "camaras",
+ *                 y deja state=idle (nunca se arma a medias).
  *   POST /start   dispara el guion (equivale a F12) si esta armed.
  *   POST /abort   detiene el guion y vuelve a idle.
  *   POST /shutdown (extra) apaga el proceso: en --service no hay teclado.
@@ -45,6 +49,8 @@
 #include <mutex>
 #include <string>
 #include <vector>
+
+#include "ArmLock.h"
 
 namespace Choreography {
     class ChoreographyEngine;
@@ -84,10 +90,29 @@ struct ControlApiConfig {
     int armMetaBurstMs = 0;      // 0 = usar ranking_measure.burst_ms
     int armMetaMaxMs = 0;        // 0 = usar ranking_measure.max_ms
 
+    // Segunda camara del lock META. El lock exige las DOS (AND): cada una se
+    // encuadra en su preset, se espera el asentamiento y cada una tiene que
+    // medir 10. 0 = no declarada -> /arm responde 409 en la etapa meta con el
+    // nombre de esta clave: una segunda camara inventada daria un 10 (o un
+    // fallo) que no significa nada. Tiene que ser OTRA camara que la primaria.
+    int armMetaCamera2 = 0;
+    int armMetaPreset2 = 0;      // 0 = no mover la segunda camara
+
+    // Camara primaria de ARRIBA (salida) SOLO para cuando el guion no tiene
+    // MeasurePoint del punto 1: 0 = armCamera. Si el guion lo tiene, manda el
+    // guion (es la camara que va a medir la carrera) y este valor se ignora con
+    // un Warning: verificar otra camara daria un 10 que la carrera no respalda.
+    int armArribaCamera = 0;
+
     // Preset PTZ de la salida (ARRIBA) antes de medir el punto 1. 0 = no mover.
     // Produccion: 1 = vista de la salida (el preset que deja el guion al
     // empezar).
     int armArribaPreset = 1;
+
+    // Segunda camara del lock ARRIBA: mismo criterio AND que la META. 0 = no
+    // declarada -> /arm responde 409 en la etapa arriba.
+    int armArribaCamera2 = 0;
+    int armArribaPreset2 = 0;    // 0 = no mover la segunda camara
 
     // Cuanto tarda el ascensor en subir las 10 esferas despues del reload.
     // En el guion: reload en t=9,0 s y medicion del punto 1 en t=15,0 s -> 6 s.
@@ -183,6 +208,28 @@ private:
                     int& spheres, std::string& motivo);
 
     /**
+     * Corre un lock del armado (META o ARRIBA) con DOS camaras y criterio AND:
+     * encuadra cada PTZ en su preset (con asentamiento), mide las dos y exige
+     * el mismo conteo en ambas. El orden y el veredicto viven en ArmLock.h
+     * (probados en tests/test_arm_lock.cpp); aca solo se conectan el PTZ, el
+     * medidor y la cancelacion por /abort.
+     * @param etapa    "META" o "ARRIBA" (para logs y motivos)
+     * @param cameras  las dos camaras del lock, con su preset
+     * @param verdict  [out] veredicto con el detalle por camara
+     */
+    void RunArmLock(const char* etapa,
+                    const std::vector<ArmLock::CameraSpec>& cameras,
+                    int burstMs, int maxMs,
+                    ArmLock::Verdict& verdict);
+
+    /**
+     * Arma el fragmento JSON "camaras":[{...}] con lo que midio cada camara
+     * del lock. Se usa igual en el 200 y en el 409: el que lee la respuesta ve
+     * los dos conteos, no solo el que fallo.
+     */
+    static std::string ArmCamerasJson(const std::vector<ArmLock::CameraReading>& readings);
+
+    /**
      * Llama un preset PTZ antes de medir una etapa del armado. Sin controlador
      * PTZ o con preset<=0 no hace nada (se mide la vista actual) y lo deja
      * dicho en el log: no se finge un encuadre que no se pidio.
@@ -198,9 +245,18 @@ private:
      */
     bool WaitArmDelay(int ms, std::string& motivo);
 
-    /** Responde 409 de una etapa del armado y deja el sistema en idle. */
+    /**
+     * Responde 409 de una etapa del armado y deja el sistema en idle.
+     * @param spheres     esferas de la camara que hizo fallar la etapa (0 si no
+     *                    se llego a medir)
+     * @param camera      camara que hizo fallar la etapa (0 = etapa sin camara:
+     *                    reload, espera, configuracion general)
+     * @param camerasJson fragmento ya armado con ArmCamerasJson (vacio = etapa
+     *                    sin mediciones)
+     */
     void ArmFail(int& status, std::string& out, const char* etapa,
-                 int spheres, const std::string& motivo);
+                 int spheres, const std::string& motivo,
+                 int camera = 0, const std::string& camerasJson = std::string());
 
     ControlApiConfig m_config;
     Choreography::ChoreographyEngine* m_engine = nullptr;

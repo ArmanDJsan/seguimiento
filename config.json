@@ -253,10 +253,15 @@
     "arm_meta_preset": 2,
     "arm_meta_burst_ms": 0,
     "arm_meta_max_ms": 0,
+    "arm_meta_camera2": 0,
+    "arm_meta_preset2": 0,
+    "arm_arriba_camera": 0,
     "arm_arriba_preset": 1,
+    "arm_arriba_camera2": 0,
+    "arm_arriba_preset2": 0,
     "arm_reload_wait_ms": 6000,
     "arm_ptz_settle_ms": 2000,
-    "description": "API HTTP de control para el backend (modo --service). Escucha en 0.0.0.0:port y solo acepta loopback (127.0.0.1) y la tailnet (100.64.0.0/10), con el header X-Api-Key obligatorio. GET /status, POST /arm {race_id}, POST /start, POST /abort, POST /shutdown. Cambiar api_key antes de produccion. arm_camera es 1-indexed como el guion; arm_burst_ms/arm_max_ms en 0 = usar ranking_measure (y si el guion tiene MeasurePoint del punto 1, mandan la camara y la ventana del guion). El /arm es el armado COMPLETO y automatico: mide la META (arm_meta_camera, 1-indexed; 0 = armado rechazado), manda el reload del ESP32, espera arm_reload_wait_ms (6 s = lo que tarda el ascensor segun el guion: reload t=9,0 s y medicion del punto 1 t=15,0 s) y recien entonces mide ARRIBA (punto 1 del guion) exigiendo 10. arm_meta_preset / arm_arriba_preset son los presets PTZ para encuadrar cada punta (0 = no mover la camara); arm_ptz_settle_ms es el asentamiento despues del preset. Cualquier etapa que falle responde 409 con el campo etapa (meta|reload|espera|arriba) y deja state=idle."
+    "description": "API HTTP de control para el backend (modo --service). Escucha en 0.0.0.0:port y solo acepta loopback (127.0.0.1) y la tailnet (100.64.0.0/10), con el header X-Api-Key obligatorio. GET /status, POST /arm {race_id}, POST /start, POST /abort, POST /shutdown. Cambiar api_key antes de produccion. arm_camera es 1-indexed como el guion; arm_burst_ms/arm_max_ms en 0 = usar ranking_measure (y si el guion tiene MeasurePoint del punto 1, mandan la camara y la ventana del guion). El /arm es el armado COMPLETO y automatico, con DOS camaras por lock y criterio AND: mueve cada PTZ a su preset, espera el asentamiento (arm_ptz_settle_ms) y exige 10 en las DOS camaras del lock META (arm_meta_camera / arm_meta_camera2, 1-indexed), manda el reload del ESP32, espera arm_reload_wait_ms (6 s = lo que tarda el ascensor segun el guion: reload t=9,0 s y medicion del punto 1 t=15,0 s) y recien entonces verifica el lock ARRIBA (la camara del MeasurePoint 1 del guion, que manda; arm_arriba_camera solo se usa si el guion no tiene ese punto, mas arm_arriba_camera2) con el mismo AND. Las segundas camaras NO se adivinan: 0 = /arm rechazado en ese lock nombrando la clave que falta (medir otra camara daria un 10 falso). arm_meta_preset(2) / arm_arriba_preset(2) son los presets PTZ de cada camara (0 = no mover); arm_arriba_preset es el de la primaria. Cualquier etapa que falle responde 409 con etapa (meta|reload|espera|arriba), camera (la que fallo) y camaras[] con el conteo de cada camara del lock, y deja state=idle."
   },
   "ports": [
     {

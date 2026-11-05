@@ -760,7 +760,15 @@ Config LoadConfig(const std::string& path) {
             if (ca.contains("arm_meta_preset")) config.controlApiConfig.armMetaPreset = ca["arm_meta_preset"].get<int>();
             if (ca.contains("arm_meta_burst_ms")) config.controlApiConfig.armMetaBurstMs = ca["arm_meta_burst_ms"].get<int>();
             if (ca.contains("arm_meta_max_ms")) config.controlApiConfig.armMetaMaxMs = ca["arm_meta_max_ms"].get<int>();
+            // Segunda camara del lock META (el lock exige las dos, criterio AND)
+            if (ca.contains("arm_meta_camera2")) config.controlApiConfig.armMetaCamera2 = ca["arm_meta_camera2"].get<int>();
+            if (ca.contains("arm_meta_preset2")) config.controlApiConfig.armMetaPreset2 = ca["arm_meta_preset2"].get<int>();
+            // Camara primaria de ARRIBA (0 = la del guion, punto 1)
+            if (ca.contains("arm_arriba_camera")) config.controlApiConfig.armArribaCamera = ca["arm_arriba_camera"].get<int>();
             if (ca.contains("arm_arriba_preset")) config.controlApiConfig.armArribaPreset = ca["arm_arriba_preset"].get<int>();
+            // Segunda camara del lock ARRIBA (mismo AND)
+            if (ca.contains("arm_arriba_camera2")) config.controlApiConfig.armArribaCamera2 = ca["arm_arriba_camera2"].get<int>();
+            if (ca.contains("arm_arriba_preset2")) config.controlApiConfig.armArribaPreset2 = ca["arm_arriba_preset2"].get<int>();
             if (ca.contains("arm_reload_wait_ms")) config.controlApiConfig.armReloadWaitMs = ca["arm_reload_wait_ms"].get<int>();
             if (ca.contains("arm_ptz_settle_ms")) config.controlApiConfig.armPtzSettleMs = ca["arm_ptz_settle_ms"].get<int>();
 
@@ -772,14 +780,28 @@ Config LoadConfig(const std::string& path) {
                             ? std::string("(VACIA)")
                             : ("(configurada, " + std::to_string(config.controlApiConfig.apiKey.size()) + " chars)")) +
                         ", arm_camera=" + std::to_string(config.controlApiConfig.armCamera));
-            Logger::Info("Control API armado: META cam=" +
-                        std::to_string(config.controlApiConfig.armMetaCamera) +
+            Logger::Info("Control API armado (dos camaras por lock, AND): META cam=" +
+                        std::to_string(config.controlApiConfig.armMetaCamera) + "/" +
+                        std::to_string(config.controlApiConfig.armMetaCamera2) +
                         " preset=" + std::to_string(config.controlApiConfig.armMetaPreset) +
+                        "/" + std::to_string(config.controlApiConfig.armMetaPreset2) +
                         " -> reload -> espera " +
                         std::to_string(config.controlApiConfig.armReloadWaitMs) + " ms" +
-                        " -> ARRIBA preset=" + std::to_string(config.controlApiConfig.armArribaPreset) +
+                        " -> ARRIBA cam=" +
+                        (config.controlApiConfig.armArribaCamera > 0
+                             ? std::to_string(config.controlApiConfig.armArribaCamera)
+                             : std::string("guion")) +
+                        "/" + std::to_string(config.controlApiConfig.armArribaCamera2) +
+                        " preset=" + std::to_string(config.controlApiConfig.armArribaPreset) +
+                        "/" + std::to_string(config.controlApiConfig.armArribaPreset2) +
                         " (asentamiento PTZ " +
                         std::to_string(config.controlApiConfig.armPtzSettleMs) + " ms)");
+            if (config.controlApiConfig.armMetaCamera2 <= 0 ||
+                config.controlApiConfig.armArribaCamera2 <= 0) {
+                Logger::Warning("Control API armado: falta la SEGUNDA camara de un lock "
+                                "(arm_meta_camera2 / arm_arriba_camera2); el /arm va a responder "
+                                "409 hasta declararla: el armado exige DOS camaras por lock");
+            }
         } else if (config.controlApiConfig.enabled) {
             Logger::Warning("Config: control_api.enabled pero falta el bloque en config.json");
         }
