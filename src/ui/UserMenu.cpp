@@ -94,12 +94,18 @@ void UserMenu::PrintMenuOptions() {
     std::cout << "  |       - NDI: VIB_Llegada_Raw / VIB_Llegada_Boxes                  |\n";
     std::cout << "  |       - ESC para salir                                            |\n";
     std::cout << "  |                                                                    |\n";
+    std::cout << "  |   [12] SERVICIO API                                               |\n";
+    std::cout << "  |       Inicializa el sistema y levanta la API de control (backend) |\n";
+    std::cout << "  |       - Queda en idle: no lanza nada hasta POST /arm + /start     |\n";
+    std::cout << "  |       - Panel de estado en consola (se refresca cada segundo)     |\n";
+    std::cout << "  |       - ESC: volver a este menu                                   |\n";
+    std::cout << "  |                                                                    |\n";
     std::cout << "  +--------------------------------------------------------------------+\n";
     std::cout << "\n";
 }
 
 int UserMenu::GetUserChoice() {
-    std::cout << "  Seleccione una opcion (1-11): ";
+    std::cout << "  Seleccione una opcion (1-12): ";
     
     int choice = -1;
     std::cin >> choice;
@@ -128,6 +134,7 @@ MenuOption UserMenu::IntToMenuOption(int choice) {
         case 9: return MenuOption::LIVE_PREVIEW;
         case 10: return MenuOption::TRAINING_CAPTURE;
         case 11: return MenuOption::ARRIVAL_TEST;
+        case 12: return MenuOption::API_SERVICE;
         default: return MenuOption::INVALID;
     }
 }

@@ -28,6 +28,7 @@ enum class MenuOption {
     LIVE_PREVIEW = 9,           // Vista previa en vivo con detecciones YOLO
     TRAINING_CAPTURE = 10,      // Captura de frames para entrenamiento (NDI + guardar por tecla)
     ARRIVAL_TEST = 11,          // Test de orden de llegada en vivo (motor dedicado)
+    API_SERVICE = 12,           // Servicio API: inicializa, levanta la API y queda en idle
     INVALID = -1
 };
 
@@ -78,7 +79,7 @@ private:
     
     /**
      * Obtener la selección del usuario (entrada numérica)
-     * @return Número seleccionado (1-4) o -1 si inválido
+     * @return Número seleccionado (1-12) o -1 si inválido
      */
     int GetUserChoice();
     

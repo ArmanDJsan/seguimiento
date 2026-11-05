@@ -185,6 +185,33 @@ public:
 
     int Port() const { return m_config.port; }
 
+    /**
+     * Foto del estado para el panel de consola del menu [12] SERVICIO API.
+     *
+     * Junta en una sola llamada lo mismo que responde GET /status (estado,
+     * race_id, punto, esferas, motor) y lo ultimo que hizo el que manda
+     * (backend u operador), para que la consola muestre un instante coherente
+     * y no una mezcla de dos lecturas.
+     */
+    struct Snapshot {
+        State state = State::Idle;
+        std::string stateName = "idle";   // "idle" | "armed" | "running" | "finished"
+        std::string engine = "n/d";       // estado del ChoreographyEngine
+        std::string raceId;
+        int point = 0;                    // ultimo punto medido (0 = ninguno)
+        int spheres = 0;                  // esferas del ultimo ranking publicado
+        int64_t t0 = 0;                   // epoch ms del /start (0 = sin carrera)
+        bool listening = false;           // el listener HTTP esta arriba
+        bool armInFlight = false;         // hay un /arm corriendo (tarda ~27 s)
+        // Ultimo comando que MUEVE el sistema (/arm, /start, /abort, /shutdown).
+        // /status no se registra: lo consulta el backend cada segundo y taparia
+        // al comando real.
+        std::string lastCommand;          // "arm", "start", ... (vacio = ninguno)
+        int lastStatus = 0;               // codigo HTTP de esa respuesta
+        int64_t lastAtMs = 0;             // epoch ms de esa respuesta
+    };
+    Snapshot GetSnapshot();
+
     struct Impl;   // httplib vive en el .cpp
 
 private:
@@ -258,6 +285,13 @@ private:
                  int spheres, const std::string& motivo,
                  int camera = 0, const std::string& camerasJson = std::string());
 
+    /**
+     * Guarda el ultimo comando que movio el sistema, para el panel de consola.
+     * Se llama desde el logger del servidor (hilo HTTP), asi que usa su propio
+     * mutex y no toca m_stateMutex: no puede bloquear a un /arm en curso.
+     */
+    void RecordCommand(const std::string& path, int httpStatus);
+
     ControlApiConfig m_config;
     Choreography::ChoreographyEngine* m_engine = nullptr;
     Measure::RankingMeasure* m_measure = nullptr;
@@ -276,6 +310,12 @@ private:
     std::atomic<bool> m_listening{false};
     std::atomic<bool> m_shutdownRequested{false};
     std::atomic<bool> m_armInFlight{false};
+
+    // Ultimo comando que movio el sistema (panel de consola del menu [12]).
+    mutable std::mutex m_lastCmdMutex;
+    std::string m_lastCmdPath;     // sin la barra: "arm", "start", ...
+    int m_lastCmdStatus = 0;
+    int64_t m_lastCmdAt = 0;
     // /abort durante un /arm: la espera del ascensor y las etapas que faltan
     // se cortan en vez de seguir armando una carrera que ya nadie quiere.
     std::atomic<bool> m_armCancelled{false};

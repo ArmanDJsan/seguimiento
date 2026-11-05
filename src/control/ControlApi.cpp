@@ -198,6 +198,59 @@ ControlApi::State ControlApi::GetState() {
     return m_state;
 }
 
+/**
+ * Foto para el panel de consola del menu [12] SERVICIO API.
+ *
+ * Se arma con las mismas fuentes que GET /status (estado del motor, ultimo
+ * ranking publicado) mas el ultimo comando registrado por el logger. Cada
+ * campo se toma bajo su propio lock: no se retiene m_stateMutex mientras se
+ * consulta al medidor.
+ */
+ControlApi::Snapshot ControlApi::GetSnapshot() {
+    Snapshot snapshot;
+
+    snapshot.listening = m_listening.load();
+    snapshot.armInFlight = m_armInFlight.load();
+    snapshot.state = GetState();          // puede pasar running -> finished
+    snapshot.stateName = StateName(snapshot.state);
+    snapshot.engine = EngineStateName(m_engine);
+
+    {
+        std::lock_guard<std::mutex> lock(m_stateMutex);
+        snapshot.raceId = m_raceId;
+        snapshot.t0 = m_t0;
+    }
+
+    if (m_measure) {
+        std::vector<int> ranking;
+        int point = 0;
+        int64_t rankingEpochMs = 0;
+        m_measure->GetLastRanking(ranking, point, rankingEpochMs);
+        snapshot.point = point;
+        snapshot.spheres = static_cast<int>(ranking.size());
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(m_lastCmdMutex);
+        snapshot.lastCommand = m_lastCmdPath;
+        snapshot.lastStatus = m_lastCmdStatus;
+        snapshot.lastAtMs = m_lastCmdAt;
+    }
+
+    return snapshot;
+}
+
+void ControlApi::RecordCommand(const std::string& path, int httpStatus) {
+    // "/arm" -> "arm": la barra no aporta nada en una linea de consola.
+    const std::string name = (!path.empty() && path.front() == '/')
+                                 ? path.substr(1)
+                                 : path;
+    std::lock_guard<std::mutex> lock(m_lastCmdMutex);
+    m_lastCmdPath = name;
+    m_lastCmdStatus = httpStatus;
+    m_lastCmdAt = NowEpochMs();
+}
+
 bool ControlApi::ShutdownRequested() const {
     if (!m_shutdownRequested.load()) {
         return false;
@@ -252,9 +305,15 @@ bool ControlApi::Start(const ControlApiConfig& config,
     server.set_idle_interval(0, 200000);
     server.set_payload_max_length(64 * 1024);
 
-    server.set_logger([](const httplib::Request& req, const httplib::Response& res) {
+    server.set_logger([this](const httplib::Request& req, const httplib::Response& res) {
         Logger::Debug("[API] " + req.method + " " + req.path + " <- " + req.remote_addr +
                       " -> " + std::to_string(res.status));
+        // Panel del menu [12]: se recuerda el ultimo comando que MUEVE el
+        // sistema. /status queda afuera a proposito: lo consulta el backend
+        // cada segundo y taparia al /arm, que es lo que el operador mira.
+        if (req.path != "/status") {
+            RecordCommand(req.path, res.status);
+        }
     });
 
     // Autenticacion ANTES de rutear: ningun endpoint queda sin key ni allowlist.

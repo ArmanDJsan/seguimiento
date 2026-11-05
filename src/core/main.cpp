@@ -31,6 +31,8 @@
 #include <wrl/client.h>
 #include <cstdio>
 #include <chrono>
+#include <ctime>
+#include <cstdint>
 #include <fstream>
 #include <iterator>
 #include <regex>
@@ -950,11 +952,18 @@ bool RunPhase2(VideoHubClient& videoHub, int targetSpheres) {
  * @param serviceMode true = modo --service: sin menu y sin teclas, la carrera
  *        se dispara por la API HTTP de control (GET /status, POST /arm|start|abort).
  *        false (default) = comportamiento de siempre, con menu y teclas.
+ * @param consoleService true = menu [12] SERVICIO API: inicializa igual que el
+ *        modo operacion, levanta la API y se queda en idle mostrando un panel de
+ *        estado en consola. No auto-arranca nada; ESC vuelve al menu principal.
+ *        Implica serviceMode (no hay menu de teclas ni F12).
  * @return true si finalizó correctamente, false si hubo error
  */
-bool RunRunningMode(bool serviceMode = false) {
+bool RunRunningMode(bool serviceMode = false, bool consoleService = false) {
     Logger::Info(serviceMode ? "=== INICIANDO RUNNING MODE (--service, sin menu) ==="
                              : "=== INICIANDO RUNNING MODE ===");
+    if (consoleService) {
+        Logger::Info("=== SERVICIO API (menu [12]): inicializa, levanta la API y queda en idle ===");
+    }
 
     // En --service no se leen teclas: el control es la API HTTP. Sin --service
     // esto es exactamente GetAsyncKeyState(vk) & 0x8000, como siempre.
@@ -963,6 +972,15 @@ bool RunRunningMode(bool serviceMode = false) {
             return false;
         }
         return (GetAsyncKeyState(vk) & 0x8000) != 0;
+    };
+    // ESC es la unica tecla que sobrevive en SERVICIO API (menu [12]): sirve
+    // para volver al menu principal. En --service puro no hay nadie en la
+    // consola, asi que tambien se ignora.
+    auto EscDown = [serviceMode, consoleService]() -> bool {
+        if (serviceMode && !consoleService) {
+            return false;
+        }
+        return (GetAsyncKeyState(VK_ESCAPE) & 0x8000) != 0;
     };
     
     // ============================================================================
@@ -1280,12 +1298,18 @@ bool RunRunningMode(bool serviceMode = false) {
             if (choreographyEngine->Load(config.choreographyConfig.scriptPath)) {
                 Logger::Info("ChoreographyEngine: Script loaded successfully");
                 
-                // Auto-start if configured
-                if (config.choreographyConfig.autoStart) {
+                // Auto-start if configured. En modo servicio (--service y menu
+                // [12]) NO se auto-arranca: el guion lo dispara POST /start
+                // despues del /arm. Un guion andando solo ocupa el medidor y el
+                // /arm cae en una ventana ya vencida ("sin cuadros").
+                if (config.choreographyConfig.autoStart && !serviceMode) {
                     Logger::Info("ChoreographyEngine: Auto-starting choreography...");
                     if (!choreographyEngine->Start()) {
                         Logger::Warning("ChoreographyEngine: Auto-start failed");
                     }
+                } else if (config.choreographyConfig.autoStart) {
+                    Logger::Warning("ChoreographyEngine: auto_start=true IGNORADO en modo servicio: "
+                                    "el VIB queda en idle hasta POST /start");
                 }
             } else {
                 Logger::Warning("ChoreographyEngine: Failed to load script: " + 
@@ -1577,6 +1601,17 @@ bool RunRunningMode(bool serviceMode = false) {
     // cuadros que ya estan entrando por OnDetections.
     std::unique_ptr<ControlApi> controlApi;
     bool controlApiFailed = false;
+
+    // El menu [12] existe justamente para levantar la API: si el config la tiene
+    // apagada se levanta igual (con aviso en el log), porque el operador lo
+    // eligio a proposito. --service sigue exigiendo enabled=true: ahi no hay
+    // nadie mirando la consola para avisarle.
+    if (consoleService && !config.controlApiConfig.enabled) {
+        Logger::Warning("[SERVICIO] menu [12]: control_api.enabled=false en config.json; "
+                        "se levanta igual porque el operador eligio SERVICIO API");
+        config.controlApiConfig.enabled = true;
+    }
+
     if (config.controlApiConfig.enabled) {
         controlApi = std::make_unique<ControlApi>();
         if (!controlApi->Start(config.controlApiConfig, choreographyEngine.get(),
@@ -1594,7 +1629,10 @@ bool RunRunningMode(bool serviceMode = false) {
         controlApiFailed = true;
     }
 
-    if (serviceMode && !controlApiFailed) {
+    if (consoleService) {
+        Logger::Info("--- Modo SERVICIO API (menu [12]): panel de estado en consola, ESC vuelve al menu ---");
+        Logger::Info("--- Control: GET /status  POST /arm /start /abort /shutdown ---");
+    } else if (serviceMode && !controlApiFailed) {
         Logger::Info("--- Modo SERVICIO: menu y teclas deshabilitados ---");
         Logger::Info("--- Control: GET /status  POST /arm /start /abort /shutdown ---");
     }
@@ -1620,15 +1658,75 @@ bool RunRunningMode(bool serviceMode = false) {
     }
     }
     Logger::Info("====================================");
-    
+
+    // ============================================================================
+    // Panel de estado del menu [12] SERVICIO API
+    // ============================================================================
+    // Bloque corto que se reimprime cada segundo (no una pantalla completa): el
+    // operador ve en que anda el VIB sin tocar nada y los Logger::Info del
+    // pipeline siguen saliendo entre bloque y bloque, sin perder nada.
+    auto FormatClock = [](int64_t epochMs) -> std::string {
+        if (epochMs <= 0) {
+            return "-";
+        }
+        const std::time_t seconds = static_cast<std::time_t>(epochMs / 1000);
+        std::tm local{};
+        localtime_s(&local, &seconds);
+        char buffer[16] = {0};
+        std::strftime(buffer, sizeof(buffer), "%H:%M:%S", &local);
+        return std::string(buffer);
+    };
+    auto PrintServicePanel = [&]() {
+        std::ostringstream panel;
+        if (!controlApi) {
+            // Sin listener no hay /status ni /arm: se dice por que, en la
+            // consola, en vez de dejar al operador mirando un panel vacio.
+            panel << "\n  --- SERVICIO API ---------------------------------------------\n"
+                  << "   api=NO LEVANTO   motivo=ver VIB_System_*.log\n"
+                  << "   (control_api.api_key vacia o puerto "
+                  << config.controlApiConfig.port << " ocupado)\n"
+                  << "   ESC = volver al menu principal\n"
+                  << "  --------------------------------------------------------------\n";
+            std::cout << panel.str() << std::flush;
+            return;
+        }
+
+        const ControlApi::Snapshot snapshot = controlApi->GetSnapshot();
+        panel << "\n  --- SERVICIO API ---------------------------------------------\n"
+              << "   estado=" << snapshot.stateName
+              << "   race_id=" << (snapshot.raceId.empty() ? std::string("-") : snapshot.raceId)
+              << "   punto=" << (snapshot.point > 0 ? std::to_string(snapshot.point) : std::string("-"))
+              << "   esferas=" << snapshot.spheres << "\n"
+              << "   motor=" << snapshot.engine
+              << "   api=0.0.0.0:" << controlApi->Port()
+              << "   escuchando=" << (snapshot.listening ? "si" : "NO")
+              << "   t0=" << (snapshot.t0 > 0 ? FormatClock(snapshot.t0) : std::string("-")) << "\n"
+              << "   ultimo=" << (snapshot.lastCommand.empty()
+                                    ? std::string("(ninguno: idle hasta POST /arm)")
+                                    : snapshot.lastCommand + " -> " +
+                                          std::to_string(snapshot.lastStatus) +
+                                          " (" + FormatClock(snapshot.lastAtMs) + ")")
+              << (snapshot.armInFlight ? "   ARMANDO..." : "") << "\n"
+              << "   ESC = volver al menu principal\n"
+              << "  --------------------------------------------------------------\n";
+        std::cout << panel.str() << std::flush;
+    };
+
     bool running = true;
-    // Solo en modo servicio el fallo de la API impide operar (no hay teclado).
-    // En modo normal se avisa y se sigue con el menu: la API es opcional.
-    if (controlApiFailed && serviceMode) {
+    // Solo en modo servicio sin consola el fallo de la API impide operar (no hay
+    // teclado). En modo normal se avisa y se sigue con el menu: la API es
+    // opcional. En SERVICIO API el panel muestra el fallo y ESC sigue andando.
+    if (controlApiFailed && serviceMode && !consoleService) {
         running = false;
     }
     auto lastStatusLog = std::chrono::steady_clock::now();
     const auto statusInterval = std::chrono::seconds(10);
+
+    auto lastPanelPrint = std::chrono::steady_clock::now();
+    const auto panelInterval = std::chrono::seconds(1);
+    if (consoleService) {
+        PrintServicePanel();   // que el operador vea el estado desde el arranque
+    }
     
     bool f2Pressed = false;
     bool f3Pressed = false;
@@ -1655,15 +1753,19 @@ bool RunRunningMode(bool serviceMode = false) {
     std::thread ptzChoreographyThread;
     
     while (running) {
-        // Unico apagado ordenado en --service: POST /shutdown (no hay teclado).
-        if (serviceMode && (!controlApi || controlApi->ShutdownRequested())) {
-            Logger::Info("[SERVICE] apagado pedido por la API");
+        // Apagado ordenado por la API: en --service es la unica salida (no hay
+        // teclado), en el menu [12] vuelve al menu principal. El controlApi
+        // nulo se maneja aparte: en [12] el panel muestra el fallo y ESC sigue
+        // siendo la salida; en --service el bucle ya arranco con running=false.
+        if (serviceMode && controlApi && controlApi->ShutdownRequested()) {
+            Logger::Info(consoleService ? "[SERVICIO] /shutdown pedido por la API: volviendo al menu"
+                                        : "[SERVICE] apagado pedido por la API");
             running = false;
             break;
         }
 
-        // Check for exit condition
-        if (KeyDown(VK_ESCAPE)) {
+        // Check for exit condition (en SERVICIO API es la unica tecla viva)
+        if (EscDown()) {
             Logger::Info("ESC presionado - Volviendo al menu principal...");
             running = false;
         }
@@ -1998,7 +2100,18 @@ bool RunRunningMode(bool serviceMode = false) {
             
             lastStatusLog = now;
         }
-        
+
+        // Panel del menu [12]: se reimprime cada segundo con el estado real que
+        // ve la API (misma fuente que GET /status). En --service puro no se
+        // imprime: no hay nadie mirando la consola.
+        if (consoleService) {
+            const auto panelNow = std::chrono::steady_clock::now();
+            if (panelNow - lastPanelPrint >= panelInterval) {
+                PrintServicePanel();
+                lastPanelPrint = panelNow;
+            }
+        }
+
         std::this_thread::sleep_for(std::chrono::milliseconds(16));
     }
     
@@ -3820,9 +3933,19 @@ int main(int argc, char* argv[]) {
                     RunArrivalOrderTest();
                     break;
 
+                case MenuOption::API_SERVICE:
+                    // [12]: inicializa todo (DeckLink, VideoHub, ESP32, motores),
+                    // levanta la API de control y se queda en idle con un panel de
+                    // estado en consola. Nada se dispara hasta que el backend manda
+                    // POST /arm + POST /start. ESC vuelve a este menu.
+                    if (!RunRunningMode(true, true)) {
+                        Logger::Warning("Servicio API finalizó con advertencias");
+                    }
+                    break;
+
                 case MenuOption::INVALID:
                 default:
-                    std::cout << "\n  Opcion invalida. Por favor seleccione 1-11.\n";
+                    std::cout << "\n  Opcion invalida. Por favor seleccione 1-12.\n";
                     std::this_thread::sleep_for(std::chrono::seconds(1));
                     break;
             }
