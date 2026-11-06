@@ -10,25 +10,30 @@
  *
  * Endpoints (JSON):
  *   GET  /status  -> {"state":"idle|armed|running|finished","race_id":"...",
- *                     "point":N,"spheres":N,"ranking":[...],"t0":<epoch_ms>}
- *   POST /arm     {"race_id":"..."}  ARMADO AUTOMATICO COMPLETO, en un solo
- *                 pedido y sin intervencion humana:
- *                   1) lock META         -> DOS camaras, criterio AND: se
- *                                           encuadra cada PTZ en su preset, se
- *                                           espera el asentamiento, se miden
- *                                           las dos y cada una tiene que dar 10
- *                                           (si no, 409 y NO manda el reload:
- *                                           no se puede verificar arriba lo que
- *                                           nunca estuvo abajo)
- *                   2) ESP32 "reload"    -> suben a la salida
- *                   3) espera N ms       (control_api.arm_reload_wait_ms)
- *                   4) lock ARRIBA       -> punto 1 del guion, DOS camaras y el
- *                                           mismo AND
- *                 Si las etapas pasan, deja el sistema armed; cualquier falla
- *                 responde 409 con "etapa", "camera" y el detalle "camaras",
- *                 y deja state=idle (nunca se arma a medias).
- *   POST /start   dispara el guion (equivale a F12) si esta armed.
- *   POST /abort   detiene el guion y vuelve a idle.
+ *                     "point":N,"spheres":N,"ranking":[...],"t0":<epoch_ms>,
+ *                     "engine":"...","engine_error":"..."}
+ *   POST /arm     {"race_id":"..."}  "¿LA PISTA ESTA LISTA PARA UNA CARRERA?"
+ *                 Verifica, sin mover la pista:
+ *                   1) pista          -> ESP32 (/status), VideoHub (barrido
+ *                                       Streaming 1-12 y Seguimiento 13-16),
+ *                                       vMix (inputs sanos) y DeckLink (los
+ *                                       canales de captura entran cuadros)
+ *                   2) lock META      -> esta es la LLEGADA, donde estan las
+ *                                       esferas antes de subir: DOS camaras con
+ *                                       criterio AND, cada una encuadrada en su
+ *                                       preset y con 10 esferas
+ *                 NO manda el reload del ascensor, NO espera la subida y NO
+ *                 toca el PTZ de la salida: todo eso es parte del guion, que
+ *                 arranca con /start.
+ *                 Si algo falla responde 409 con "etapa" (pista|meta), el
+ *                 detalle y, en la etapa pista, "chequeos":[{id,ok,detalle}].
+ *                 Deja state=armed solo si paso TODO (nunca se arma a medias).
+ *   POST /start   arranca el STREAMING (vMix StartStreaming) y dispara el guion
+ *                 (equivale a F12) si esta armed. El guion se encarga del
+ *                 reload, de la espera y del lock de arriba: si la salida no
+ *                 tiene las 10, la compuerta NO abre y el guion se detiene.
+ *   POST /abort   detiene el guion, corta el streaming que arranco /start y
+ *                 vuelve a idle.
  *   POST /shutdown (extra) apaga el proceso: en --service no hay teclado.
  *
  * Reglas duras:
@@ -51,6 +56,7 @@
 #include <vector>
 
 #include "ArmLock.h"
+#include "PistaReadiness.h"
 
 namespace Choreography {
     class ChoreographyEngine;
@@ -75,17 +81,18 @@ struct ControlApiConfig {
     std::string apiKey;          // clave obligatoria en X-Api-Key (vacia = API no arranca)
 
     // ---------------------------------------------------------------------
-    // Armado automatico: META -> reload -> espera -> ARRIBA
+    // /arm = "¿la pista esta lista para una carrera?"
+    //   chequeo de pista (ESP32, VideoHub, vMix, DeckLink) + lock META
+    // NO manda el reload, NO espera al ascensor y NO toca la salida: el
+    // ascensor, la espera y el lock de arriba son parte del GUION (/start).
     // ---------------------------------------------------------------------
 
-    // Camara de la META (donde estan las esferas ANTES del reload), 1-indexed
-    // como el guion. 0 = no declarada: /arm responde 409 con ese motivo en vez
-    // de medir una camara inventada. Produccion: 4 = PTZ_FINISH (la llegada),
-    // que es donde quedan las 10 esferas al terminar la carrera anterior.
+    // Camara de la META (donde estan las esferas ANTES de subir: la llegada),
+    // 1-indexed como el guion. 0 = no declarada: /arm responde 409 con ese
+    // motivo en vez de medir una camara inventada.
     int armMetaCamera = 4;
     // Preset PTZ para ver la META de cerca. 0 = no mover la camara (se mide la
-    // vista en la que este). Produccion: 2 = closeup de la llegada, el mismo
-    // que usa inicio_carrera_tlms.json antes de medir el final.
+    // vista en la que este).
     int armMetaPreset = 2;
     int armMetaBurstMs = 0;      // 0 = usar ranking_measure.burst_ms
     int armMetaMaxMs = 0;        // 0 = usar ranking_measure.max_ms
@@ -98,44 +105,38 @@ struct ControlApiConfig {
     int armMetaCamera2 = 0;
     int armMetaPreset2 = 0;      // 0 = no mover la segunda camara
 
-    // Camara primaria de ARRIBA (salida) SOLO para cuando el guion no tiene
-    // MeasurePoint del punto 1: 0 = armCamera. Si el guion lo tiene, manda el
-    // guion (es la camara que va a medir la carrera) y este valor se ignora con
-    // un Warning: verificar otra camara daria un 10 que la carrera no respalda.
-    int armArribaCamera = 0;
-
-    // Preset PTZ de la salida (ARRIBA) antes de medir el punto 1. 0 = no mover.
-    // Produccion: 1 = vista de la salida (el preset que deja el guion al
-    // empezar).
-    int armArribaPreset = 1;
-
-    // Segunda camara del lock ARRIBA: mismo criterio AND que la META. 0 = no
-    // declarada -> /arm responde 409 en la etapa arriba.
-    int armArribaCamera2 = 0;
-    int armArribaPreset2 = 0;    // 0 = no mover la segunda camara
-
-    // Cuanto tarda el ascensor en subir las 10 esferas despues del reload.
-    // En el guion: reload en t=9,0 s y medicion del punto 1 en t=15,0 s -> 6 s.
-    int armReloadWaitMs = 6000;
+    // Chequeo de pista antes del lock: ESP32 (/status), barrido del VideoHub
+    // (Streaming 1-12 y Seguimiento 13-16), vMix (inputs sanos) y DeckLink
+    // (los canales de captura entran cuadros). Es el mismo chequeo de la
+    // Fase 1 de la ignicion, pero bajo pedido y con veredicto por item.
+    // false = solo el lock de esferas (para pruebas de banco).
+    bool armCheckPista = true;
+    // false = no rutear los 16 puertos (solo verifica que el VideoHub este
+    // conectado). Util si el ruteo del monitoreo molesta durante una prueba.
+    bool armSweepVideoHub = true;
 
     // Asentamiento del PTZ despues de llamar un preset (el motor tarda en
     // llegar y en enfocar; medir en movimiento da cajas borrosas).
     int armPtzSettleMs = 2000;
 
-    // Chequeo de ARRIBA. El guion manda: si el guion cargado tiene un
-    // MeasurePoint para el punto 1 se usan SU camara y SU ventana, para
-    // verificar exactamente lo que va a medir la carrera. Estos valores son el
-    // fallback cuando el guion no tiene ese punto.
-    int armCamera = 1;           // 1-indexed, como el guion
-    int armBurstMs = 0;          // 0 = usar ranking_measure.burst_ms
-    int armMaxMs = 0;            // 0 = usar ranking_measure.max_ms
+    // ---------------------------------------------------------------------
+    // /start = streaming + coreografia
+    // ---------------------------------------------------------------------
+    // Manda FUNCTION StartStreaming a vMix antes de largar el guion (el guion
+    // ya se encarga del reload, de la espera y del lock de arriba).
+    bool startStreaming = true;
+    // true = si el streaming no arranca, el guion NO se larga (502).
+    // false = se avisa en la respuesta y la carrera sigue igual.
+    bool streamingRequired = false;
+    // /abort corta tambien el streaming que arranco este /start.
+    bool stopStreamingOnAbort = true;
 };
 
 class ControlApi {
 public:
     enum class State {
         Idle,       // sin carrera armada
-        Armed,      // /arm ok: 10 esferas en la META y 10 ARRIBA (armado completo)
+        Armed,      // /arm ok: la pista esta lista y hay 10 esferas abajo (META)
         Running,    // guion disparado por /start
         Finished    // el guion termino solo
     };
@@ -152,9 +153,11 @@ public:
      * @param engine     motor de coreografia (puede ser null si esta deshabilitado)
      * @param measure    medidor por evento (puede ser null: /arm devuelve 409)
      * @param scriptPath guion a recargar si el motor no tiene ninguno cargado
-     * @param track      controlador del ESP32 (null: /arm no puede mandar el
-     *                   reload y responde 409 en esa etapa)
+     * @param track      controlador del ESP32 (null: el chequeo de pista falla
+     *                   y el guion no puede mover la pista)
      * @param ptz        controlador PTZ (null: /arm mide la vista actual)
+     * @param pista      handles del pipeline para el chequeo de pista del /arm
+     *                   (VideoHub, DeckLink, vMix y canales de captura)
      * @return true si el puerto quedo escuchando
      */
     bool Start(const ControlApiConfig& config,
@@ -162,7 +165,8 @@ public:
                Measure::RankingMeasure* measure,
                const std::string& scriptPath,
                TrackPhysicalController* track = nullptr,
-               PTZ::PTZController* ptz = nullptr);
+               PTZ::PTZController* ptz = nullptr,
+               const Pista::Fuente& pista = Pista::Fuente());
 
     /**
      * Baja el listener y espera al hilo. Idempotente.
@@ -235,12 +239,12 @@ private:
                     int& spheres, std::string& motivo);
 
     /**
-     * Corre un lock del armado (META o ARRIBA) con DOS camaras y criterio AND:
+     * Corre un lock del armado con DOS camaras y criterio AND:
      * encuadra cada PTZ en su preset (con asentamiento), mide las dos y exige
      * el mismo conteo en ambas. El orden y el veredicto viven en ArmLock.h
      * (probados en tests/test_arm_lock.cpp); aca solo se conectan el PTZ, el
      * medidor y la cancelacion por /abort.
-     * @param etapa    "META" o "ARRIBA" (para logs y motivos)
+     * @param etapa    "META" (la llegada, abajo: unico lock del /arm)
      * @param cameras  las dos camaras del lock, con su preset
      * @param verdict  [out] veredicto con el detalle por camara
      */
@@ -266,8 +270,8 @@ private:
                        std::string& motivo);
 
     /**
-     * Espera del ascensor, cortable: duerme en tramos de 100 ms para que
-     * /abort y /shutdown no queden colgados 6 s detras de un /arm.
+     * Espera cortable (asentamiento del PTZ). Duerme en tramos de 100 ms para
+     * que /abort y /shutdown no queden colgados detras de un /arm.
      * @return false si la cancelo un /abort o un /shutdown
      */
     bool WaitArmDelay(int ms, std::string& motivo);
@@ -277,13 +281,16 @@ private:
      * @param spheres     esferas de la camara que hizo fallar la etapa (0 si no
      *                    se llego a medir)
      * @param camera      camara que hizo fallar la etapa (0 = etapa sin camara:
-     *                    reload, espera, configuracion general)
+     *                    pista, configuracion general)
      * @param camerasJson fragmento ya armado con ArmCamerasJson (vacio = etapa
      *                    sin mediciones)
+     * @param chequeosJson fragmento "chequeos":[...] del chequeo de pista
+     *                    (vacio = etapa sin chequeos)
      */
     void ArmFail(int& status, std::string& out, const char* etapa,
                  int spheres, const std::string& motivo,
-                 int camera = 0, const std::string& camerasJson = std::string());
+                 int camera = 0, const std::string& camerasJson = std::string(),
+                 const std::string& chequeosJson = std::string());
 
     /**
      * Guarda el ultimo comando que movio el sistema, para el panel de consola.
@@ -298,6 +305,9 @@ private:
     TrackPhysicalController* m_track = nullptr;
     PTZ::PTZController* m_ptz = nullptr;
     std::string m_scriptPath;
+    // Handles del pipeline para el chequeo de pista del /arm. Solo se leen
+    // (ruteo del VideoHub, contadores de la captura, API de vMix y ESP32).
+    Pista::Fuente m_pista;
 
     std::unique_ptr<Impl> m_impl;
 
@@ -316,10 +326,14 @@ private:
     std::string m_lastCmdPath;     // sin la barra: "arm", "start", ...
     int m_lastCmdStatus = 0;
     int64_t m_lastCmdAt = 0;
-    // /abort durante un /arm: la espera del ascensor y las etapas que faltan
-    // se cortan en vez de seguir armando una carrera que ya nadie quiere.
+    // /abort durante un /arm: las etapas que faltan se cortan en vez de seguir
+    // armando una carrera que ya nadie quiere.
     std::atomic<bool> m_armCancelled{false};
     std::atomic<int64_t> m_shutdownAt{0};
+
+    // El /start arranco el streaming de vMix. /abort lo corta solo si lo
+    // arrancamos nosotros (no se toca un stream que ya venia andando).
+    std::atomic<bool> m_streamingStarted{false};
 
     // Espera del resultado de la sonda de /arm (la entrega el hilo medidor).
     mutable std::mutex m_resultMutex;

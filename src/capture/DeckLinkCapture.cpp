@@ -654,6 +654,9 @@ HRESULT STDMETHODCALLTYPE DeckLinkCapture::VideoInputFrameArrived(
 {
     // Forward frame to our internal handler
     if (videoFrame) {
+        // Prueba de vida del canal para el chequeo de pista del /arm: si este
+        // contador no avanza, por la entrada no entra video.
+        m_framesArrived.fetch_add(1, std::memory_order_relaxed);
         OnFrameArrived(videoFrame);
     }
     return S_OK;

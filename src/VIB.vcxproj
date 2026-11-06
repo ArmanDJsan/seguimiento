@@ -131,6 +131,7 @@
     <ClCompile Include="control\VideoHubClient.cpp" />
     <ClCompile Include="control\VMixController.cpp" />
     <ClCompile Include="control\ControlApi.cpp" />
+    <ClCompile Include="control\PistaReadiness.cpp" />
     <ClCompile Include="ui\UserMenu.cpp" />
     <ClCompile Include="diagnostics\StressTester.cpp" />
     <ClCompile Include="choreography\ChoreographyScript.cpp" />
@@ -181,6 +182,8 @@
     <ClInclude Include="control\VMixController.h" />
     <ClInclude Include="control\ControlApi.h" />
     <ClInclude Include="control\ArmLock.h" />
+    <ClInclude Include="control\GateGuard.h" />
+    <ClInclude Include="control\PistaReadiness.h" />
     <ClInclude Include="..\third_party\httplib.h" />
     <ClInclude Include="core\Config.h" />
     <ClInclude Include="ui\UserMenu.h" />

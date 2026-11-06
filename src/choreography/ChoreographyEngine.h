@@ -213,9 +213,18 @@ public:
     bool IsFinished() const { return m_finished.load(); }
 
     /**
-     * Busca el evento MeasurePoint de un punto en el guion cargado. Sirve para
-     * que /arm verifique el punto 1 con la MISMA camara y la MISMA ventana que
-     * va a usar la carrera.
+     * Busca en el guion la guarda de la compuerta (ESP32Command "iniciar" con
+     * require_spheres > 0). La usa el /arm para no armar con un guion que abre
+     * la compuerta sin verificar que las 10 hayan llegado arriba.
+     *
+     * @param punto   [out] punto del guion que verifica (1 si no lo declara)
+     * @param esferas [out] esferas exigidas
+     * @return false si el guion abre la compuerta sin guarda (o no la abre)
+     */
+    bool HasGateGuard(int& punto, int& esferas) const;
+
+    /**
+     * Busca el evento MeasurePoint de un punto en el guion cargado.
      * @param camera1Based [out] camara del evento (1-indexed, como el guion)
      * @param burstMs      [out] rafaga corta del evento
      * @param maxMs        [out] techo del evento
@@ -299,6 +308,10 @@ private:
     // Termino el guion completo por si solo (ver IsFinished()).
     std::atomic<bool> m_finished{false};
     std::chrono::steady_clock::time_point m_startTime;
+    // Instante (epoch ms) del arranque del guion. La guarda de la compuerta
+    // solo acepta mediciones TERMINADAS despues de este instante: una medicion
+    // de la carrera anterior no puede abrir la compuerta de esta.
+    std::atomic<int64_t> m_startEpochMs{0};
     int m_errorCount;
     std::string m_lastError;
     
@@ -334,6 +347,18 @@ private:
     bool ExecuteSceneSwitch(int configIndex);
     bool ExecuteSphereVerification(const ChoreographyEvent& event, EventResult& result);
     bool ExecuteWaitForExport(const WaitForExportParams& params, std::string& errorMessage);
+
+    /**
+     * Guarda de la compuerta antes del "iniciar" (abrir compuerta).
+     *
+     * Espera a que el medidor termine el punto de la salida y exige las esferas
+     * configuradas. La decision vive en GateGuard.h (probada en
+     * tests/test_gate_guard.cpp); aca solo se conectan el medidor, el reloj y
+     * la espera.
+     *
+     * @return false si la compuerta NO debe abrirse (motivo en errorMessage)
+     */
+    bool CheckGateGuard(const ESP32CommandParams& params, std::string& errorMessage);
     
     // High-resolution timer
     void PreciseSleep(std::chrono::milliseconds duration);

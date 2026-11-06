@@ -150,7 +150,10 @@
     {
       "type": "ESP32Command",
       "command": "iniciar",
-      "comment": "ESP32: iniciar"
+      "require_spheres": 10,
+      "point": 1,
+      "verify_timeout_ms": 12000,
+      "comment": "ESP32: iniciar. GUARDA: la compuerta solo abre si la medicion del punto 1 (la salida) dio 10; si no, NO abre y el guion se detiene"
     },
     {
       "type": "Timer",

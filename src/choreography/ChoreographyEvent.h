@@ -251,7 +251,20 @@ struct PTZPresetParams {
  */
 struct ESP32CommandParams {
     std::string command;  // Logical command name: "iniciar", "finalizar", "reload", etc.
-    
+
+    // ------------------------------------------------------------------
+    // Guarda del "iniciar" (es el comando que ABRE LA COMPUERTA y dispara la
+    // carrera). El guion llega aca despues del reload y de medir la salida;
+    // si la medicion de la salida no dio las 10 esferas, la compuerta NO se
+    // abre y el guion se detiene con el motivo.
+    //
+    // 0 = sin guarda (comportamiento de siempre: abre y listo).
+    // Produccion: requireSpheres=10, spheresPoint=1 (el punto de la salida).
+    // ------------------------------------------------------------------
+    int requireSpheres = 0;      // esferas exigidas arriba (0 = sin guarda)
+    int spheresPoint = 0;        // punto del guion que lo verifica (0 = 1)
+    int verifyTimeoutMs = 0;     // 0 = default del motor (10 s)
+
     ESP32CommandParams() = default;
     explicit ESP32CommandParams(const std::string& cmd) : command(cmd) {}
 };

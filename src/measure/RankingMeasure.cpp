@@ -502,13 +502,46 @@ bool RankingMeasure::GetLastRanking(std::vector<int>& posiciones, int& punto,
 }
 
 void RankingMeasure::ClearLastRanking() {
-    std::lock_guard<std::mutex> lock(m_lastRankingMutex);
-    m_lastRanking.clear();
-    m_lastRankingPunto = 0;
-    m_lastRankingEpochMs = 0;
+    {
+        std::lock_guard<std::mutex> lock(m_lastRankingMutex);
+        m_lastRanking.clear();
+        m_lastRankingPunto = 0;
+        m_lastRankingEpochMs = 0;
+    }
+    // La guarda de la compuerta no puede leer una medicion de la carrera
+    // anterior: al arrancar un guion se borra tambien el ultimo resultado.
+    std::lock_guard<std::mutex> lock(m_lastOutcomeMutex);
+    m_lastOutcome = MeasureOutcome{};
+    m_hasLastOutcome = false;
+}
+
+bool RankingMeasure::GetLastMeasureOutcome(MeasureOutcome& outcome) const {
+    std::lock_guard<std::mutex> lock(m_lastOutcomeMutex);
+    if (!m_hasLastOutcome) {
+        outcome = MeasureOutcome{};
+        return false;
+    }
+    outcome = m_lastOutcome;
+    return true;
 }
 
 void RankingMeasure::ReportResult(const MeasureResult& result) {
+    // La guarda de la compuerta (GateGuard.h) lee esto: se guarda la ultima
+    // medicion TERMINADA de un punto del guion. Las sondas de /arm no entran:
+    // no son un punto de la carrera y no publican.
+    if (!result.probe) {
+        {
+            std::lock_guard<std::mutex> lock(m_lastOutcomeMutex);
+            m_lastOutcome.punto = result.punto;
+            m_lastOutcome.camera = result.camera;
+            m_lastOutcome.spheres = result.spheres;
+            m_lastOutcome.published = result.published;
+            m_lastOutcome.motivo = result.motivo;
+            m_lastOutcome.doneAtMs = NowEpochMs();
+            m_hasLastOutcome = true;
+        }
+    }
+
     // Se invoca CON el lock tomado a proposito: asi SetResultCallback(nullptr)
     // (shutdown de la API de control) no vuelve mientras hay un callback en
     // curso, y el observador no puede quedar con un `this` ya destruido.

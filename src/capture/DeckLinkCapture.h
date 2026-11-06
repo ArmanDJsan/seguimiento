@@ -119,6 +119,16 @@ public:
     
     // Get channel info
     const VideoChannel& GetChannel() const { return m_channel; }
+
+    /**
+     * Cuadros que llegaron por este canal desde que arranco la captura.
+     *
+     * Es la unica prueba REAL de que el DeckLink esta enganchado: el chequeo
+     * de senal de DeckLinkSource es un stub del SDK, pero si este contador no
+     * avanza, por esa entrada no entra video. Lo usa el chequeo de pista del
+     * /arm (PistaReadiness).
+     */
+    uint64_t FramesArrived() const { return m_framesArrived.load(std::memory_order_relaxed); }
     
     // Static method to enumerate available devices
     static int EnumerateDevices();
@@ -283,4 +293,8 @@ private:
     
     // Anillo corto del medidor por evento (opcional, nullptr = deshabilitado)
     Measure::FrameRing* m_measureRing = nullptr;
+
+    // Cuadros que llegaron por el callback del DeckLink. Lo lee /arm (chequeo
+    // de pista) desde el hilo HTTP: atomico, sin locks.
+    std::atomic<uint64_t> m_framesArrived{0};
 };

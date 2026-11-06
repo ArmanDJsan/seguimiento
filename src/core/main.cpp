@@ -61,6 +61,7 @@
 #include "../control/VMixController.h"
 #include "../control/PTZController.h"
 #include "../control/ControlApi.h"
+#include "../control/PistaReadiness.h"
 #include "../choreography/ChoreographyEngine.h"
 #include "../verification/SphereVerifier.h"
 #include "../verification/ArrivalOrderStabilizer.h"
@@ -754,25 +755,21 @@ Config LoadConfig(const std::string& path) {
             if (ca.contains("enabled")) config.controlApiConfig.enabled = ca["enabled"].get<bool>();
             if (ca.contains("port")) config.controlApiConfig.port = ca["port"].get<int>();
             if (ca.contains("api_key")) config.controlApiConfig.apiKey = ca["api_key"].get<std::string>();
-            if (ca.contains("arm_camera")) config.controlApiConfig.armCamera = ca["arm_camera"].get<int>();
-            if (ca.contains("arm_burst_ms")) config.controlApiConfig.armBurstMs = ca["arm_burst_ms"].get<int>();
-            if (ca.contains("arm_max_ms")) config.controlApiConfig.armMaxMs = ca["arm_max_ms"].get<int>();
-            // Armado automatico: META -> reload -> espera -> ARRIBA
+            // /arm = pista lista + lock META (la llegada, abajo): dos camaras AND
             if (ca.contains("arm_meta_camera")) config.controlApiConfig.armMetaCamera = ca["arm_meta_camera"].get<int>();
             if (ca.contains("arm_meta_preset")) config.controlApiConfig.armMetaPreset = ca["arm_meta_preset"].get<int>();
             if (ca.contains("arm_meta_burst_ms")) config.controlApiConfig.armMetaBurstMs = ca["arm_meta_burst_ms"].get<int>();
             if (ca.contains("arm_meta_max_ms")) config.controlApiConfig.armMetaMaxMs = ca["arm_meta_max_ms"].get<int>();
-            // Segunda camara del lock META (el lock exige las dos, criterio AND)
             if (ca.contains("arm_meta_camera2")) config.controlApiConfig.armMetaCamera2 = ca["arm_meta_camera2"].get<int>();
             if (ca.contains("arm_meta_preset2")) config.controlApiConfig.armMetaPreset2 = ca["arm_meta_preset2"].get<int>();
-            // Camara primaria de ARRIBA (0 = la del guion, punto 1)
-            if (ca.contains("arm_arriba_camera")) config.controlApiConfig.armArribaCamera = ca["arm_arriba_camera"].get<int>();
-            if (ca.contains("arm_arriba_preset")) config.controlApiConfig.armArribaPreset = ca["arm_arriba_preset"].get<int>();
-            // Segunda camara del lock ARRIBA (mismo AND)
-            if (ca.contains("arm_arriba_camera2")) config.controlApiConfig.armArribaCamera2 = ca["arm_arriba_camera2"].get<int>();
-            if (ca.contains("arm_arriba_preset2")) config.controlApiConfig.armArribaPreset2 = ca["arm_arriba_preset2"].get<int>();
-            if (ca.contains("arm_reload_wait_ms")) config.controlApiConfig.armReloadWaitMs = ca["arm_reload_wait_ms"].get<int>();
             if (ca.contains("arm_ptz_settle_ms")) config.controlApiConfig.armPtzSettleMs = ca["arm_ptz_settle_ms"].get<int>();
+            // Chequeo de pista (ESP32, VideoHub, vMix, DeckLink) antes del lock
+            if (ca.contains("arm_check_pista")) config.controlApiConfig.armCheckPista = ca["arm_check_pista"].get<bool>();
+            if (ca.contains("arm_sweep_videohub")) config.controlApiConfig.armSweepVideoHub = ca["arm_sweep_videohub"].get<bool>();
+            // /start = streaming + coreografia
+            if (ca.contains("start_streaming")) config.controlApiConfig.startStreaming = ca["start_streaming"].get<bool>();
+            if (ca.contains("streaming_required")) config.controlApiConfig.streamingRequired = ca["streaming_required"].get<bool>();
+            if (ca.contains("stop_streaming_on_abort")) config.controlApiConfig.stopStreamingOnAbort = ca["stop_streaming_on_abort"].get<bool>();
 
             Logger::Info("Control API config: enabled=" +
                         std::string(config.controlApiConfig.enabled ? "true" : "false") +
@@ -780,29 +777,25 @@ Config LoadConfig(const std::string& path) {
                         ", api_key=" +
                         (config.controlApiConfig.apiKey.empty()
                             ? std::string("(VACIA)")
-                            : ("(configurada, " + std::to_string(config.controlApiConfig.apiKey.size()) + " chars)")) +
-                        ", arm_camera=" + std::to_string(config.controlApiConfig.armCamera));
-            Logger::Info("Control API armado (dos camaras por lock, AND): META cam=" +
+                            : ("(configurada, " + std::to_string(config.controlApiConfig.apiKey.size()) + " chars)")));
+            Logger::Info("Control API /arm (pista lista + lock META de la llegada): cam=" +
                         std::to_string(config.controlApiConfig.armMetaCamera) + "/" +
                         std::to_string(config.controlApiConfig.armMetaCamera2) +
                         " preset=" + std::to_string(config.controlApiConfig.armMetaPreset) +
                         "/" + std::to_string(config.controlApiConfig.armMetaPreset2) +
-                        " -> reload -> espera " +
-                        std::to_string(config.controlApiConfig.armReloadWaitMs) + " ms" +
-                        " -> ARRIBA cam=" +
-                        (config.controlApiConfig.armArribaCamera > 0
-                             ? std::to_string(config.controlApiConfig.armArribaCamera)
-                             : std::string("guion")) +
-                        "/" + std::to_string(config.controlApiConfig.armArribaCamera2) +
-                        " preset=" + std::to_string(config.controlApiConfig.armArribaPreset) +
-                        "/" + std::to_string(config.controlApiConfig.armArribaPreset2) +
                         " (asentamiento PTZ " +
-                        std::to_string(config.controlApiConfig.armPtzSettleMs) + " ms)");
-            if (config.controlApiConfig.armMetaCamera2 <= 0 ||
-                config.controlApiConfig.armArribaCamera2 <= 0) {
-                Logger::Warning("Control API armado: falta la SEGUNDA camara de un lock "
-                                "(arm_meta_camera2 / arm_arriba_camera2); el /arm va a responder "
-                                "409 hasta declararla: el armado exige DOS camaras por lock");
+                        std::to_string(config.controlApiConfig.armPtzSettleMs) + " ms)" +
+                        ", chequeo de pista=" +
+                        (config.controlApiConfig.armCheckPista ? "ON" : "OFF") +
+                        (config.controlApiConfig.armSweepVideoHub ? "/barrido" : "/sin barrido"));
+            Logger::Info(std::string("Control API /start (streaming + coreografia): streaming=") +
+                        (config.controlApiConfig.startStreaming
+                             ? (config.controlApiConfig.streamingRequired ? "OBLIGATORIO" : "opcional")
+                             : "desactivado"));
+            if (config.controlApiConfig.armMetaCamera2 <= 0) {
+                Logger::Warning("Control API armado: falta la SEGUNDA camara del lock "
+                                "(arm_meta_camera2); el /arm va a responder 409 hasta "
+                                "declararla: el lock exige DOS camaras (AND)");
             }
         } else if (config.controlApiConfig.enabled) {
             Logger::Warning("Config: control_api.enabled pero falta el bloque en config.json");
@@ -873,52 +866,38 @@ Config LoadConfig(const std::string& path) {
     return config;
 }
 
-bool ValidateSignalGroup(VideoHubClient& videoHub,
-                         DeckLinkSource& deckLinkSource,
-                         const std::vector<int>& ports,
-                         const std::string& label) {
-    for (int port : ports) {
-        // VideoHub uses 0-based indexing, so convert port (1-based) to 0-based
-        int videoHubInput = port - 1;
-        if (!videoHub.RouteInputToOutput(kVideoHubPrimaryOutput, videoHubInput)) {
-            Logger::Error("[HW/SW ERROR]: No se pudo conmutar VideoHub para puerto " + std::to_string(port));
-            return false;
-        }
-    }
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
-
-    const auto statuses = deckLinkSource.GetSignalStatus(ports);
-    for (const auto& status : statuses) {
-        if (!status.signalLocked) {
-            const std::string name = status.name.value_or("Port_" + std::to_string(status.index));
-            Logger::Error("[HW/SW ERROR]: Sin señal en " + name);
-            return false;
-        }
-    }
-
-    Logger::Info("Barrido " + label + " OK");
-    return true;
-}
-
+/**
+ * Fase 1 de la ignicion: ¿la pista esta lista?
+ *
+ * Usa el MISMO chequeo que el /arm (Pista::Chequear), para que la ignicion y el
+ * armado no puedan dar veredictos distintos. En la ignicion todavia no hay
+ * canales de captura creados, asi que el chequeo de cuadros del DeckLink se
+ * omite (checkDeckLink=false); el resto es identico.
+ */
 bool RunPhase1(VMixController& vmix,
                VideoHubClient& videoHub,
                DeckLinkSource& deckLinkSource,
                TrackPhysicalController& trackController) {
-    if (!vmix.CheckInputsHealthy()) {
-        return false;
+    Pista::Fuente fuente;
+    fuente.vmix = &vmix;
+    fuente.videoHub = &videoHub;
+    fuente.deckLink = &deckLinkSource;
+    fuente.esp32 = &trackController;
+    fuente.captura = nullptr;
+
+    Pista::Opciones opciones;
+    opciones.checkDeckLink = false;
+
+    const Pista::Veredicto veredicto = Pista::Chequear(fuente, opciones);
+    for (const auto& chequeo : veredicto.chequeos) {
+        if (chequeo.ok) {
+            Logger::Info("[FASE 1] " + chequeo.nombre + ": OK (" + chequeo.detalle + ")");
+        } else {
+            Logger::Error("[HW/SW ERROR] " + chequeo.nombre + ": " + chequeo.detalle);
+        }
     }
 
-    if (!ValidateSignalGroup(videoHub, deckLinkSource, RangeInclusive(1, 12), "Streaming (1-12)")) {
-        return false;
-    }
-
-    if (!ValidateSignalGroup(videoHub, deckLinkSource, RangeInclusive(13, 16), "Seguimiento (13-16)")) {
-        return false;
-    }
-
-    if (!trackController.ejecutarTest()) {
-        Logger::Error("[HW/SW ERROR] Prueba mecánica (ESP32 /test) fallida");
+    if (!veredicto.ok) {
         return false;
     }
 
@@ -1597,8 +1576,20 @@ bool RunRunningMode(bool serviceMode = false, bool consoleService = false) {
     // ============================================================================
     // API HTTP de control (modo --service)
     // ============================================================================
-    // Se levanta DESPUES de arrancar la captura: /arm mide el punto 1 sobre los
-    // cuadros que ya estan entrando por OnDetections.
+    // Se levanta DESPUES de arrancar la captura: /arm mide la META sobre los
+    // cuadros que ya estan entrando y verifica que los canales de captura
+    // entreguen cuadros (contador de frames de DeckLinkCapture).
+
+    // Vista de solo-lectura de los canales de captura para el chequeo de pista
+    // del /arm. Se declara ANTES de controlApi para que viva mas que la API: si
+    // se destruyera primero, un /arm en vuelo quedaria con punteros colgados
+    // (y la captura se apaga recien en el shutdown, despues de Stop()).
+    std::vector<DeckLinkCapture*> pistaCaptura;
+    pistaCaptura.reserve(captureChannels.size());
+    for (const auto& capture : captureChannels) {
+        pistaCaptura.push_back(capture.get());
+    }
+
     std::unique_ptr<ControlApi> controlApi;
     bool controlApiFailed = false;
 
@@ -1613,10 +1604,20 @@ bool RunRunningMode(bool serviceMode = false, bool consoleService = false) {
     }
 
     if (config.controlApiConfig.enabled) {
+        // Handles del pipeline para el chequeo de pista del /arm: los mismos
+        // que usa la ignicion, mas vMix (streaming de /start) y los canales de
+        // captura (para exigir que entren cuadros).
+        Pista::Fuente fuentePista;
+        fuentePista.videoHub = &videoHub;
+        fuentePista.deckLink = &deckLinkSource;
+        fuentePista.vmix = &vmix;
+        fuentePista.esp32 = &trackController;
+        fuentePista.captura = &pistaCaptura;
+
         controlApi = std::make_unique<ControlApi>();
         if (!controlApi->Start(config.controlApiConfig, choreographyEngine.get(),
                                rankingMeasure.get(), config.choreographyConfig.scriptPath,
-                               &trackController, ptzController.get())) {
+                               &trackController, ptzController.get(), fuentePista)) {
             Logger::Error("ControlApi: no se pudo levantar la API de control (puerto " +
                           std::to_string(config.controlApiConfig.port) + ")");
             controlApiFailed = true;

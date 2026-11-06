@@ -8,6 +8,7 @@
 #include "../control/VMixController.h"
 #include "../control/PTZController.h"
 #include "../control/TrackPhysicalController.h"
+#include "../control/GateGuard.h"
 #include "../scene/SceneManager.h"
 #include "../control/VideoHubClient.h"
 #include "../verification/SphereVerifier.h"
@@ -16,6 +17,7 @@
 #include <sstream>
 #include <iomanip>
 #include <cctype>
+#include <algorithm>
 #include <filesystem>
 #include <map>
 #include <vector>
@@ -241,6 +243,15 @@ bool ChoreographyEngine::Start() {
     m_currentEventIndex = 0;
     m_errorCount = 0;
     m_startTime = std::chrono::steady_clock::now();
+    m_startEpochMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+
+    // El ranking y la ultima medicion de la carrera anterior se tiran ACA: la
+    // guarda de la compuerta no puede leer un 10 viejo, y /status no debe
+    // mostrar el final anterior mientras esta carrera no publico su punto 1.
+    if (Measure::RankingMeasure* coordinator = Measure::AttachedCoordinator()) {
+        coordinator->ClearLastRanking();
+    }
     
     // Start execution thread
     m_executionThread = std::thread(&ChoreographyEngine::ExecutionThreadFunc, this);
@@ -313,6 +324,27 @@ bool ChoreographyEngine::JumpToEvent(size_t index) {
     m_currentEventIndex = index;
     Logger::Info("ChoreographyEngine: Jumped to event " + std::to_string(index));
     return true;
+}
+
+bool ChoreographyEngine::HasGateGuard(int& punto, int& esferas) const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    punto = 0;
+    esferas = 0;
+    if (!m_scriptLoaded) {
+        return false;
+    }
+    for (const auto& event : m_script.events) {
+        if (event.type != EventType::ESP32Command) {
+            continue;
+        }
+        const auto* params = std::get_if<ESP32CommandParams>(&event.params);
+        if (params && params->command == "iniciar" && params->requireSpheres > 0) {
+            punto = (params->spheresPoint > 0) ? params->spheresPoint : 1;
+            esferas = params->requireSpheres;
+            return true;
+        }
+    }
+    return false;
 }
 
 bool ChoreographyEngine::GetMeasurePointFor(int punto, int& camera1Based,
@@ -548,10 +580,23 @@ EventResult ChoreographyEngine::ExecuteEventInternal(const ChoreographyEvent& ev
                     if (params->command == "iniciar") {
                         // "iniciar" es el comando que abre la compuerta (ver
                         // TrackPhysicalController::openGate -> endpoint /iniciar):
-                        // ES el arranque de la carrera. Se reinicia el anillo de
-                        // la carrera (save_race) ANTES de abrir, asi el primer
-                        // cuadro del anillo es el de la compuerta y no se cuela
-                        // nada de antes de la carrera.
+                        // ES el arranque de la carrera.
+                        //
+                        // GUARDA: el guion trae la verificacion de la salida
+                        // (MeasurePoint del punto 1) y el reload. Aca se exige
+                        // que esa medicion haya dado las 10 esferas ANTES de
+                        // abrir. Si no, la compuerta NO se abre, el evento
+                        // falla y el guion se detiene (continue_on_error=false):
+                        // la carrera no larga con una esfera menos.
+                        std::string guardError;
+                        if (!CheckGateGuard(*params, guardError)) {
+                            result.success = false;
+                            result.errorMessage = guardError;
+                            break;
+                        }
+                        // Se reinicia el anillo de la carrera (save_race) ANTES
+                        // de abrir, asi el primer cuadro del anillo es el de la
+                        // compuerta y no se cuela nada de antes de la carrera.
                         if (Measure::RankingMeasure* coordinator =
                                 Measure::AttachedCoordinator()) {
                             coordinator->RaceStart();
@@ -1123,6 +1168,78 @@ std::string ChoreographyEngine::GetStateString(EngineState state) const {
         case EngineState::Error: return "Error";
         default: return "Unknown";
     }
+}
+
+/**
+ * Guarda de la compuerta: no se abre si la salida no tiene las 10 esferas.
+ *
+ * La medicion de la salida la encola el propio guion (MeasurePoint del punto 1)
+ * y la resuelve el hilo medidor, asi que al llegar al "iniciar" puede estar
+ * todavia en curso. Se espera (GateGuard::Esperar) a que TERMINE el punto y se
+ * exige el conteo. Solo se aceptan mediciones terminadas despues del arranque
+ * del guion: un 10 de la carrera anterior no abre esta compuerta.
+ */
+bool ChoreographyEngine::CheckGateGuard(const ESP32CommandParams& params,
+                                        std::string& errorMessage) {
+    if (params.requireSpheres <= 0) {
+        return true;   // sin guarda: el "iniciar" se comporta como siempre
+    }
+
+    Measure::RankingMeasure* coordinator = Measure::AttachedCoordinator();
+    if (!coordinator) {
+        errorMessage = "la compuerta exige " + std::to_string(params.requireSpheres) +
+                       " esferas en la salida y no hay medidor enganchado: no se abre";
+        Logger::Error("ChoreographyEngine: " + errorMessage);
+        return false;
+    }
+
+    const int punto = (params.spheresPoint > 0) ? params.spheresPoint : 1;
+    const int timeoutMs = (params.verifyTimeoutMs > 0) ? params.verifyTimeoutMs : 10000;
+    const int64_t sinceMs = m_startEpochMs.load();
+
+    Logger::Info("ChoreographyEngine: guarda de compuerta - esperando la medicion del punto " +
+                 std::to_string(punto) + " (" + std::to_string(params.requireSpheres) +
+                 " esferas, hasta " + std::to_string(timeoutMs) + " ms)");
+
+    auto sondear = [coordinator](GateGuard::Medida& medida) {
+        Measure::RankingMeasure::MeasureOutcome outcome;
+        const bool hay = coordinator->GetLastMeasureOutcome(outcome);
+        medida.hay = hay;
+        medida.punto = outcome.punto;
+        medida.esferas = outcome.spheres;
+        medida.terminadaMs = outcome.doneAtMs;
+        return hay;
+    };
+    auto esperar = [this](int ms) {
+        // Tramos cortos: el guion no queda sordo a un stop/skip mas que eso.
+        const int64_t fin = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count() + ms;
+        while (!m_stopRequested.load()) {
+            const int64_t ahora = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+            if (ahora >= fin) {
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(
+                (std::min)(int64_t{50}, fin - ahora)));
+        }
+    };
+    auto reloj = []() {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    };
+
+    const GateGuard::Veredicto veredicto = GateGuard::Esperar(
+        punto, params.requireSpheres, timeoutMs, sinceMs, sondear, esperar, reloj);
+
+    if (!veredicto.ok) {
+        errorMessage = veredicto.motivo;
+        Logger::Error("ChoreographyEngine: compuerta BLOQUEADA - " + veredicto.motivo);
+        return false;
+    }
+
+    Logger::Info("ChoreographyEngine: guarda de compuerta OK - " + veredicto.motivo);
+    return true;
 }
 
 bool ChoreographyEngine::ExecuteSphereVerification(const ChoreographyEvent& event, EventResult& result) {

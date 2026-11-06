@@ -226,6 +226,23 @@ public:
     /** Se llama en el HILO MEDIDOR: el callback no debe bloquear. */
     using MeasureResultCallback = std::function<void(const MeasureResult&)>;
 
+    /**
+     * Ultima medicion TERMINADA de un punto del guion (no una sonda).
+     *
+     * Existe para la guarda de la compuerta del guion (GateGuard.h): cuando el
+     * evento "iniciar" corre, la rafaga del punto 1 puede estar todavia en
+     * curso. Con esto la guarda sabe si YA termino, cuantas esferas resolvio y
+     * desde cuando vale (doneAtMs), sin tocar el hilo medidor.
+     */
+    struct MeasureOutcome {
+        int punto = 0;          // punto del guion (1..8)
+        int camera = 0;         // 0-based
+        int spheres = 0;        // posiciones resueltas (0 si no resolvio)
+        bool published = false; // se publico por UDP
+        int64_t doneAtMs = 0;   // epoch ms en que el hilo medidor termino el trabajo
+        std::string motivo;     // por que no publico (vacio si publico)
+    };
+
     RankingMeasure();
     ~RankingMeasure();
 
@@ -280,6 +297,12 @@ public:
 
     /** Borra el ranking recordado (arranque de una carrera nueva). */
     void ClearLastRanking();
+
+    /**
+     * Copia thread-safe de la ULTIMA medicion terminada (no sonda).
+     * @return false si todavia no termino ninguna medicion
+     */
+    bool GetLastMeasureOutcome(MeasureOutcome& outcome) const;
 
     /**
      * Crea (idempotente) el anillo de una camara y el buffer de device propio
@@ -553,6 +576,13 @@ private:
     std::vector<int> m_lastRanking;
     int m_lastRankingPunto = 0;
     int64_t m_lastRankingEpochMs = 0;
+
+    // Ultima medicion TERMINADA (no sonda), con su hora de fin. La lee la
+    // guarda de la compuerta del guion; la escribe el hilo medidor en
+    // ReportResult. Mutex propio: no se toma m_lastRankingMutex desde aca.
+    mutable std::mutex m_lastOutcomeMutex;
+    MeasureOutcome m_lastOutcome;
+    bool m_hasLastOutcome = false;
 
     void ReportResult(const MeasureResult& result);
 };

@@ -431,8 +431,19 @@ std::optional<ChoreographyEvent> ChoreographyScript::ParseJsonEvent(const void* 
     }
     else if (typeLower == "esp32command") {
         std::string command = j.value("command", "");
-        Logger::Debug("ChoreographyScript: Parsed ESP32Command(command=" + command + ")");
-        return ChoreographyEvent::ESP32Command(command);
+        // Guarda opcional del "iniciar": la compuerta solo abre si la medicion
+        // del punto dio las esferas exigidas.
+        ESP32CommandParams params(command);
+        params.requireSpheres = j.value("require_spheres", 0);
+        params.spheresPoint = j.value("point", j.value("punto", 0));
+        params.verifyTimeoutMs = j.value("verify_timeout_ms", 0);
+        Logger::Debug("ChoreographyScript: Parsed ESP32Command(command=" + command +
+                      (params.requireSpheres > 0
+                           ? ", require_spheres=" + std::to_string(params.requireSpheres) +
+                                 ", point=" + std::to_string(params.spheresPoint)
+                           : std::string()) +
+                      ")");
+        return ChoreographyEvent(EventType::ESP32Command, params);
     }
     else if (typeLower == "scriptstart") {
         std::string scriptName = j.value("script", j.value("name", ""));
@@ -943,6 +954,18 @@ std::string ChoreographyScript::ToJsonString(const Script& script) {
             eventJson["punto"] = p->punto;
             eventJson["burst_ms"] = p->burstMs;
             eventJson["max_ms"] = p->maxMs;
+        }
+        else if (auto* p = std::get_if<ESP32CommandParams>(&event.params)) {
+            eventJson["command"] = p->command;
+            // La guarda solo se escribe si esta puesta: un guion viejo se
+            // guarda igual que como estaba (sin require_spheres).
+            if (p->requireSpheres > 0) {
+                eventJson["require_spheres"] = p->requireSpheres;
+                eventJson["point"] = p->spheresPoint;
+                if (p->verifyTimeoutMs > 0) {
+                    eventJson["verify_timeout_ms"] = p->verifyTimeoutMs;
+                }
+            }
         }
         
         if (!event.comment.empty()) {
