@@ -470,13 +470,8 @@ bool ControlApi::Start(const ControlApiConfig& config,
                  ", chequeo de pista " + (m_config.armCheckPista ? "ON" : "OFF") +
                  (m_config.armCheckPista && m_config.armSweepVideoHub ? " (con barrido)" : "") +
                  " | el reload, la espera y el lock de arriba son del guion");
-    Logger::Info(std::string("[API] /start = streaming ") +
-                 (m_config.startStreaming
-                      ? (m_config.streamingRequired ? "OBLIGATORIO" : "opcional")
-                      : "desactivado") +
-                 " + coreografia; /abort " +
-                 (m_config.stopStreamingOnAbort ? "corta el streaming que abrimos"
-                                                : "no toca el streaming"));
+    Logger::Info("[API] /start = solo dispara el guion (el streaming lo arranca la "
+                 "coreografia, no la API); /abort detiene el guion y no toca vMix");
     return true;
 }
 
@@ -768,40 +763,10 @@ void ControlApi::HandleStart(int& status, std::string& out) {
     }
 
     // ------------------------------------------------------------------
-    // STREAMING primero: /start es "sale al aire y arranca la carrera". Se
-    // manda StartStreaming a vMix antes que el guion; el primer evento del
-    // guion ya es de vMix, asi que el orden importa.
+    // SOLO el guion: /start dispara la coreografia y NO toca vMix. El
+    // streaming lo abre la propia coreografia (el guion ya lo arranca por su
+    // cuenta), igual que el reload, la espera y el lock de arriba.
     // ------------------------------------------------------------------
-    bool streamingOk = false;
-    const bool streamingPedido = m_config.startStreaming;
-    std::string streamingMotivo;
-    if (!streamingPedido) {
-        streamingMotivo = "streaming desactivado en config (control_api.start_streaming=false)";
-    } else if (!m_pista.vmix) {
-        streamingMotivo = "sin cliente de vMix: no se pudo arrancar el streaming";
-    } else if (m_pista.vmix->SendTcpCommand("FUNCTION StartStreaming")) {
-        streamingOk = true;
-        streamingMotivo = "StartStreaming enviado a vMix";
-        m_streamingStarted = true;
-        Logger::Info("[API] /start: streaming de vMix iniciado");
-    } else {
-        streamingMotivo = "vMix no acepto StartStreaming (revisar TCP 8099 y el estado de vMix)";
-    }
-
-    if (streamingPedido && !streamingOk) {
-        Logger::Warning("[API] /start: " + streamingMotivo);
-        // streaming_required=true: sin stream no hay carrera (mejor no largar
-        // que largar a ciegas). Por defecto false: se avisa y la carrera sigue,
-        // porque el guion y la medicion no dependen de vMix.
-        if (m_config.streamingRequired) {
-            status = 502;
-            out = "{\"ok\":false,\"motivo\":\"el streaming no arranco: " +
-                  JsonEscape(streamingMotivo) + "\",\"streaming\":{\"ok\":false}}";
-            Logger::Error("[API] /start RECHAZADO: " + streamingMotivo +
-                          " (control_api.streaming_required=true)");
-            return;
-        }
-    }
 
     // Equivale al F12: arranca (o reanuda) el guion desde el principio.
     bool started = false;
@@ -819,11 +784,6 @@ void ControlApi::HandleStart(int& status, std::string& out) {
     }
 
     if (!started) {
-        // No hay carrera: no se deja el stream al aire sin carrera detras.
-        if (m_streamingStarted.exchange(false) && m_config.stopStreamingOnAbort && m_pista.vmix) {
-            m_pista.vmix->SendTcpCommand("FUNCTION StopStreaming");
-            Logger::Info("[API] /start fallo: se corto el streaming que se habia abierto");
-        }
         status = 500;
         out = "{\"ok\":false,\"motivo\":\"" + JsonEscape(m_engine->GetLastError()) + "\"}";
         Logger::Error("[API] /start fallo: " + m_engine->GetLastError());
@@ -847,13 +807,10 @@ void ControlApi::HandleStart(int& status, std::string& out) {
 
     status = 200;
     out = "{\"ok\":true,\"t0\":" + std::to_string(t0) +
-          ",\"race_id\":\"" + JsonEscape(raceId) + "\"" +
-          ",\"streaming\":{\"ok\":" + (streamingOk ? "true" : "false") +
-          ",\"enabled\":" + (streamingPedido ? "true" : "false") +
-          ",\"motivo\":\"" + JsonEscape(streamingMotivo) + "\"}}";
+          ",\"race_id\":\"" + JsonEscape(raceId) + "\"}";
     Logger::Info("[API] /start OK race_id=" + raceId + " t0=" + std::to_string(t0) +
-                 ": state=running (streaming=" + (streamingOk ? "si" : "no") +
-                 ", guion encargado del reload y del lock de arriba)");
+                 ": state=running (solo guion: el streaming, el reload y el lock de "
+                 "arriba los maneja la coreografia)");
 }
 
 void ControlApi::HandleAbort(int& status, std::string& out) {
@@ -865,24 +822,14 @@ void ControlApi::HandleAbort(int& status, std::string& out) {
         m_engine->Stop();
     }
 
-    // El streaming lo arranco ESTE /start: se corta con el. Si el stream ya
-    // venia andando (nadie lo pidio por la API) no se toca.
-    bool streamingCortado = false;
-    if (m_streamingStarted.exchange(false) && m_config.stopStreamingOnAbort && m_pista.vmix) {
-        streamingCortado = m_pista.vmix->SendTcpCommand("FUNCTION StopStreaming");
-        Logger::Info(streamingCortado
-                         ? "[API] /abort: streaming de vMix detenido"
-                         : "[API] /abort: no se pudo detener el streaming de vMix");
-    }
-
+    // El streaming NO se toca: lo maneja la coreografia (no lo abrio la API).
     {
         std::lock_guard<std::mutex> lock(m_stateMutex);
         m_state = State::Idle;
         m_t0 = 0;
     }
     status = 200;
-    out = std::string("{\"ok\":true,\"state\":\"idle\",\"streaming\":{\"stopped\":") +
-          (streamingCortado ? "true" : "false") + "}}";
+    out = "{\"ok\":true,\"state\":\"idle\"}";
     Logger::Info("[API] /abort OK: state=idle");
 }
 

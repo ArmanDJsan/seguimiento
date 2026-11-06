@@ -766,10 +766,6 @@ Config LoadConfig(const std::string& path) {
             // Chequeo de pista (ESP32, VideoHub, vMix, DeckLink) antes del lock
             if (ca.contains("arm_check_pista")) config.controlApiConfig.armCheckPista = ca["arm_check_pista"].get<bool>();
             if (ca.contains("arm_sweep_videohub")) config.controlApiConfig.armSweepVideoHub = ca["arm_sweep_videohub"].get<bool>();
-            // /start = streaming + coreografia
-            if (ca.contains("start_streaming")) config.controlApiConfig.startStreaming = ca["start_streaming"].get<bool>();
-            if (ca.contains("streaming_required")) config.controlApiConfig.streamingRequired = ca["streaming_required"].get<bool>();
-            if (ca.contains("stop_streaming_on_abort")) config.controlApiConfig.stopStreamingOnAbort = ca["stop_streaming_on_abort"].get<bool>();
 
             Logger::Info("Control API config: enabled=" +
                         std::string(config.controlApiConfig.enabled ? "true" : "false") +
@@ -788,10 +784,8 @@ Config LoadConfig(const std::string& path) {
                         ", chequeo de pista=" +
                         (config.controlApiConfig.armCheckPista ? "ON" : "OFF") +
                         (config.controlApiConfig.armSweepVideoHub ? "/barrido" : "/sin barrido"));
-            Logger::Info(std::string("Control API /start (streaming + coreografia): streaming=") +
-                        (config.controlApiConfig.startStreaming
-                             ? (config.controlApiConfig.streamingRequired ? "OBLIGATORIO" : "opcional")
-                             : "desactivado"));
+            Logger::Info("Control API /start: solo dispara el guion (sin streaming de la API: "
+                        "lo arranca la coreografia)");
             if (config.controlApiConfig.armMetaCamera2 <= 0) {
                 Logger::Warning("Control API armado: falta la SEGUNDA camara del lock "
                                 "(arm_meta_camera2); el /arm va a responder 409 hasta "
@@ -1605,7 +1599,7 @@ bool RunRunningMode(bool serviceMode = false, bool consoleService = false) {
 
     if (config.controlApiConfig.enabled) {
         // Handles del pipeline para el chequeo de pista del /arm: los mismos
-        // que usa la ignicion, mas vMix (streaming de /start) y los canales de
+        // que usa la ignicion, mas vMix (inputs sanos) y los canales de
         // captura (para exigir que entren cuadros).
         Pista::Fuente fuentePista;
         fuentePista.videoHub = &videoHub;

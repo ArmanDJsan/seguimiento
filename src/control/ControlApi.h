@@ -28,12 +28,13 @@
  *                 Si algo falla responde 409 con "etapa" (pista|meta), el
  *                 detalle y, en la etapa pista, "chequeos":[{id,ok,detalle}].
  *                 Deja state=armed solo si paso TODO (nunca se arma a medias).
- *   POST /start   arranca el STREAMING (vMix StartStreaming) y dispara el guion
- *                 (equivale a F12) si esta armed. El guion se encarga del
- *                 reload, de la espera y del lock de arriba: si la salida no
- *                 tiene las 10, la compuerta NO abre y el guion se detiene.
- *   POST /abort   detiene el guion, corta el streaming que arranco /start y
- *                 vuelve a idle.
+ *   POST /start   dispara el guion (equivale a F12) si esta armed. NO manda
+ *                 nada a vMix: el streaming lo arranca la propia coreografia,
+ *                 igual que el reload, la espera y el lock de arriba. Si la
+ *                 salida no tiene las 10, la compuerta NO abre y el guion se
+ *                 detiene.
+ *   POST /abort   detiene el guion y vuelve a idle. No toca vMix (el streaming
+ *                 es del guion, no de la API).
  *   POST /shutdown (extra) apaga el proceso: en --service no hay teclado.
  *
  * Reglas duras:
@@ -120,16 +121,11 @@ struct ControlApiConfig {
     int armPtzSettleMs = 2000;
 
     // ---------------------------------------------------------------------
-    // /start = streaming + coreografia
+    // /start = solo el guion
     // ---------------------------------------------------------------------
-    // Manda FUNCTION StartStreaming a vMix antes de largar el guion (el guion
-    // ya se encarga del reload, de la espera y del lock de arriba).
-    bool startStreaming = true;
-    // true = si el streaming no arranca, el guion NO se larga (502).
-    // false = se avisa en la respuesta y la carrera sigue igual.
-    bool streamingRequired = false;
-    // /abort corta tambien el streaming que arranco este /start.
-    bool stopStreamingOnAbort = true;
+    // No hay flags de streaming: /start NO manda StartStreaming a vMix. El
+    // streaming lo arranca la coreografia por su cuenta (y /abort no lo corta
+    // porque no es de la API). Si hiciera falta un switch, va en el guion.
 };
 
 class ControlApi {
@@ -330,10 +326,6 @@ private:
     // armando una carrera que ya nadie quiere.
     std::atomic<bool> m_armCancelled{false};
     std::atomic<int64_t> m_shutdownAt{0};
-
-    // El /start arranco el streaming de vMix. /abort lo corta solo si lo
-    // arrancamos nosotros (no se toca un stream que ya venia andando).
-    std::atomic<bool> m_streamingStarted{false};
 
     // Espera del resultado de la sonda de /arm (la entrega el hilo medidor).
     mutable std::mutex m_resultMutex;
