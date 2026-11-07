@@ -175,6 +175,13 @@ struct RankingMeasureConfig {
     // camino caliente). Apagado por defecto: con false no se genera un solo
     // .ass y el comando de ffmpeg es exactamente el de siempre.
     bool drawBoxes = false;
+
+    // Volcado de la INFERENCIA de la carrera: las cajas de cada cuadro, por camara,
+    // guardadas en RAM y escritas a .jsonl al cerrar la carrera. Es el hermano de
+    // saveRace sin video: en RAM ocupa ~300 B por cuadro (12 cajas), no 4,15 MB.
+    // NO toca el camino caliente: en OnDetections solo se copia el vector de cajas
+    // (sin E/S); el archivo lo escribe un hilo aparte en el volcado.
+    bool saveInference = false;
 };
 
 /**
@@ -505,6 +512,20 @@ private:
     // que la marca: la leen los hilos de captura sin tomar m_raceMutex (y una
     // segunda carrera puede reescribirla mientras miran).
     std::atomic<int64_t> m_raceInicioMs{0};
+
+    // ------------------------------------------------------------------------
+    // Volcado de la INFERENCIA (save_inference): las cajas de cada cuadro de la
+    // carrera, por camara, en RAM y a .jsonl al cerrar. NO copia pixeles: son
+    // ~300 B por cuadro contra 4,15 MB del video. Mutex propio (m_infMutex) para
+    // no meter al hilo de captura en la contencion de m_raceMutex.
+    // ------------------------------------------------------------------------
+    std::array<std::deque<MuestraCamara>, kMaxCameras> m_infRace;
+    std::mutex m_infMutex;
+    std::atomic<bool> m_infActiva{false};   // la prende RaceStart, la apaga el volcado
+    size_t m_infMaxFrames = 0;              // tope por camara (race_max_seconds x 30)
+    void InfReset();
+    void InfPush(int camera, const MuestraCamara& muestra);
+    void DumpInference();
 
     // Volcados en curso, compartidos con los hilos de volcado por shared_ptr:
     // asi un hilo de volcado NO toca `this` y no puede quedar apuntando a un

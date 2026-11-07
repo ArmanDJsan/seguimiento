@@ -27,7 +27,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <functional>
+#include <iomanip>
 #include <sstream>
 #include <thread>
 #include <string>
@@ -1329,7 +1331,120 @@ void RankingMeasure::RacePush(int camera, const void* devicePtr, size_t bytes,
     }
 }
 
+// ============================================================================
+// Volcado de la INFERENCIA de la carrera (save_inference)
+//
+//   OnDetections (hilo de captura, por camara)
+//        -> InfPush: copia las cajas del cuadro a un deque de ESA camara
+//                    (~300 B por cuadro; sin E/S, sin pixeles)
+//   DumpInference (al cerrar la carrera)
+//        -> swap de los deques y un hilo aparte escribe un .jsonl por camara
+//
+// El archivo queda al lado de los MP4 y con el mismo sello de tiempo, asi que
+// cada caja se puede cruzar con su cuadro por el campo "t" (epoch ms).
+// ============================================================================
+
+void RankingMeasure::InfReset() {
+    if (!m_config.saveInference) {
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> lock(m_infMutex);
+        for (int cam = 0; cam < kMaxCameras; ++cam) {
+            m_infRace[cam].clear();
+        }
+        // Mismo tope que el anillo de video: si la carrera se pasa, se descartan
+        // los cuadros MAS VIEJOS (nunca se corta el final, que es la llegada).
+        m_infMaxFrames = static_cast<size_t>((std::max)(30, m_config.raceMaxSeconds * 30));
+        m_infActiva.store(true);
+    }
+    Logger::Info("RankingMeasure: inferencia: se guardan las cajas de la carrera (tope " +
+                 std::to_string(m_infMaxFrames) + " cuadros por camara)");
+}
+
+void RankingMeasure::InfPush(int camera, const MuestraCamara& muestra) {
+    // Chequeo sin lock: con save_inference apagado o fuera de carrera esto cuesta
+    // una lectura atomica y no toca nada mas.
+    if (!m_infActiva.load(std::memory_order_relaxed)) {
+        return;
+    }
+    if (camera < 0 || camera >= kMaxCameras) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(m_infMutex);
+    auto& cola = m_infRace[camera];
+    cola.push_back(muestra);      // copia chica: solo el vector de cajas
+    while (cola.size() > m_infMaxFrames) {
+        cola.pop_front();
+    }
+}
+
+void RankingMeasure::DumpInference() {
+    std::array<std::deque<MuestraCamara>, kMaxCameras> copias;
+    {
+        std::lock_guard<std::mutex> lock(m_infMutex);
+        m_infActiva.store(false);
+        for (int cam = 0; cam < kMaxCameras; ++cam) {
+            copias[cam].swap(m_infRace[cam]);   // el deque de la camara queda libre
+        }
+    }
+    bool hay = false;
+    for (int cam = 0; cam < kMaxCameras; ++cam) {
+        if (!copias[cam].empty()) {
+            hay = true;
+        }
+    }
+    if (!hay) {
+        return;   // sin cuadros (o ya volcado): no se escribe nada
+    }
+
+    CreateDirectoryA(m_config.saveDir.c_str(), nullptr);
+    const std::string stamp = ClipStamp();
+    const std::string dir = m_config.saveDir;
+
+    // Se escribe ACA MISMO, no en un hilo aparte: son ~4 MB (5.400 lineas) y este
+    // hilo es el del MEDIDOR, no el de captura ni el de inferencia, asi que no
+    // frena el camino caliente. Escribirlo inline evita el riesgo de que cierren
+    // el programa y el .jsonl quede a medio escribir (el MP4 si necesita hilo
+    // aparte porque son GB).
+    for (int cam = 0; cam < kMaxCameras; ++cam) {
+        if (copias[cam].empty()) {
+            continue;
+        }
+        const std::string path = dir + "\\inferencia_cam" + std::to_string(cam) + "_" + stamp + ".jsonl";
+        std::ofstream f(path, std::ios::binary);
+        if (!f) {
+            Logger::Warning("RankingMeasure: no se pudo abrir " + path + " para la inferencia");
+            continue;
+        }
+        for (const auto& m : copias[cam]) {
+            f << "{\"t\":" << m.epochMs << ",\"cam\":" << cam
+              << ",\"n\":" << m.dets.size() << ",\"dets\":[";
+            for (size_t i = 0; i < m.dets.size(); ++i) {
+                const FrameDetection& d = m.dets[i];
+                if (i) {
+                    f << ',';
+                }
+                f << "{\"cls\":" << d.ballID
+                  << ",\"conf\":" << std::fixed << std::setprecision(4) << d.conf
+                  << ",\"x\":" << std::setprecision(1) << d.x
+                  << ",\"y\":" << d.y
+                  << ",\"w\":" << d.w
+                  << ",\"h\":" << d.h << '}';
+            }
+            f << "]}\n";
+        }
+        f.close();
+        Logger::Info("RankingMeasure: inferencia cam" + std::to_string(cam) + " volcada (" +
+                     std::to_string(copias[cam].size()) + " cuadros) en " + path);
+    }
+}
+
 void RankingMeasure::RaceStart() {
+    // El volcado de cajas no depende del video: se reinicia aunque save_race este
+    // apagado (InfReset sale solo si save_inference esta apagado).
+    InfReset();
+
     if (!m_config.saveRace) {
         return;   // sin save_race no hay anillo reservado ni marca que poner
     }
@@ -1362,6 +1477,12 @@ void RankingMeasure::RaceStart() {
 }
 
 void RankingMeasure::DumpRace() {
+    // Primero las cajas: no dependen del video y no deben perderse si save_race
+    // esta apagado (o si el volcado del MP4 falla).
+    if (m_config.saveInference) {
+        DumpInference();
+    }
+
     if (!m_config.saveRace) {
         return;   // nunca se grabo nada: no hay anillo que volcar
     }
@@ -1786,6 +1907,14 @@ void RankingMeasure::OnDetections(int camera, int64_t epochMs,
     }
 
     if (dets.empty()) {
+        // El cuadro entra igual al volcado de inferencia, con n=0: es la unica
+        // forma de saber cuantos cuadros vio el pipeline y cuales salieron sin
+        // deteccion. Cuesta un push de un vector vacio.
+        if (m_config.saveInference) {
+            MuestraCamara vacia;
+            vacia.epochMs = epochMs;
+            InfPush(camera, vacia);
+        }
         return;
     }
 
@@ -1837,6 +1966,11 @@ void RankingMeasure::OnDetections(int camera, int64_t epochMs,
         d.conf = det.confidence;
         muestra.dets.push_back(d);
     }
+
+    // Volcado de inferencia: copia las cajas de este cuadro al anillo de la
+    // carrera (unos 300 B, sin E/S). Va ANTES del move para no quedarse con la
+    // muestra vacia. Con save_inference apagado cuesta una lectura atomica.
+    InfPush(camera, muestra);
 
     std::lock_guard<std::mutex> lock(m_historiaMutex);
     auto& cola = m_historia[camera];
