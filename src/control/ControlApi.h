@@ -113,6 +113,12 @@ struct ControlApiConfig {
     // habia que recompilar porque el 10 estaba fijo en ControlApi.cpp.
     int armMetaSpheres = 0;
 
+    // false = /arm NO verifica esferas: se saltea el lock META entero (ni mueve
+    // las PTZ a sus presets ni mide). Es para grabar cuando el detector no separa
+    // una esfera en ese encuadre y el armado se rechaza siempre.
+    // true (por defecto) = comportamiento de siempre.
+    bool armMetaLock = true;
+
     // Chequeo de pista antes del lock: ESP32 (/status), barrido del VideoHub
     // (Streaming 1-12 y Seguimiento 13-16), vMix (inputs sanos) y DeckLink
     // (los canales de captura entran cuadros). Es el mismo chequeo de la

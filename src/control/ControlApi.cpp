@@ -698,20 +698,28 @@ void ControlApi::HandleArm(const std::string& requestBody, int& status, std::str
     // ------------------------------------------------------------------
     // ETAPA 2: lock META (dos camaras, AND). Las 10 tienen que estar abajo,
     // en la llegada, antes de que el guion las haga subir.
+    // control_api.arm_meta_lock=false lo saltea entero: /arm arma sin mirar
+    // esferas (para grabar cuando el detector no separa una esfera).
     // ------------------------------------------------------------------
-    const std::vector<ArmLock::CameraSpec> metaCams = {
-        {metaCamera, m_config.armMetaPreset},
-        {metaCamera2, m_config.armMetaPreset2},
-    };
+    int metaSpheres = 0;
     ArmLock::Verdict metaVerdict;
-    RunArmLock("META", metaCams, m_config.armMetaBurstMs, m_config.armMetaMaxMs, metaVerdict);
-    if (!metaVerdict.ok) {
-        ArmFail(status, out, "meta", metaVerdict.failingSpheres, metaVerdict.motivo,
-                metaVerdict.failingCamera, ArmCamerasJson(metaVerdict.readings));
-        return;
+    if (!m_config.armMetaLock) {
+        Logger::Warning("[API] /arm: lock META DESACTIVADO por config "
+                        "(control_api.arm_meta_lock=false): se arma sin verificar esferas");
+    } else {
+        const std::vector<ArmLock::CameraSpec> metaCams = {
+            {metaCamera, m_config.armMetaPreset},
+            {metaCamera2, m_config.armMetaPreset2},
+        };
+        RunArmLock("META", metaCams, m_config.armMetaBurstMs, m_config.armMetaMaxMs, metaVerdict);
+        if (!metaVerdict.ok) {
+            ArmFail(status, out, "meta", metaVerdict.failingSpheres, metaVerdict.motivo,
+                    metaVerdict.failingCamera, ArmCamerasJson(metaVerdict.readings));
+            return;
+        }
+        metaSpheres = metaVerdict.readings.front().spheres;
+        Logger::Info("[API] /arm META OK (AND de dos camaras): " + metaVerdict.detalle);
     }
-    const int metaSpheres = metaVerdict.readings.front().spheres;
-    Logger::Info("[API] /arm META OK (AND de dos camaras): " + metaVerdict.detalle);
 
     // Pista lista + 10 abajo: recien aca el estado pasa a armed. El reload, la
     // espera y el lock de arriba son del guion (/start), no del armado.

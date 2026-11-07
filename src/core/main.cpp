@@ -764,6 +764,7 @@ Config LoadConfig(const std::string& path) {
             if (ca.contains("arm_meta_camera2")) config.controlApiConfig.armMetaCamera2 = ca["arm_meta_camera2"].get<int>();
             if (ca.contains("arm_meta_preset2")) config.controlApiConfig.armMetaPreset2 = ca["arm_meta_preset2"].get<int>();
             if (ca.contains("arm_meta_spheres")) config.controlApiConfig.armMetaSpheres = ca["arm_meta_spheres"].get<int>();
+            if (ca.contains("arm_meta_lock")) config.controlApiConfig.armMetaLock = ca["arm_meta_lock"].get<bool>();
             if (ca.contains("arm_ptz_settle_ms")) config.controlApiConfig.armPtzSettleMs = ca["arm_ptz_settle_ms"].get<int>();
             // Chequeo de pista (ESP32, VideoHub, vMix, DeckLink) antes del lock
             if (ca.contains("arm_check_pista")) config.controlApiConfig.armCheckPista = ca["arm_check_pista"].get<bool>();
