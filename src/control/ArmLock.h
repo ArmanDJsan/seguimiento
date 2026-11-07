@@ -65,7 +65,7 @@ struct Verdict {
  */
 template <typename MoveFn, typename ProbeFn>
 Verdict Run(const std::vector<CameraSpec>& cameras, int target,
-            MoveFn&& moveFn, ProbeFn&& probeFn) {
+            MoveFn&& moveFn, ProbeFn&& probeFn, bool atLeast = false) {
     Verdict verdict;
 
     if (cameras.empty()) {
@@ -120,7 +120,12 @@ Verdict Run(const std::vector<CameraSpec>& cameras, int target,
     }
     if (!bad) {
         for (const auto& reading : verdict.readings) {
-            if (reading.spheres != target) {
+            // atLeast: la clave de config arm_meta_spheres es un PISO (>=), para
+            // cuando el detector no separa una esfera en ese encuadre. Sin la
+            // clave se mantiene el comportamiento de siempre: exactamente 10.
+            const bool cumple = atLeast ? (reading.spheres >= target)
+                                        : (reading.spheres == target);
+            if (!cumple) {
                 bad = &reading;
                 break;
             }
@@ -130,7 +135,8 @@ Verdict Run(const std::vector<CameraSpec>& cameras, int target,
     if (!bad) {
         verdict.ok = true;
         verdict.motivo = "las " + std::to_string(verdict.readings.size()) +
-                         " camaras del lock midieron " + std::to_string(target) +
+                         (atLeast ? " camaras del lock midieron al menos " : " camaras del lock midieron ") +
+                         std::to_string(target) +
                          " (" + verdict.detalle + ")";
         return verdict;
     }
@@ -142,7 +148,7 @@ Verdict Run(const std::vector<CameraSpec>& cameras, int target,
                          ": " + (bad->motivo.empty() ? std::string("sin resultado") : bad->motivo) +
                          " (" + verdict.detalle + ")";
     } else {
-        verdict.motivo = "se exigen " + std::to_string(target) +
+        verdict.motivo = (atLeast ? "se exigen al menos " : "se exigen ") + std::to_string(target) +
                          " esferas en las DOS camaras (AND) y la camara " +
                          std::to_string(bad->camera) + " midio " +
                          std::to_string(bad->spheres) + " (" + verdict.detalle + ")";

@@ -955,11 +955,13 @@ void ControlApi::RunArmLock(const char* etapa,
     };
 
     // Esferas exigidas por camara: control_api.arm_meta_spheres, o las 10 del
-    // medidor si no esta configurado.
+    // medidor si no esta configurado. Con la clave puesta el lock pasa a ser un
+    // PISO (>=) en vez de exigir el numero exacto: es para cuando el detector no
+    // separa una esfera en ese encuadre y el armado se rechazaba sin salida.
     const int armSpheres = (m_config.armMetaSpheres > 0)
                                ? m_config.armMetaSpheres
                                : Measure::RankingMeasure::kTargetSpheres;
-    verdict = ArmLock::Run(cameras, armSpheres, move, probe);
+    verdict = ArmLock::Run(cameras, armSpheres, move, probe, m_config.armMetaSpheres > 0);
 
     if (!verdict.ok) {
         Logger::Warning(std::string("[API] /arm lock ") + etapa + " rechazado (cam " +
