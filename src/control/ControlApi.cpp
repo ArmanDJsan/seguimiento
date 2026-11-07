@@ -667,13 +667,21 @@ void ControlApi::HandleArm(const std::string& requestBody, int& status, std::str
     // ------------------------------------------------------------------
     int guardPunto = 0;
     int guardEsferas = 0;
-    if (!m_engine->HasGateGuard(guardPunto, guardEsferas)) {
+    const bool tieneGuarda = m_engine->HasGateGuard(guardPunto, guardEsferas);
+    // Con control_api.arm_meta_lock=false el operador apago la verificacion de
+    // esferas: no tiene sentido exigirle al guion que traiga la guarda (el /arm
+    // arma igual y la compuerta la abre el guion como venga).
+    if (!tieneGuarda && m_config.armMetaLock) {
         ArmFail(status, out, "pista", 0,
                 "el guion no verifica la salida antes de abrir la compuerta: el evento "
                 "ESP32Command \"iniciar\" no trae require_spheres. Agregar "
                 "\"require_spheres\": 10 y \"point\": 1 al iniciar (ver "
                 "config/choreography/medicion_tlms.json)");
         return;
+    }
+    if (!tieneGuarda) {
+        Logger::Warning("[API] /arm: el guion no trae guarda de compuerta, pero "
+                        "arm_meta_lock=false: se arma igual");
     }
 
     // ------------------------------------------------------------------
