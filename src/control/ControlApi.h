@@ -100,11 +100,18 @@ struct ControlApiConfig {
 
     // Segunda camara del lock META. El lock exige las DOS (AND): cada una se
     // encuadra en su preset, se espera el asentamiento y cada una tiene que
-    // medir 10. 0 = no declarada -> /arm responde 409 en la etapa meta con el
-    // nombre de esta clave: una segunda camara inventada daria un 10 (o un
-    // fallo) que no significa nada. Tiene que ser OTRA camara que la primaria.
+    // medir las esferas exigidas. 0 = no declarada -> /arm responde 409 en la
+    // etapa meta con el nombre de esta clave: una segunda camara inventada daria
+    // un 10 (o un fallo) que no significa nada. Tiene que ser OTRA camara que la
+    // primaria.
     int armMetaCamera2 = 0;
     int armMetaPreset2 = 0;      // 0 = no mover la segunda camara
+
+    // Esferas que exige el lock META en CADA camara (AND). 0 = las 10 de
+    // ranking_measure (kTargetSpheres). Se baja cuando el detector no separa una
+    // esfera en ese encuadre (p. ej. dos pegadas en la fila del tablero): antes
+    // habia que recompilar porque el 10 estaba fijo en ControlApi.cpp.
+    int armMetaSpheres = 0;
 
     // Chequeo de pista antes del lock: ESP32 (/status), barrido del VideoHub
     // (Streaming 1-12 y Seguimiento 13-16), vMix (inputs sanos) y DeckLink

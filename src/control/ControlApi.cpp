@@ -954,7 +954,12 @@ void ControlApi::RunArmLock(const char* etapa,
         return DoArmProbe(camera, burstMs, maxMs, spheres, motivo);
     };
 
-    verdict = ArmLock::Run(cameras, Measure::RankingMeasure::kTargetSpheres, move, probe);
+    // Esferas exigidas por camara: control_api.arm_meta_spheres, o las 10 del
+    // medidor si no esta configurado.
+    const int armSpheres = (m_config.armMetaSpheres > 0)
+                               ? m_config.armMetaSpheres
+                               : Measure::RankingMeasure::kTargetSpheres;
+    verdict = ArmLock::Run(cameras, armSpheres, move, probe);
 
     if (!verdict.ok) {
         Logger::Warning(std::string("[API] /arm lock ") + etapa + " rechazado (cam " +

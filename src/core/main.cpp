@@ -763,6 +763,7 @@ Config LoadConfig(const std::string& path) {
             if (ca.contains("arm_meta_max_ms")) config.controlApiConfig.armMetaMaxMs = ca["arm_meta_max_ms"].get<int>();
             if (ca.contains("arm_meta_camera2")) config.controlApiConfig.armMetaCamera2 = ca["arm_meta_camera2"].get<int>();
             if (ca.contains("arm_meta_preset2")) config.controlApiConfig.armMetaPreset2 = ca["arm_meta_preset2"].get<int>();
+            if (ca.contains("arm_meta_spheres")) config.controlApiConfig.armMetaSpheres = ca["arm_meta_spheres"].get<int>();
             if (ca.contains("arm_ptz_settle_ms")) config.controlApiConfig.armPtzSettleMs = ca["arm_ptz_settle_ms"].get<int>();
             // Chequeo de pista (ESP32, VideoHub, vMix, DeckLink) antes del lock
             if (ca.contains("arm_check_pista")) config.controlApiConfig.armCheckPista = ca["arm_check_pista"].get<bool>();
@@ -784,7 +785,11 @@ Config LoadConfig(const std::string& path) {
                         std::to_string(config.controlApiConfig.armPtzSettleMs) + " ms)" +
                         ", chequeo de pista=" +
                         (config.controlApiConfig.armCheckPista ? "ON" : "OFF") +
-                        (config.controlApiConfig.armSweepVideoHub ? "/barrido" : "/sin barrido"));
+                        (config.controlApiConfig.armSweepVideoHub ? "/barrido" : "/sin barrido") +
+                        ", esferas por camara=" +
+                        (config.controlApiConfig.armMetaSpheres > 0
+                             ? std::to_string(config.controlApiConfig.armMetaSpheres)
+                             : std::string("10 (por defecto)")));
             Logger::Info("Control API /start: solo dispara el guion (sin streaming de la API: "
                         "lo arranca la coreografia)");
             if (config.controlApiConfig.armMetaCamera2 <= 0) {
