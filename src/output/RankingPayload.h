@@ -54,11 +54,14 @@ struct RankingState {
 
     /**
      * Absorbe el ranking del tracker (ballIDs en orden, 1er lugar primero).
-     * Las canicas ausentes conservan su puesto anterior.
+     * Se reconstruye SIEMPRE desde cero: la canica que no aparece en esta
+     * medicion queda en puesto 0 ("indeterminado" en Touch). Antes se arrastraba
+     * el puesto anterior y eso generaba puestos repetidos en el mismo paquete
+     * (medido 8-nov-2026: puesto 6 dos veces), que el receptor no puede dibujar.
      * @return true si el mapa de puestos cambio respecto de lo ultimo emitido.
      */
     bool Update(const std::vector<int>& ranking) {
-        std::array<int, kMaxBalls + 1> next = lastPuesto;
+        std::array<int, kMaxBalls + 1> next{};
 
         for (size_t i = 0; i < ranking.size(); ++i) {
             const int id = ranking[i];
