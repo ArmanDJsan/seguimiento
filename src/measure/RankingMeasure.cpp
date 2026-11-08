@@ -1801,20 +1801,25 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
         Logger::Info(oss.str());
     }
 
-    // La salida exige EXACTAMENTE las 10 esferas. Con menos el array esta
-    // incompleto; con MAS (identidades de sobra acumuladas entre los cuadros de
-    // la rafaga) se publican puestos que no existen: medido 3-nov-2026, 13
-    // posiciones -> {"id":0,"puesto":11}. El receptor dibuja puestos 1..10.
-    if (static_cast<int>(posiciones.size()) != kTargetSpheres) {
+    // Se publica lo que REALMENTE se observa: si faltan esferas, esas canicas van
+    // con puesto 0, que el receptor dibuja como "indeterminado" (asi la llegada se
+    // ve aunque falte una). Lo que NO se publica es con MAS de 10: identidades de
+    // sobra entre los cuadros de la rafaga producen puestos que no existen
+    // (medido 3-nov-2026: 13 posiciones -> {"id":0,"puesto":11}).
+    if (static_cast<int>(posiciones.size()) > kTargetSpheres || posiciones.empty()) {
         Logger::Warning("RankingMeasure: punto=" + std::to_string(job.punto) +
                         " resuelto con " + std::to_string(posiciones.size()) +
-                        " posiciones y se exigen " + std::to_string(kTargetSpheres) +
-                        " exactas, no se publica");
+                        " posiciones (se publican hasta " + std::to_string(kTargetSpheres) +
+                        " y al menos 1), no se publica");
         m_droppedCount++;
-        result.motivo = std::to_string(posiciones.size()) + " esferas resueltas y se exigen " +
-                        std::to_string(kTargetSpheres);
+        result.motivo = std::to_string(posiciones.size()) + " esferas resueltas";
         ReportResult(result);
         return;
+    }
+    if (static_cast<int>(posiciones.size()) < kTargetSpheres) {
+        Logger::Info("RankingMeasure: punto=" + std::to_string(job.punto) + " se publica incompleto: " +
+                     std::to_string(posiciones.size()) + " de " + std::to_string(kTargetSpheres) +
+                     " (las que faltan van con puesto 0)");
     }
 
     // Una sonda de la API de control (/arm) NO publica: solo verifica.
