@@ -429,8 +429,21 @@ private:
     void ProcessJob(const MeasureJob& job);
 
 
-    bool ResolvePositions(std::vector<FrameSample>& samples,
+    bool ResolvePositions(int camera, std::vector<FrameSample>& samples,
                           std::vector<int>& posiciones, int64_t& resolvedEpochMs);
+
+    // Direccion de avance sobre la pista, leida de env_calibracion
+    // (CAMx_TRACK_VECTOR[_a_b]). El orden de llegada se calcula proyectando cada
+    // esfera sobre esa direccion: hay tramos donde el avance es en y, o en x
+    // decreciente, y ordenar por x los invierte.
+    struct VectorTramo {
+        int desde = 0, hasta = 1000;
+        double x0 = 0.0, y0 = 0.0, dx = 1.0, dy = 0.0;
+        bool ok = false;
+    };
+    void LoadTrackVectors();
+    VectorTramo VectorDe(int camera, int64_t epochMs) const;
+    std::vector<VectorTramo> m_vectores[4];
     void MatchFrameByMotion(FrameSample& sample);
     static int ArgMaxClass(const SphereTrack& track);
     static int MaxDetections(const std::vector<FrameSample>& samples);

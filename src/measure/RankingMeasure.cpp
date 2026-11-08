@@ -252,6 +252,8 @@ bool RankingMeasure::Initialize(const RankingPublisherConfig& pubConfig,
 
     // 0. Defaults de medicion (el evento puede pisarlos con burst_ms/max_ms)
     m_config = measureConfig;
+    // Direccion de avance de cada tramo (para ordenar por avance, no por x).
+    LoadTrackVectors();
     (void)inferenceConfig;   // ya no hay motor propio: el pipeline infiere
 
     // save_race: el tope de RAM por camara no puede quedar en 0 (dejaria el
@@ -1773,7 +1775,7 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
 
     std::vector<int> posiciones;
     int64_t resolvedEpochMs = 0;
-    if (!ResolvePositions(samples, posiciones, resolvedEpochMs)) {
+    if (!ResolvePositions(job.camera, samples, posiciones, resolvedEpochMs)) {
         Logger::Warning("RankingMeasure: punto=" + std::to_string(job.punto) +
                         " sin detecciones en la rafaga, se descarta");
         m_droppedCount++;
@@ -2003,7 +2005,84 @@ void RankingMeasure::SnapshotHistory(int camera, int64_t fromMs, int64_t toMs,
     }
 }
 
-bool RankingMeasure::ResolvePositions(std::vector<FrameSample>& samples,
+// ---------------------------------------------------------------------------
+// Direccion de avance por tramo, leida de env_calibracion.
+// Formato: CAM1_TRACK_VECTOR_44_59=0.996,0.572;0.016,0.418
+// El primer punto es donde entra el grupo y el ultimo donde termina el tramo:
+// la direccion va del primero al ultimo, y "mas adelante" = mayor proyeccion.
+// ---------------------------------------------------------------------------
+void RankingMeasure::LoadTrackVectors() {
+    for (auto& v : m_vectores) v.clear();
+    const char* candidatos[] = { "C:\\vs\\env_calibracion", "env_calibracion", "..\\env_calibracion" };
+    std::ifstream f;
+    std::string usada;
+    for (const char* c : candidatos) {
+        f.open(c);
+        if (f.is_open()) { usada = c; break; }
+    }
+    if (!f.is_open()) {
+        Logger::Warning("RankingMeasure: no encontre env_calibracion; el orden sigue por x");
+        return;
+    }
+    int cargados = 0;
+    std::string line;
+    while (std::getline(f, line)) {
+        const size_t eq = line.find('=');
+        if (eq == std::string::npos) continue;
+        const std::string key = line.substr(0, eq);
+        const std::string val = line.substr(eq + 1);
+        if (key.find("TRACK_VECTOR") == std::string::npos) continue;
+        int cam = 0, a = 0, b = 1000;
+        if (sscanf(key.c_str(), "CAM%d_TRACK_VECTOR_%d_%d", &cam, &a, &b) != 3) {
+            if (sscanf(key.c_str(), "CAM%d_TRACK_VECTOR", &cam) != 1) continue;
+            a = 0; b = 1000;
+        }
+        if (cam < 1 || cam > 4) continue;
+        std::vector<std::pair<double, double>> pts;
+        size_t i = 0;
+        while (i < val.size()) {
+            const size_t sc = val.find(';', i);
+            const std::string trozo = val.substr(i, sc == std::string::npos ? std::string::npos : sc - i);
+            double px = 0.0, py = 0.0;
+            if (sscanf(trozo.c_str(), "%lf,%lf", &px, &py) == 2) pts.push_back({px, py});
+            if (sc == std::string::npos) break;
+            i = sc + 1;
+        }
+        if (pts.size() < 2) continue;
+        VectorTramo t;
+        t.desde = a;
+        t.hasta = b;
+        t.x0 = pts.front().first;
+        t.y0 = pts.front().second;
+        const double dx = pts.back().first - pts.front().first;
+        const double dy = pts.back().second - pts.front().second;
+        const double norma = std::sqrt(dx * dx + dy * dy);
+        if (norma < 1e-6) continue;
+        t.dx = dx / norma;
+        t.dy = dy / norma;
+        t.ok = true;
+        m_vectores[cam - 1].push_back(t);
+        ++cargados;
+    }
+    Logger::Info("RankingMeasure: " + std::to_string(cargados) +
+                 " vectores de pista cargados de " + usada);
+}
+
+RankingMeasure::VectorTramo RankingMeasure::VectorDe(int camera, int64_t epochMs) const {
+    VectorTramo vacio;
+    if (camera < 0 || camera >= 4) return vacio;
+    const auto& v = m_vectores[camera];
+    if (v.empty()) return vacio;
+    const int64_t ini = m_raceInicioMs.load();
+    if (ini <= 0) return vacio;
+    const double sec = static_cast<double>(epochMs - ini) / 1000.0;
+    for (const auto& t : v) {
+        if (sec >= t.desde && sec < t.hasta) return t;
+    }
+    return vacio;
+}
+
+bool RankingMeasure::ResolvePositions(int camera, std::vector<FrameSample>& samples,
                                       std::vector<int>& posiciones,
                                       int64_t& resolvedEpochMs) {
     posiciones.clear();
@@ -2061,12 +2140,19 @@ bool RankingMeasure::ResolvePositions(std::vector<FrameSample>& samples,
     std::vector<int> vecesX(n, 0);
 
     for (const auto& sample : samples) {
+        // Avance sobre la pista (no x): el vector de cada tramo dice para donde
+        // va el grupo. Sin calibracion cae a x, como antes.
+        const VectorTramo tv = VectorDe(camera, sample.epochMs);
         std::vector<std::pair<int, float>> presentes;
         presentes.reserve(sample.dets.size());
         for (size_t d = 0; d < sample.dets.size(); ++d) {
             const int p = posDeId(sample.trackOf[d]);
             if (p >= 0) {
-                presentes.push_back({p, sample.dets[d].x});
+                const double avance = tv.ok
+                    ? ((sample.dets[d].x / 1920.0) - tv.x0) * tv.dx +
+                      ((sample.dets[d].y / 1080.0) - tv.y0) * tv.dy
+                    : sample.dets[d].x;
+                presentes.push_back({p, static_cast<float>(avance)});
             }
         }
         for (size_t i = 0; i < presentes.size(); ++i) {
