@@ -27,9 +27,13 @@
 
 namespace ranking {
 
-// ballID del tracker (1..10) -> id de TouchDesigner (10 -> 0, resto igual)
+// ballID del tracker (1..10) -> id de TouchDesigner.
+// En TouchDesigner el id 0 significa "puesto indeterminado" (no deja de marcar
+// cuando llegan menos canicas), asi que NINGUNA canica real puede ir con id 0.
+// El id de TouchDesigner es el numero de canica: 1..10, y el ballID 1 (bola_0 del
+// modelo) es la canica 10.
 inline int MapBallIdToTd(int ballId) {
-    return ballId == 10 ? 0 : ballId;
+    return ballId == 1 ? 10 : ballId - 1;
 }
 
 /**
@@ -76,10 +80,10 @@ struct RankingState {
         std::ostringstream oss;
         oss << "{\"type\":\"ranking\",\"seq\":" << seq << ",\"canicas\":[";
 
-        // Orden por id de TouchDesigner: 0 (ballID 10), luego 1..9.
+        // ids de TouchDesigner 1..10 (0 esta reservado para "indeterminado").
         bool first = true;
-        for (int tdId = 0; tdId <= kMaxBalls - 1; ++tdId) {
-            const int ballId = (tdId == 0) ? 10 : tdId;
+        for (int tdId = 1; tdId <= kMaxBalls; ++tdId) {
+            const int ballId = (tdId == 10) ? 1 : tdId + 1;
             if (!first) {
                 oss << ",";
             }

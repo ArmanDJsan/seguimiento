@@ -64,9 +64,9 @@ int main() {
 
     // Caso 4: mapeo de ids
     {
-        check("MapBallIdToTd(10) == 0", ranking::MapBallIdToTd(10) == 0);
-        check("MapBallIdToTd(1) == 1", ranking::MapBallIdToTd(1) == 1);
-        check("MapBallIdToTd(9) == 9", ranking::MapBallIdToTd(9) == 9);
+        check("MapBallIdToTd(1) == 10 (bola_0 es la canica 10)", ranking::MapBallIdToTd(1) == 10);
+        check("MapBallIdToTd(2) == 1", ranking::MapBallIdToTd(2) == 1);
+        check("MapBallIdToTd(10) == 9", ranking::MapBallIdToTd(10) == 9);
     }
 
     // Caso 5: una emision por punto de medicion (6 MeasurePoint de la coreografia)
