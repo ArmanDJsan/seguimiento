@@ -2032,19 +2032,29 @@ void RankingMeasure::LoadTrackVectors() {
         const std::string key = line.substr(0, eq);
         const std::string val = line.substr(eq + 1);
         if (key.find("TRACK_VECTOR") == std::string::npos) continue;
-        int cam = 0, a = 0, b = 1000;
-        if (sscanf(key.c_str(), "CAM%d_TRACK_VECTOR_%d_%d", &cam, &a, &b) != 3) {
-            if (sscanf(key.c_str(), "CAM%d_TRACK_VECTOR", &cam) != 1) continue;
-            a = 0; b = 1000;
-        }
+        if (key.rfind("CAM", 0) != 0) continue;
+        const int cam = std::atoi(key.c_str() + 3);
         if (cam < 1 || cam > 4) continue;
+        int a = 0, b = 1000;
+        const size_t tv = key.find("TRACK_VECTOR");
+        const std::string resto = key.substr(tv + 12);   // "_44_59" o vacio
+        if (!resto.empty() && resto[0] == '_') {
+            const size_t us = resto.find('_', 1);
+            if (us != std::string::npos) {
+                a = std::atoi(resto.c_str() + 1);
+                b = std::atoi(resto.c_str() + us + 1);
+            }
+        }
         std::vector<std::pair<double, double>> pts;
         size_t i = 0;
         while (i < val.size()) {
             const size_t sc = val.find(';', i);
             const std::string trozo = val.substr(i, sc == std::string::npos ? std::string::npos : sc - i);
-            double px = 0.0, py = 0.0;
-            if (sscanf(trozo.c_str(), "%lf,%lf", &px, &py) == 2) pts.push_back({px, py});
+            const size_t coma = trozo.find(',');
+            if (coma != std::string::npos) {
+                pts.push_back({std::atof(trozo.substr(0, coma).c_str()),
+                               std::atof(trozo.substr(coma + 1).c_str())});
+            }
             if (sc == std::string::npos) break;
             i = sc + 1;
         }
