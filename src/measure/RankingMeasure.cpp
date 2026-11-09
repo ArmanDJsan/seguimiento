@@ -1828,6 +1828,17 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
     }
     result.maxDetections = MaxDetections(samples);
 
+    // Diagnostico: cuantos cuadros y cajas llegaron al medidor para este punto.
+    {
+        size_t cajasTotal = 0;
+        for (const auto& f : samples) cajasTotal += f.dets.size();
+        Logger::Info("RankingMeasure: punto=" + std::to_string(job.punto) +
+                     " camara=" + std::to_string(job.camera) +
+                     " muestras=" + std::to_string(samples.size()) +
+                     " cajas=" + std::to_string(cajasTotal) +
+                     " maxDet=" + std::to_string(result.maxDetections));
+    }
+
     std::vector<int> posiciones;
     int64_t resolvedEpochMs = 0;
     if (!ResolvePositions(job.camera, samples, posiciones, resolvedEpochMs)) {
