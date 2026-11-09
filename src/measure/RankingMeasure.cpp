@@ -2171,12 +2171,11 @@ void RankingMeasure::ConsolidarLlegada(int64_t epochMs) {
         elegido = a.empty() ? b : a;
         nota = "solo una camara";
     } else {
-        std::vector<int> br = b;
-        std::reverse(br.begin(), br.end());
+        // NO se invierte ninguna camara: cada una publica en su propio sentido.
+        // La 1 y la 2 miran desde lados distintos; invertir a ciegas elegia mal.
         const int cb = coinciden(a, b);
-        const int cr = coinciden(a, br);
-        if (cr > cb) { b = br; nota = "camara 2 invertida"; }
-        const int c = (cb > cr) ? cb : cr;
+        const int cr = 0;
+        const int c = cb;
         const size_t nMenor = (a.size() < b.size()) ? a.size() : b.size();
         Logger::Info("RankingMeasure: finalizar, coinciden " + std::to_string(c) + " de " +
                      std::to_string(nMenor) + " posiciones" +
