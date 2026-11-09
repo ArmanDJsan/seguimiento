@@ -2466,7 +2466,12 @@ bool RankingMeasure::ResolvePositions(int camera, std::vector<FrameSample>& samp
     std::vector<size_t> idx;
     idx.reserve(m_tracks.size());
     for (size_t i = 0; i < m_tracks.size(); ++i) {
-        if (m_tracks[i].frames >= minimoFrames) {
+        // Continuidad: la pista no puede tener huecos grandes. Si entre su primera y
+        // ultima aparicion hay mas de 40 ms por cuadro detectado, es una deteccion
+        // intermitente (fantasma), no una esfera.
+        const int64_t spanMs = m_tracks[i].lastMs - m_tracks[i].firstMs;
+        const bool continua = spanMs <= static_cast<int64_t>(m_tracks[i].frames) * 40;
+        if (m_tracks[i].frames >= minimoFrames && continua) {
             idx.push_back(i);
         }
     }
@@ -2620,6 +2625,8 @@ void RankingMeasure::MatchFrameByMotion(FrameSample& sample) {
         if (best == m_tracks.size()) {
             SphereTrack nuevo;
             nuevo.id = m_nextTrackId++;
+            nuevo.firstMs = sample.epochMs;
+            nuevo.lastMs = sample.epochMs;
             m_tracks.push_back(nuevo);
             usado.push_back(true);
             best = m_tracks.size() - 1;
@@ -2635,6 +2642,7 @@ void RankingMeasure::MatchFrameByMotion(FrameSample& sample) {
         track.lastW = det.w;
         track.lastH = det.h;
         track.frames += 1;
+        track.lastMs = sample.epochMs;
         if (det.ballID >= 0 && det.ballID < kTargetSpheres) {
             track.votes[det.ballID] += 1;
             track.confSum[det.ballID] += det.conf;
