@@ -1735,13 +1735,50 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
         ~ClipGuard() { if (self) self->ClipStop(camara); }
     } clipGuard{this, job.camera};
 
-    // 1. Esperar a que cierre la ventana. Mientras tanto el pipeline sigue
-    //    detectando y OnDetections junta las muestras de esta camara.
-    while (!m_stopRequested.load() && NowEpochMs() < burstEnd) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    // 1. VENTANA POR EVENTO OBSERVADO.
+    //    No se mide "desde el reloj y durante X": se espera el evento que marca el
+    //    inicio (>=3 esferas en ROI para los puntos intermedios, las 10 para la
+    //    llegada), y se cierra cuando el fenomeno termina (el pasaje sale del
+    //    cuadro / el tablero queda quieto) o al vencer el plazo, lo primero.
+    const bool esLlegada = (job.punto == 8);
+    const int minDetsArranque = esLlegada ? kTargetSpheres : 3;
+    const int64_t plazoMs = job.burstMs;      // 2 s intermedios · 20 s llegada
+    const int64_t topeAbs = t0 + job.maxMs;   // techo duro por si el evento no llega
+
+    int64_t inicioEvento = 0;
+    while (!m_stopRequested.load() && NowEpochMs() < topeAbs) {
+        std::vector<FrameSample> ult;
+        SnapshotHistory(job.camera, NowEpochMs() - 600, NowEpochMs(), ult);
+        if (!ult.empty() && static_cast<int>(ult.back().dets.size()) >= minDetsArranque) {
+            inicioEvento = ult.back().epochMs;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    if (inicioEvento == 0) {
+        inicioEvento = t0;   // no hubo evento: se comporta como antes
     }
 
-    // La ventana ya vencio: si la camara no mando ni un cuadro, no hay que
+    // Cierre: el pasaje termina (ultimo cuadro sin esferas) o el tablero se queda
+    // quieto; en ambos casos tambien vence el plazo.
+    const int64_t cierreTope = inicioEvento + plazoMs;
+    while (!m_stopRequested.load() && NowEpochMs() < cierreTope) {
+        std::vector<FrameSample> ult;
+        SnapshotHistory(job.camera, NowEpochMs() - 1800, NowEpochMs(), ult);
+        if (ult.empty()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            continue;
+        }
+        if (!esLlegada) {
+            if (ult.back().dets.empty()) break;          // el pasaje ya salio del cuadro
+        } else {
+            if (EstableQuieto(ult, 30, 2.0)) break;      // 1 s con las 10 en el mismo lugar
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    const int64_t ventanaFin = std::min(NowEpochMs(), cierreTope);
+
+    // La ventana ya cerro: si la camara no mando ni un cuadro, no hay que
     // dejar la marca puesta (abriria el clip de un punto posterior).
     {
         std::lock_guard<std::mutex> lock(m_clipMutex);
@@ -1750,13 +1787,11 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
         }
     }
 
-    // 2. Tomar lo que el pipeline vio en la ventana. Si no estan las 10 esferas y
-    //    hay techo (max_ms), se extiende hasta ahi: la historia ya tiene esos
-    //    cuadros, no hay que volver a capturar nada.
+    // 2. Tomar lo que el pipeline vio en la ventana.
     std::vector<FrameSample> samples;
-    SnapshotHistory(job.camera, t0, burstEnd, samples);
-    if (MaxDetections(samples) < kTargetSpheres && job.maxMs > job.burstMs) {
-        const int64_t hardEnd = t0 + job.maxMs;
+    SnapshotHistory(job.camera, inicioEvento, ventanaFin, samples);
+    if (MaxDetections(samples) < kTargetSpheres && job.maxMs > plazoMs) {
+        const int64_t hardEnd = inicioEvento + job.maxMs;
         while (!m_stopRequested.load() && NowEpochMs() < hardEnd) {
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
@@ -2018,6 +2053,37 @@ void RankingMeasure::SnapshotHistory(int camera, int64_t fromMs, int64_t toMs,
         s.dets = m.dets;
         out.push_back(std::move(s));
     }
+}
+
+// ---------------------------------------------------------------------------
+// Quietud del tablero: las ultimas nFrames muestras tienen las 10 esferas y cada
+// una se movio menos de maxPx (pixeles) respecto de la anterior. Se empareja cada
+// caja con la mas cercana del cuadro previo (el orden del vector no es estable).
+bool RankingMeasure::EstableQuieto(const std::vector<FrameSample>& samples, int nFrames, double maxPx) {
+    if (static_cast<int>(samples.size()) < nFrames) return false;
+    const size_t ini = samples.size() - static_cast<size_t>(nFrames);
+    for (size_t i = ini; i < samples.size(); ++i) {
+        if (static_cast<int>(samples[i].dets.size()) < kTargetSpheres) return false;
+    }
+    for (size_t i = ini + 1; i < samples.size(); ++i) {
+        const auto& a = samples[i - 1].dets;
+        const auto& b = samples[i].dets;
+        double suma = 0.0;
+        int n = 0;
+        for (const auto& d : b) {
+            double mejor = 1e9;
+            for (const auto& p : a) {
+                const double dx = (d.x - p.x) * 1920.0;
+                const double dy = (d.y - p.y) * 1080.0;
+                const double dist = std::sqrt(dx * dx + dy * dy);
+                if (dist < mejor) mejor = dist;
+            }
+            suma += mejor;
+            ++n;
+        }
+        if (n > 0 && (suma / n) > maxPx) return false;
+    }
+    return true;
 }
 
 // ---------------------------------------------------------------------------

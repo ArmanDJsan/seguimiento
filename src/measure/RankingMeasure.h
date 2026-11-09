@@ -462,6 +462,10 @@ private:
     bool EnPista(int camera, int64_t epochMs, double cx, double cy) const;
     std::vector<RegionTramo> m_regiones[4];
     bool m_filtrarPorRoi = true;
+
+    // True si en los ultimos nFrames el cuadro tiene las 10 esferas y se movieron
+    // menos de maxPx (en pixeles) entre cuadros consecutivos: el tablero quedo quieto.
+    static bool EstableQuieto(const std::vector<FrameSample>& samples, int nFrames, double maxPx);
     void MatchFrameByMotion(FrameSample& sample);
     static int ArgMaxClass(const SphereTrack& track);
     static int MaxDetections(const std::vector<FrameSample>& samples);
