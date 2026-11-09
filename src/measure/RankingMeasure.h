@@ -467,6 +467,9 @@ private:
     // 10 ("finalizar") los compara y publica el definitivo.
     std::mutex m_llegadaMutex;
     std::vector<int> m_llegadaPunto[11];
+    // Instante en que disparo cada punto: el finalizar reconstruye desde ahi hasta
+    // el final de la carrera con los cuadros de la historia (no con lo publicado).
+    int64_t m_tPunto[11] = {0};
 
     // True si en los ultimos nFrames el cuadro tiene las 10 esferas y se movieron
     // menos de maxPx (en pixeles) entre cuadros consecutivos: el tablero quedo quieto.

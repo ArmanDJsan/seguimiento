@@ -1738,6 +1738,11 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
     const int64_t t0 = job.requestedEpochMs;
     const int64_t burstEnd = t0 + job.burstMs;
 
+    if (job.punto >= 0 && job.punto <= 10) {
+        std::lock_guard<std::mutex> lock(m_llegadaMutex);
+        m_tPunto[job.punto] = t0;
+    }
+
     // El clip de ESTA camara se cierra en CUALQUIER salida de esta funcion (la
     // guardia llama a ClipStop). ClipStop toma el lock por su cuenta: la guardia
     // nunca corre con m_clipMutex tomado.
@@ -2099,12 +2104,41 @@ void RankingMeasure::SnapshotHistory(int camera, int64_t fromMs, int64_t toMs,
 // coincide. Despues publica el resultado: si los dos traen las 10 clases, gana el
 // que las tenga todas distintas.
 void RankingMeasure::ConsolidarLlegada(int64_t epochMs) {
+    int64_t tP8 = 0, tP7 = 0;
     std::vector<int> a, b;
     {
         std::lock_guard<std::mutex> lock(m_llegadaMutex);
-        a = m_llegadaPunto[8];   // camara 1, tablero
-        b = m_llegadaPunto[7];   // camara 2, tablero
+        a = m_llegadaPunto[8];
+        b = m_llegadaPunto[7];
+        tP8 = m_tPunto[8];
+        tP7 = m_tPunto[7];
     }
+
+    // Lo que importa: reconstruir el final con TODOS los cuadros de cada camara
+    // desde su punto hasta el cierre, no con lo que se publico en el punto.
+    // Camara 1 (indice 0) desde el punto 8; camara 2 (indice 1) desde el punto 7.
+    const int64_t ahora = NowEpochMs();
+    auto reconstruir = [&](int cam, int64_t desde) {
+        std::vector<int> pos;
+        if (desde <= 0) return pos;
+        std::vector<FrameSample> muestras;
+        SnapshotHistory(cam, desde, ahora, muestras);
+        int64_t t = 0;
+        if (!muestras.empty() && ResolvePositions(cam, muestras, pos, t)) {
+            Logger::Info("RankingMeasure: finalizar reconstruyo camara " + std::to_string(cam + 1) +
+                         " con " + std::to_string(muestras.size()) + " cuadros -> " +
+                         std::to_string(pos.size()) + " posiciones");
+        } else {
+            Logger::Info("RankingMeasure: finalizar NO pudo reconstruir camara " +
+                         std::to_string(cam + 1) + " (" + std::to_string(muestras.size()) + " cuadros)");
+            pos.clear();
+        }
+        return pos;
+    };
+    const std::vector<int> ra = reconstruir(0, tP8);
+    const std::vector<int> rb = reconstruir(1, tP7);
+    if (!ra.empty()) a = ra;
+    if (!rb.empty()) b = rb;
     auto distintas = [](const std::vector<int>& v) {
         std::set<int> s(v.begin(), v.end());
         return static_cast<int>(s.size());
