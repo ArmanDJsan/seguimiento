@@ -2145,7 +2145,15 @@ RankingMeasure::RegionTramo RankingMeasure::RegionDe(int camera, int64_t epochMs
     for (const auto& t : v) {
         if (sec >= t.desde && sec < t.hasta) return t;
     }
-    return vacio;
+    // Fuera de todos los bloques (p.ej. si la rafaga se estira mas alla del ultimo
+    // tramo calibrado): se usa el bloque MAS CERCANO en el tiempo, no se rinde.
+    const auto* mejor = &v.front();
+    double mejorDist = 1e9;
+    for (const auto& t : v) {
+        const double d = (sec < t.desde) ? (t.desde - sec) : (sec - t.hasta);
+        if (d < mejorDist) { mejorDist = d; mejor = &t; }
+    }
+    return *mejor;
 }
 
 // Punto en poligono (ray casting), coordenadas normalizadas 0..1.
@@ -2177,7 +2185,15 @@ RankingMeasure::VectorTramo RankingMeasure::VectorDe(int camera, int64_t epochMs
     for (const auto& t : v) {
         if (sec >= t.desde && sec < t.hasta) return t;
     }
-    return vacio;
+    // Fuera de todos los bloques (p.ej. si la rafaga se estira mas alla del ultimo
+    // tramo calibrado): se usa el bloque MAS CERCANO en el tiempo, no se rinde.
+    const auto* mejor = &v.front();
+    double mejorDist = 1e9;
+    for (const auto& t : v) {
+        const double d = (sec < t.desde) ? (t.desde - sec) : (sec - t.hasta);
+        if (d < mejorDist) { mejorDist = d; mejor = &t; }
+    }
+    return *mejor;
 }
 
 bool RankingMeasure::ResolvePositions(int camera, std::vector<FrameSample>& samples,
