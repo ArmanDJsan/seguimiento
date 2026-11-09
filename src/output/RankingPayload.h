@@ -63,10 +63,25 @@ struct RankingState {
     bool Update(const std::vector<int>& ranking) {
         std::array<int, kMaxBalls + 1> next{};
 
+        // 1) los puestos que trae esta medicion
+        std::array<bool, kMaxBalls + 1> ocupado{};
         for (size_t i = 0; i < ranking.size(); ++i) {
             const int id = ranking[i];
-            if (id >= 1 && id <= kMaxBalls) {
+            if (id >= 1 && id <= kMaxBalls && !ocupado[static_cast<int>(i) + 1]) {
                 next[id] = static_cast<int>(i) + 1;
+                ocupado[static_cast<int>(i) + 1] = true;
+            }
+        }
+
+        // 2) las canicas que no aparecen en este punto conservan su puesto anterior
+        //    SI sigue libre; asi la animacion va sumando canicas en vez de vaciarse
+        //    en cada punto. Si el puesto ya esta tomado, van a 0 ("indeterminado").
+        for (int id = 1; id <= kMaxBalls; ++id) {
+            if (next[id] != 0) continue;
+            const int prev = lastPuesto[id];
+            if (prev >= 1 && prev <= kMaxBalls && !ocupado[prev]) {
+                next[id] = prev;
+                ocupado[prev] = true;
             }
         }
 

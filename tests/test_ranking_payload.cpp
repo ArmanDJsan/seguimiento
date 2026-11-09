@@ -45,7 +45,7 @@ int main() {
         check("mismo orden NO reporta cambio", segundo == false);
     }
 
-    // Caso 3: canica no detectada -> queda en puesto 0 (indeterminado)
+    // Caso 3: canica no detectada -> conserva su puesto si sigue libre
     {
         ranking::RankingState st;
         std::vector<int> completo = {8, 2, 5, 1, 4, 9, 10, 6, 7, 3};
@@ -53,9 +53,11 @@ int main() {
         // faltan la 3 y la 7
         std::vector<int> parcial = {8, 2, 5, 1, 4, 9, 10, 6};
         st.Update(parcial);
-        check("canica 3 no detectada -> puesto 0", st.lastPuesto[3] == 0,
+        // El puesto anterior se conserva si nadie lo tomo: asi la animacion
+        // acumula canicas entre puntos en vez de vaciarse.
+        check("canica 3 conserva su puesto si esta libre", st.lastPuesto[3] == 10,
               "puesto=" + std::to_string(st.lastPuesto[3]));
-        check("canica 7 no detectada -> puesto 0", st.lastPuesto[7] == 0,
+        check("canica 7 conserva su puesto si esta libre", st.lastPuesto[7] == 9,
               "puesto=" + std::to_string(st.lastPuesto[7]));
         std::string payload = st.BuildPayload();
         check("array sigue teniendo 10 entradas",
