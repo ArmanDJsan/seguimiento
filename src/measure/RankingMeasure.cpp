@@ -2096,7 +2096,7 @@ void RankingMeasure::ConsolidarLlegada(int64_t epochMs) {
         return static_cast<int>(s.size());
     };
     auto coinciden = [](const std::vector<int>& x, const std::vector<int>& y) {
-        const size_t n = std::min(x.size(), y.size());
+        const size_t n = (x.size() < y.size()) ? x.size() : y.size();
         int c = 0;
         for (size_t i = 0; i < n; ++i) if (x[i] == y[i]) ++c;
         return c;
@@ -2117,9 +2117,10 @@ void RankingMeasure::ConsolidarLlegada(int64_t epochMs) {
         const int cb = coinciden(a, b);
         const int cr = coinciden(a, br);
         if (cr > cb) { b = br; nota = "camara 2 invertida"; }
-        const int c = std::max(cb, cr);
+        const int c = (cb > cr) ? cb : cr;
+        const size_t nMenor = (a.size() < b.size()) ? a.size() : b.size();
         Logger::Info("RankingMeasure: finalizar, coinciden " + std::to_string(c) + " de " +
-                     std::to_string(std::min(a.size(), b.size())) + " posiciones" +
+                     std::to_string(nMenor) + " posiciones" +
                      (nota.empty() ? "" : " (" + nota + ")"));
         if (distintas(b) > distintas(a)) { elegido = b; nota += " · gana camara 2"; }
         else { elegido = a; }
