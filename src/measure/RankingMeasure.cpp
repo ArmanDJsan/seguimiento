@@ -1740,10 +1740,10 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
     //    inicio (>=3 esferas en ROI para los puntos intermedios, las 10 para la
     //    llegada), y se cierra cuando el fenomeno termina (el pasaje sale del
     //    cuadro / el tablero queda quieto) o al vencer el plazo, lo primero.
-    // Punto 8 = llegada por la camara 1. Punto 7 = la MISMA llegada vista por la
-    // camara 2: se mide con la misma logica (esperar las 10 y la quietud), asi hay
-    // dos medidas independientes del resultado en vez de un pasaje que no resuelve.
-    const bool esLlegada = (job.punto == 8 || job.punto == 7);
+    // Punto 8 = llegada por la camara 1. Punto 9 = la MISMA llegada vista por la
+    // camara 2 (evento paralelo al 8): dos medidas independientes del resultado.
+    // El punto 7 queda como pasaje, publicando el estado parcial de esa camara.
+    const bool esLlegada = (job.punto == 8 || job.punto == 9);
     const int minDetsArranque = esLlegada ? kTargetSpheres : 3;
     const int64_t plazoMs = job.burstMs;      // 2 s intermedios · 20 s llegada
     const int64_t topeAbs = t0 + job.maxMs;   // techo duro por si el evento no llega
