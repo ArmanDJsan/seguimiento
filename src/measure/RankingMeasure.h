@@ -443,10 +443,17 @@ private:
     struct VectorTramo {
         int desde = 0, hasta = 1000;
         double x0 = 0.0, y0 = 0.0, dx = 1.0, dy = 0.0;
+        // Recorrido completo (normalizado). La direccion se calcula proyectando
+        // sobre la polilinea, no sobre la cuerda primer->ultimo punto: hay pistas
+        // que dan la vuelta (camara 2) y la cuerda las invierte.
+        std::vector<std::pair<double, double>> pts;
+        std::vector<double> arco;   // largo acumulado en cada punto
         bool ok = false;
     };
     void LoadTrackVectors();
     VectorTramo VectorDe(int camera, int64_t epochMs) const;
+    // Largo de arco del punto mas cercano del recorrido (0 = entrada del tramo).
+    double AvanceEn(int camera, int64_t epochMs, double cx, double cy) const;
     std::vector<VectorTramo> m_vectores[4];
 
     // Poligono de la pista por camara y bloque de segundos (CAMx_ROI[_a_b] de

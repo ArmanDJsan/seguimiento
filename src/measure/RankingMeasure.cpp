@@ -2378,6 +2378,35 @@ bool RankingMeasure::EnPista(int camera, int64_t epochMs, double cx, double cy) 
     return dentro;
 }
 
+// Largo de arco del punto del recorrido mas cercano a (cx,cy). Se recorre la
+// polilinea entera: es lo unico que da el sentido correcto cuando la pista curva.
+double RankingMeasure::AvanceEn(int camera, int64_t epochMs, double cx, double cy) const {
+    const VectorTramo t = VectorDe(camera, epochMs);
+    if (!t.ok || t.pts.size() < 2 || t.arco.size() != t.pts.size()) return -1.0;
+    double mejorDist = 1e18;
+    double mejorArco = 0.0;
+    for (size_t i = 1; i < t.pts.size(); ++i) {
+        const double ax = t.pts[i - 1].first, ay = t.pts[i - 1].second;
+        const double bx = t.pts[i].first, by = t.pts[i].second;
+        const double vx = bx - ax, vy = by - ay;
+        const double largo2 = vx * vx + vy * vy;
+        double u = 0.0;
+        if (largo2 > 1e-12) {
+            u = ((cx - ax) * vx + (cy - ay) * vy) / largo2;
+            if (u < 0.0) u = 0.0;
+            if (u > 1.0) u = 1.0;
+        }
+        const double px = ax + u * vx, py = ay + u * vy;
+        const double dx = cx - px, dy = cy - py;
+        const double dist = dx * dx + dy * dy;
+        if (dist < mejorDist) {
+            mejorDist = dist;
+            mejorArco = t.arco[i - 1] + u * (t.arco[i] - t.arco[i - 1]);
+        }
+    }
+    return mejorArco;
+}
+
 RankingMeasure::VectorTramo RankingMeasure::VectorDe(int camera, int64_t epochMs) const {
     VectorTramo vacio;
     if (camera < 0 || camera >= 4) return vacio;
@@ -2470,10 +2499,11 @@ bool RankingMeasure::ResolvePositions(int camera, std::vector<FrameSample>& samp
         for (size_t d = 0; d < sample.dets.size(); ++d) {
             const int p = posDeId(sample.trackOf[d]);
             if (p >= 0) {
-                const double avance = tv.ok
-                    ? ((sample.dets[d].x / 1920.0) - tv.x0) * tv.dx +
-                      ((sample.dets[d].y / 1080.0) - tv.y0) * tv.dy
-                    : sample.dets[d].x;
+                const double arco = AvanceEn(camera, sample.epochMs, sample.dets[d].x, sample.dets[d].y);
+                const double avance = (arco >= 0.0) ? arco
+                    : (tv.ok ? ((sample.dets[d].x / 1920.0) - tv.x0) * tv.dx +
+                               ((sample.dets[d].y / 1080.0) - tv.y0) * tv.dy
+                             : sample.dets[d].x);
                 presentes.push_back({p, static_cast<float>(avance)});
             }
         }
