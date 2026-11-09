@@ -2137,6 +2137,17 @@ void RankingMeasure::ConsolidarLlegada(int64_t epochMs) {
     };
     const std::vector<int> ra = reconstruir(0, tP8);
     const std::vector<int> rb = reconstruir(1, tP7);
+    {
+        auto listar = [](const std::vector<int>& v) {
+            std::ostringstream o;
+            o << "[";
+            for (size_t i = 0; i < v.size(); ++i) { if (i) o << ","; o << v[i]; }
+            o << "]";
+            return o.str();
+        };
+        Logger::Info("RankingMeasure: finalizar camara 1 -> " + listar(ra));
+        Logger::Info("RankingMeasure: finalizar camara 2 -> " + listar(rb));
+    }
     if (!ra.empty()) a = ra;
     if (!rb.empty()) b = rb;
     auto distintas = [](const std::vector<int>& v) {
