@@ -1776,7 +1776,8 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
-    const int64_t ventanaFin = std::min(NowEpochMs(), cierreTope);
+    const int64_t ahoraCierre = NowEpochMs();
+    const int64_t ventanaFin = (ahoraCierre < cierreTope) ? ahoraCierre : cierreTope;
 
     // La ventana ya cerro: si la camara no mando ni un cuadro, no hay que
     // dejar la marca puesta (abriria el clip de un punto posterior).
