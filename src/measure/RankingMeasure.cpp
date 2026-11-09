@@ -2429,7 +2429,11 @@ bool RankingMeasure::ResolvePositions(int camera, std::vector<FrameSample>& samp
     // 2) Esferas reales: las que aparecen en una parte razonable de la rafaga.
     //    Una deteccion de un solo cuadro es ruido; exigir presencia evita que un
     //    falso positivo entre al ranking. Ningun cuadro suelto decide nada.
-    const int minimoFrames = (std::max)(2, validos * 2 / 5);   // 40% de la rafaga
+    // Antes: 40 % de la rafaga. En un pasaje eso descarta esferas reales (medido en el
+    // punto 7: 4 de 11 pistas cruzaban en menos del 40 % y se perdian). Ahora se exige
+    // una presencia absoluta de 15 cuadros (0,5 s), o la mitad si la ventana es corta:
+    // alcanza para descartar fantasmas de 1-3 cuadros sin perder esferas que cruzan.
+    const int minimoFrames = (validos < 30) ? (std::max)(2, validos / 2) : 15;
     std::vector<size_t> idx;
     idx.reserve(m_tracks.size());
     for (size_t i = 0; i < m_tracks.size(); ++i) {
