@@ -1755,7 +1755,10 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
     // Punto 8 = llegada por la camara 1. Punto 9 = la MISMA llegada vista por la
     // camara 2 (evento paralelo al 8): dos medidas independientes del resultado.
     // El punto 7 queda como pasaje, publicando el estado parcial de esa camara.
-    const bool esLlegada = (job.punto == 8);
+    // El punto 7 mide la MISMA escena que el 8 pero desde la camara 2: a partir de
+    // los 45 s esa camara tiene el tablero quieto con 9 esferas (medido), no un
+    // pasaje. Por eso usa la logica de llegada y no la de pasaje.
+    const bool esLlegada = (job.punto == 8 || job.punto == 7);
     const int minDetsArranque = esLlegada ? kTargetSpheres : 3;
     const int64_t plazoMs = job.burstMs;      // 2 s intermedios · 20 s llegada
     const int64_t topeAbs = t0 + job.maxMs;   // techo duro por si el evento no llega
