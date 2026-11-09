@@ -19,6 +19,9 @@
  */
 
 #include "RankingMeasure.h"
+
+#include <algorithm>
+#include <set>
 #include "../utils/Logger.h"
 
 #include <algorithm>
@@ -1723,6 +1726,15 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
         return;
     }
 
+    // Punto 10 = "finalizar": no mide nada nuevo, consolida los dos resultados de
+    // llegada (punto 8 camara 1, punto 9 camara 2) y publica el definitivo.
+    if (job.punto == 10) {
+        ConsolidarLlegada(job.requestedEpochMs);
+        result.motivo = "finalizado";
+        ReportResult(result);
+        return;
+    }
+
     const int64_t t0 = job.requestedEpochMs;
     const int64_t burstEnd = t0 + job.burstMs;
 
@@ -1743,7 +1755,7 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
     // Punto 8 = llegada por la camara 1. Punto 9 = la MISMA llegada vista por la
     // camara 2 (evento paralelo al 8): dos medidas independientes del resultado.
     // El punto 7 queda como pasaje, publicando el estado parcial de esa camara.
-    const bool esLlegada = (job.punto == 8 || job.punto == 9);
+    const bool esLlegada = (job.punto == 8);
     const int minDetsArranque = esLlegada ? kTargetSpheres : 3;
     const int64_t plazoMs = job.burstMs;      // 2 s intermedios · 20 s llegada
     const int64_t topeAbs = t0 + job.maxMs;   // techo duro por si el evento no llega
@@ -1826,6 +1838,13 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
     }
     result.spheres = static_cast<int>(posiciones.size());
     result.epochMs = resolvedEpochMs;
+
+    // Se guarda el ultimo resultado de cada punto: el "finalizar" usa el 7 (camara 2)
+    // y el 8 (camara 1), que son las dos vistas del tablero.
+    if (job.punto >= 0 && job.punto <= 10) {
+        std::lock_guard<std::mutex> lock(m_llegadaMutex);
+        m_llegadaPunto[job.punto] = posiciones;
+    }
 
     {
         std::ostringstream oss;
@@ -2056,6 +2075,61 @@ void RankingMeasure::SnapshotHistory(int camera, int64_t fromMs, int64_t toMs,
         s.epochMs = m.epochMs;
         s.dets = m.dets;
         out.push_back(std::move(s));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Consolida las dos medidas de llegada (punto 8 camara 1, punto 9 camara 2).
+// Las dos camaras pueden ver el mismo tablero en sentidos opuestos, asi que se
+// compara A contra B y A contra B invertido y se queda con el sentido que mas
+// coincide. Despues publica el resultado: si los dos traen las 10 clases, gana el
+// que las tenga todas distintas.
+void RankingMeasure::ConsolidarLlegada(int64_t epochMs) {
+    std::vector<int> a, b;
+    {
+        std::lock_guard<std::mutex> lock(m_llegadaMutex);
+        a = m_llegadaPunto[8];   // camara 1, tablero
+        b = m_llegadaPunto[7];   // camara 2, tablero
+    }
+    auto distintas = [](const std::vector<int>& v) {
+        std::set<int> s(v.begin(), v.end());
+        return static_cast<int>(s.size());
+    };
+    auto coinciden = [](const std::vector<int>& x, const std::vector<int>& y) {
+        const size_t n = std::min(x.size(), y.size());
+        int c = 0;
+        for (size_t i = 0; i < n; ++i) if (x[i] == y[i]) ++c;
+        return c;
+    };
+
+    std::vector<int> elegido;
+    std::string nota;
+    if (a.empty() && b.empty()) {
+        Logger::Warning("RankingMeasure: finalizar sin resultados de llegada");
+        return;
+    }
+    if (a.empty() || b.empty()) {
+        elegido = a.empty() ? b : a;
+        nota = "solo una camara";
+    } else {
+        std::vector<int> br = b;
+        std::reverse(br.begin(), br.end());
+        const int cb = coinciden(a, b);
+        const int cr = coinciden(a, br);
+        if (cr > cb) { b = br; nota = "camara 2 invertida"; }
+        const int c = std::max(cb, cr);
+        Logger::Info("RankingMeasure: finalizar, coinciden " + std::to_string(c) + " de " +
+                     std::to_string(std::min(a.size(), b.size())) + " posiciones" +
+                     (nota.empty() ? "" : " (" + nota + ")"));
+        if (distintas(b) > distintas(a)) { elegido = b; nota += " · gana camara 2"; }
+        else { elegido = a; }
+    }
+    if (elegido.empty()) return;
+    Logger::Info("RankingMeasure: finalizar -> " + std::to_string(elegido.size()) +
+                 " posiciones" + (nota.empty() ? "" : " (" + nota + ")"));
+    if (m_publisher) {
+        m_publisher->PublishMeasurePoint(10, epochMs, elegido);
+        m_measureCount++;
     }
 }
 

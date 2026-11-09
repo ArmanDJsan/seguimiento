@@ -463,9 +463,17 @@ private:
     std::vector<RegionTramo> m_regiones[4];
     bool m_filtrarPorRoi = true;
 
+    // Ultimo resultado de llegada por punto (8 = camara 1, 9 = camara 2). El punto
+    // 10 ("finalizar") los compara y publica el definitivo.
+    std::mutex m_llegadaMutex;
+    std::vector<int> m_llegadaPunto[11];
+
     // True si en los ultimos nFrames el cuadro tiene las 10 esferas y se movieron
     // menos de maxPx (en pixeles) entre cuadros consecutivos: el tablero quedo quieto.
     static bool EstableQuieto(const std::vector<FrameSample>& samples, int nFrames, double maxPx);
+
+    // Consolida las dos medidas de llegada (punto 8 y punto 9) y publica la final.
+    void ConsolidarLlegada(int64_t epochMs);
     void MatchFrameByMotion(FrameSample& sample);
     static int ArgMaxClass(const SphereTrack& track);
     static int MaxDetections(const std::vector<FrameSample>& samples);
