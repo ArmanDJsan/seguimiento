@@ -186,6 +186,7 @@ struct RankingMeasureConfig {
     // Filtro por el poligono de la pista (env_calibracion): las cajas fuera del
     // ROI no cuentan ni entran al ranking. true = comportamiento nuevo.
     bool filtrarRoi = true;
+    bool paredRoi = false;   // ROI como pared (apagado por defecto)
 };
 
 /**
@@ -403,6 +404,10 @@ private:
         float lastW = 0.0f, lastH = 0.0f;
         int frames = 0;
         int64_t firstMs = 0, lastMs = 0;   // para exigir continuidad (sin huecos grandes)
+        // Arco arrastrado: donde quedo esta esfera sobre el recorrido en el ultimo
+        // cuadro en que se la vio (-1 = todavia sin arco). Es lo que impide que el
+        // tramo final de la polilinea "robe" una esfera que va por el principio.
+        double arco = -1.0;
         std::vector<int>   votes   = std::vector<int>(kTargetSpheres, 0);
         std::vector<float> confSum = std::vector<float>(kTargetSpheres, 0.0f);
     };
@@ -454,7 +459,11 @@ private:
     void LoadTrackVectors();
     VectorTramo VectorDe(int camera, int64_t epochMs) const;
     // Largo de arco del punto mas cercano del recorrido (0 = entrada del tramo).
-    double AvanceEn(int camera, int64_t epochMs, double cx, double cy) const;
+    // Con arcoPrevio >= 0 el punto se busca solo dentro del recorrido alcanzable en
+    // un cuadro ([arcoPrevio-maxPaso, arcoPrevio+maxPaso]): el arco de cada esfera
+    // es continuo y no puede saltar de tramo aunque la polilinea pase cerca.
+    double AvanceEn(int camera, int64_t epochMs, double cx, double cy,
+                    double arcoPrevio = -1.0, double maxPaso = 0.0) const;
     std::vector<VectorTramo> m_vectores[4];
 
     // Poligono de la pista por camara y bloque de segundos (CAMx_ROI[_a_b] de
@@ -470,6 +479,9 @@ private:
     bool EnPista(int camera, int64_t epochMs, double cx, double cy) const;
     std::vector<RegionTramo> m_regiones[4];
     bool m_filtrarPorRoi = true;
+    // ROI como pared: no se acepta un tramo si la recta esfera->tramo sale del
+    // poligono. Apagado por defecto (se activa por config).
+    bool m_paredRoi = false;
 
     // Ultimo resultado de llegada por punto (8 = camara 1, 9 = camara 2). El punto
     // 10 ("finalizar") los compara y publica el definitivo.

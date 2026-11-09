@@ -52,6 +52,12 @@ constexpr int kFinalDrainMs = 40;       // margen para el ultimo frame (~1 frame
 constexpr int kTimestampRetries = 50;   // reintentos de lectura de un slot en escritura
 constexpr size_t kMaxTracks = 40;       // techo de identidades provisorias
 
+// Tope de avance de una esfera sobre el recorrido, por cuadro (recorrido
+// normalizado: 0,08 ~ 154 px de 1920). Medido en la carrera 20261109-160220:
+// el avance real por cuadro tiene mediana 0,000 / p90 0,010 / p99 0,024, asi
+// que 0,08 deja 3x de margen y solo corta los saltos de tramo (>0,5 medidos).
+constexpr double kMaxPasoArco = 0.08;
+
 std::atomic<RankingMeasure*> g_attachedCoordinator{nullptr};
 
 // Definida mas abajo en este mismo namespace anonimo; se declara aca porque
@@ -256,6 +262,7 @@ bool RankingMeasure::Initialize(const RankingPublisherConfig& pubConfig,
     // 0. Defaults de medicion (el evento puede pisarlos con burst_ms/max_ms)
     m_config = measureConfig;
     m_filtrarPorRoi = measureConfig.filtrarRoi;
+    m_paredRoi = measureConfig.paredRoi;
     // Direccion de avance de cada tramo (para ordenar por avance, no por x).
     LoadTrackVectors();
     (void)inferenceConfig;   // ya no hay motor propio: el pipeline infiere
@@ -561,7 +568,11 @@ void RankingMeasure::ReportResult(const MeasureResult& result) {
 
 void RankingMeasure::ResetIdentity() {
     m_tracks.clear();
-    m_nextTrackId = 1;
+    // NO se reinicia m_nextTrackId a proposito: cada FrameSample ya guarda el id de
+    // la pista en trackOf y despues se resuelve por id (posDeId). Si los ids vuelven
+    // a 1, una deteccion vieja de una pista destruida se le atribuye a una pista
+    // NUEVA y su voto (y su arco arrastrado) se mezclan entre segmentos. Medido: 5
+    // resets dentro de la ventana del punto 7 (kMaxTracks=40).
     Logger::Info("RankingMeasure: identidades provisorias reiniciadas");
 }
 
@@ -2328,6 +2339,17 @@ void RankingMeasure::LoadTrackVectors() {
         if (norma < 1e-6) continue;
         t.dx = dx / norma;
         t.dy = dy / norma;
+        // Polilinea completa + largo de arco acumulado. AvanceEn() sale por
+        // "return -1.0" si estos dos vectores no estan cargados, y entonces el orden
+        // cae a la cuerda primer->ultimo punto: en la camara 2 esa cuerda apunta al
+        // reves (polilinea 2,004 vs cuerda 0,282 = 7,12x) y su ranking sale invertido.
+        t.pts = pts;
+        t.arco.assign(pts.size(), 0.0);
+        for (size_t k = 1; k < pts.size(); ++k) {
+            const double sx = pts[k].first - pts[k - 1].first;
+            const double sy = pts[k].second - pts[k - 1].second;
+            t.arco[k] = t.arco[k - 1] + std::sqrt(sx * sx + sy * sy);
+        }
         t.ok = true;
         m_vectores[cam - 1].push_back(t);
         ++cargados;
@@ -2379,12 +2401,42 @@ bool RankingMeasure::EnPista(int camera, int64_t epochMs, double cx, double cy) 
 
 // Largo de arco del punto del recorrido mas cercano a (cx,cy). Se recorre la
 // polilinea entera: es lo unico que da el sentido correcto cuando la pista curva.
-double RankingMeasure::AvanceEn(int camera, int64_t epochMs, double cx, double cy) const {
+double RankingMeasure::AvanceEn(int camera, int64_t epochMs, double cx, double cy,
+                                double arcoPrevio, double maxPaso) const {
     const VectorTramo t = VectorDe(camera, epochMs);
     if (!t.ok || t.pts.size() < 2 || t.arco.size() != t.pts.size()) return -1.0;
     double mejorDist = 1e18;
-    double mejorArco = 0.0;
+    double mejorArco = -1.0;
     for (size_t i = 1; i < t.pts.size(); ++i) {
+        const double a0 = t.arco[i - 1];
+        const double a1 = t.arco[i];
+        const double segLargo = a1 - a0;
+        if (segLargo <= 1e-12) continue;
+        // Ventana de alcance: con arcoPrevio >= 0 solo se considera el trozo del
+        // recorrido al que la esfera puede llegar en UN cuadro. Sin esto el punto mas
+        // cercano salta al tramo final cuando las dos puntas del recorrido pasan
+        // cerca (medido: la punta final queda a 541 px del inicio y el salto es de
+        // 3656 px en un cuadro; 16 cambios de puesto >= 5 en el pasaje).
+        double uLo = 0.0, uHi = 1.0;
+        if (arcoPrevio >= 0.0 && maxPaso > 0.0) {
+            uLo = (arcoPrevio - maxPaso - a0) / segLargo;
+            uHi = (arcoPrevio + maxPaso - a0) / segLargo;
+            if (uLo < 0.0) uLo = 0.0;
+            if (uHi > 1.0) uHi = 1.0;
+            if (uLo > uHi) continue;      // tramo inalcanzable desde el cuadro anterior
+        }
+        // Pared ROI: si la recta entre la esfera y este tramo sale del poligono, el
+        // tramo no es alcanzable aunque este mas cerca en pixeles.
+        if (m_paredRoi) {
+            bool cruza = false;
+            for (int kk = 1; kk <= 8; ++kk) {
+                const double tt = kk / 9.0;
+                const double mx = cx + (t.pts[i - 1].first - cx) * tt;
+                const double my = cy + (t.pts[i - 1].second - cy) * tt;
+                if (!EnPista(camera, epochMs, mx, my)) { cruza = true; break; }
+            }
+            if (cruza) continue;
+        }
         const double ax = t.pts[i - 1].first, ay = t.pts[i - 1].second;
         const double bx = t.pts[i].first, by = t.pts[i].second;
         const double vx = bx - ax, vy = by - ay;
@@ -2392,17 +2444,19 @@ double RankingMeasure::AvanceEn(int camera, int64_t epochMs, double cx, double c
         double u = 0.0;
         if (largo2 > 1e-12) {
             u = ((cx - ax) * vx + (cy - ay) * vy) / largo2;
-            if (u < 0.0) u = 0.0;
-            if (u > 1.0) u = 1.0;
+            if (u < uLo) u = uLo;
+            if (u > uHi) u = uHi;
         }
         const double px = ax + u * vx, py = ay + u * vy;
         const double dx = cx - px, dy = cy - py;
         const double dist = dx * dx + dy * dy;
         if (dist < mejorDist) {
             mejorDist = dist;
-            mejorArco = t.arco[i - 1] + u * (t.arco[i] - t.arco[i - 1]);
+            mejorArco = a0 + u * segLargo;
         }
     }
+    // Ningun tramo alcanzable: la esfera se queda donde estaba (no se teletransporta).
+    if (mejorArco < 0.0) return (arcoPrevio >= 0.0) ? arcoPrevio : -1.0;
     return mejorArco;
 }
 
@@ -2504,7 +2558,15 @@ bool RankingMeasure::ResolvePositions(int camera, std::vector<FrameSample>& samp
         for (size_t d = 0; d < sample.dets.size(); ++d) {
             const int p = posDeId(sample.trackOf[d]);
             if (p >= 0) {
-                const double arco = AvanceEn(camera, sample.epochMs, sample.dets[d].x, sample.dets[d].y);
+                // La esfera ARRASTRA su arco: se proyecta con el arco del cuadro
+                // anterior como testigo y solo puede moverse kMaxPasoArco. Asi no
+                // puede tomar el tramo final sin haber pasado por los anteriores.
+                SphereTrack& esfera = m_tracks[idx[p]];
+                const double arco = AvanceEn(camera, sample.epochMs, sample.dets[d].x,
+                                             sample.dets[d].y, esfera.arco, kMaxPasoArco);
+                if (arco >= 0.0) {
+                    esfera.arco = arco;
+                }
                 const double avance = (arco >= 0.0) ? arco
                     : (tv.ok ? ((sample.dets[d].x / 1920.0) - tv.x0) * tv.dx +
                                ((sample.dets[d].y / 1080.0) - tv.y0) * tv.dy
