@@ -182,6 +182,10 @@ struct RankingMeasureConfig {
     // NO toca el camino caliente: en OnDetections solo se copia el vector de cajas
     // (sin E/S); el archivo lo escribe un hilo aparte en el volcado.
     bool saveInference = false;
+
+    // Filtro por el poligono de la pista (env_calibracion): las cajas fuera del
+    // ROI no cuentan ni entran al ranking. true = comportamiento nuevo.
+    bool filtrarRoi = true;
 };
 
 /**
@@ -444,6 +448,20 @@ private:
     void LoadTrackVectors();
     VectorTramo VectorDe(int camera, int64_t epochMs) const;
     std::vector<VectorTramo> m_vectores[4];
+
+    // Poligono de la pista por camara y bloque de segundos (CAMx_ROI[_a_b] de
+    // env_calibracion). Se usa como FILTRO de cajas: lo que cae fuera no cuenta
+    // ni entra al ranking. Trabaja sobre las detecciones, no sobre los pixeles:
+    // el camino zero-copy (DMA -> CUDA -> TensorRT) no se toca.
+    struct RegionTramo {
+        int desde = 0, hasta = 1000;
+        std::vector<std::pair<double, double>> pts;   // normalizado 0..1
+        bool ok = false;
+    };
+    RegionTramo RegionDe(int camera, int64_t epochMs) const;
+    bool EnPista(int camera, int64_t epochMs, double cx, double cy) const;
+    std::vector<RegionTramo> m_regiones[4];
+    bool m_filtrarPorRoi = true;
     void MatchFrameByMotion(FrameSample& sample);
     static int ArgMaxClass(const SphereTrack& track);
     static int MaxDetections(const std::vector<FrameSample>& samples);

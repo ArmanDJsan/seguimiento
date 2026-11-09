@@ -252,6 +252,7 @@ bool RankingMeasure::Initialize(const RankingPublisherConfig& pubConfig,
 
     // 0. Defaults de medicion (el evento puede pisarlos con burst_ms/max_ms)
     m_config = measureConfig;
+    m_filtrarPorRoi = measureConfig.filtrarRoi;
     // Direccion de avance de cada tramo (para ordenar por avance, no por x).
     LoadTrackVectors();
     (void)inferenceConfig;   // ya no hay motor propio: el pipeline infiere
@@ -1960,6 +1961,20 @@ void RankingMeasure::OnDetections(int camera, int64_t epochMs,
         }
     }
 
+    // FILTRO POR ROI: lo que cae fuera del poligono del bloque no cuenta, no entra
+    // al ranking y no se guarda en el historial. Trabaja sobre las cajas ya
+    // inferidas (CPU, microsegundos): el camino zero-copy no se toca.
+    if (m_filtrarPorRoi) {
+        std::vector<BallDetection> enPista;
+        enPista.reserve(unicas.size());
+        for (const auto& det : unicas) {
+            if (EnPista(camera, epochMs, det.x, det.y)) {
+                enPista.push_back(det);
+            }
+        }
+        unicas.swap(enPista);
+    }
+
     MuestraCamara muestra;
     muestra.epochMs = epochMs;
     muestra.dets.reserve(unicas.size());
@@ -2025,12 +2040,52 @@ void RankingMeasure::LoadTrackVectors() {
         return;
     }
     int cargados = 0;
+    int regiones = 0;
     std::string line;
     while (std::getline(f, line)) {
         const size_t eq = line.find('=');
         if (eq == std::string::npos) continue;
         const std::string key = line.substr(0, eq);
         const std::string val = line.substr(eq + 1);
+
+        // ---- poligono de la pista (CAM1_ROI_0_7=...) ----
+        if (key.find("_ROI") != std::string::npos) {
+            if (key.rfind("CAM", 0) != 0) continue;
+            const int rcam = std::atoi(key.c_str() + 3);
+            if (rcam < 1 || rcam > 4) continue;
+            int ra = 0, rb = 1000;
+            const size_t roi = key.find("_ROI");
+            const std::string rresto = key.substr(roi + 4);   // "_0_7" o vacio
+            if (!rresto.empty() && rresto[0] == '_') {
+                const size_t us2 = rresto.find('_', 1);
+                if (us2 != std::string::npos) {
+                    ra = std::atoi(rresto.c_str() + 1);
+                    rb = std::atoi(rresto.c_str() + us2 + 1);
+                }
+            }
+            RegionTramo r;
+            r.desde = ra;
+            r.hasta = rb;
+            size_t j = 0;
+            while (j < val.size()) {
+                const size_t sc2 = val.find(';', j);
+                const std::string trozo2 = val.substr(j, sc2 == std::string::npos ? std::string::npos : sc2 - j);
+                const size_t coma2 = trozo2.find(',');
+                if (coma2 != std::string::npos) {
+                    r.pts.push_back({std::atof(trozo2.substr(0, coma2).c_str()),
+                                     std::atof(trozo2.substr(coma2 + 1).c_str())});
+                }
+                if (sc2 == std::string::npos) break;
+                j = sc2 + 1;
+            }
+            if (r.pts.size() >= 3) {
+                r.ok = true;
+                m_regiones[rcam - 1].push_back(r);
+                ++regiones;
+            }
+            continue;
+        }
+
         if (key.find("TRACK_VECTOR") == std::string::npos) continue;
         if (key.rfind("CAM", 0) != 0) continue;
         const int cam = std::atoi(key.c_str() + 3);
@@ -2075,7 +2130,40 @@ void RankingMeasure::LoadTrackVectors() {
         ++cargados;
     }
     Logger::Info("RankingMeasure: " + std::to_string(cargados) +
-                 " vectores de pista cargados de " + usada);
+                 " vectores de pista y " + std::to_string(regiones) +
+                 " regiones ROI cargados de " + usada);
+}
+
+RankingMeasure::RegionTramo RankingMeasure::RegionDe(int camera, int64_t epochMs) const {
+    RegionTramo vacio;
+    if (camera < 0 || camera >= 4) return vacio;
+    const auto& v = m_regiones[camera];
+    if (v.empty()) return vacio;
+    const int64_t ini = m_raceInicioMs.load();
+    if (ini <= 0) return vacio;
+    const double sec = static_cast<double>(epochMs - ini) / 1000.0;
+    for (const auto& t : v) {
+        if (sec >= t.desde && sec < t.hasta) return t;
+    }
+    return vacio;
+}
+
+// Punto en poligono (ray casting), coordenadas normalizadas 0..1.
+bool RankingMeasure::EnPista(int camera, int64_t epochMs, double cx, double cy) const {
+    if (!m_filtrarPorRoi) return true;
+    const RegionTramo r = RegionDe(camera, epochMs);
+    if (!r.ok) return true;          // sin poligono para ese bloque: no se filtra
+    bool dentro = false;
+    const size_t n = r.pts.size();
+    for (size_t i = 0, j = n - 1; i < n; j = i++) {
+        const double xi = r.pts[i].first, yi = r.pts[i].second;
+        const double xj = r.pts[j].first, yj = r.pts[j].second;
+        if ((yi > cy) != (yj > cy) &&
+            cx < (xj - xi) * (cy - yi) / (yj - yi) + xi) {
+            dentro = !dentro;
+        }
+    }
+    return dentro;
 }
 
 RankingMeasure::VectorTramo RankingMeasure::VectorDe(int camera, int64_t epochMs) const {

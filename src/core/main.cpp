@@ -727,6 +727,7 @@ Config LoadConfig(const std::string& path) {
             // false no se reserva ni un byte ni se copia un cuadro)
             if (rm.contains("save_race")) config.rankingMeasureConfig.saveRace = rm["save_race"].get<bool>();
             if (rm.contains("save_inference")) config.rankingMeasureConfig.saveInference = rm["save_inference"].get<bool>();
+            if (rm.contains("filtrar_roi")) config.rankingMeasureConfig.filtrarRoi = rm["filtrar_roi"].get<bool>();
             if (rm.contains("race_max_seconds")) config.rankingMeasureConfig.raceMaxSeconds = rm["race_max_seconds"].get<int>();
             // Ventana real de la carrera desde la compuerta: a los race_seconds se
             // vuelca solo el anillo y no se graba nada mas.
