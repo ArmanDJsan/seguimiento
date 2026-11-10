@@ -1934,18 +1934,8 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
                      " (las que faltan van con puesto 0)");
     }
 
-    // La LLEGADA es el resultado que se paga: se publica solo con las 10 exactas.
-    // Los intermedios se publican incompletos (7, 8, 9) para que la animacion avance.
-    if (job.punto == 8 && static_cast<int>(posiciones.size()) != kTargetSpheres) {
-        Logger::Warning("RankingMeasure: punto=8 llegada incompleta (" +
-                        std::to_string(posiciones.size()) + " de " +
-                        std::to_string(kTargetSpheres) + "), no se publica");
-        m_droppedCount++;
-        result.motivo = "llegada incompleta: " + std::to_string(posiciones.size()) + " de " +
-                        std::to_string(kTargetSpheres);
-        ReportResult(result);
-        return;
-    }
+    // El punto 8 es una MEDICION mas: publica incompleto igual que los intermedios.
+    // Lo que se exige exacto es el FINAL que se calcula con 8 + 7 (punto 10).
 
     // Una sonda de la API de control (/arm) NO publica: solo verifica.
     if (!job.probe) {
