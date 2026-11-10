@@ -1827,7 +1827,7 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
         SnapshotHistory(job.camera, NowEpochMs() - 600, NowEpochMs(), ult);
         if (!ult.empty() && ult.back().epochMs != ultimoEpoch) {
             ultimoEpoch = ult.back().epochMs;
-            if (static_cast<int>(ult.back().dets.size()) >= minDetsArranque) {
+            if (EnZonaCuenta(job.camera, job.punto, ult.back()) >= minDetsArranque) {
                 if (racha == 0) {
                     rachaIni = ultimoEpoch;
                 }
@@ -1848,7 +1848,7 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
             int r = 0;
             int64_t ini = 0;
             for (size_t i = hist.size(); i-- > 0;) {
-                if (static_cast<int>(hist[i].dets.size()) >= minDetsArranque) {
+                if (EnZonaCuenta(job.camera, job.punto, hist[i]) >= minDetsArranque) {
                     if (r == 0) {
                         ini = hist[i].epochMs;
                     }
@@ -1877,6 +1877,7 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
     // Cierre: el pasaje termina (ultimo cuadro sin esferas) o el tablero se queda
     // quieto; en ambos casos tambien vence el plazo.
     const int64_t cierreTope = inicioEvento + plazoMs;
+    int vaciosZona = 0;
     while (!m_stopRequested.load() && NowEpochMs() < cierreTope) {
         std::vector<FrameSample> ult;
         SnapshotHistory(job.camera, NowEpochMs() - 1800, NowEpochMs(), ult);
@@ -1885,9 +1886,16 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
             continue;
         }
         if (!esLlegada) {
-            if (ult.back().dets.empty()) break;          // el pasaje ya salio del cuadro
+            // El pasaje termina cuando la ZONA queda vacia 10 cuadros seguidos
+            // (0,33 s): un cuadro suelto sin detecciones no cierra la toma.
+            if (EnZonaCuenta(job.camera, job.punto, ult.back()) == 0) {
+                if (++vaciosZona >= 10) break;
+            } else {
+                vaciosZona = 0;
+            }
         } else {
-            if (EstableQuieto(ult, 30, 2.0)) break;      // 1 s con las 10 en el mismo lugar
+            if (EnZonaCuenta(job.camera, job.punto, ult.back()) >= kTargetSpheres &&
+                EstableQuieto(ult, 30, 2.0)) break;      // 1 s con las 10 quietas
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
@@ -2499,6 +2507,20 @@ RankingMeasure::RegionTramo RankingMeasure::RegionDe(int camera, int64_t epochMs
 }
 
 // Punto en poligono (ray casting), coordenadas normalizadas 0..1.
+int RankingMeasure::EnZonaCuenta(int camera, int punto, const FrameSample& s) const {
+    auto it = m_zonas.find((camera + 1) * 100 + punto);
+    if (it == m_zonas.end()) {
+        return static_cast<int>(s.dets.size());   // sin zona: cuenta todo
+    }
+    int n = 0;
+    for (const auto& d : s.dets) {
+        if (EnZona(camera, punto, d.x / 1920.0, d.y / 1080.0)) {
+            ++n;
+        }
+    }
+    return n;
+}
+
 // Punto en poligono de la zona del punto (coordenadas normalizadas 0..1).
 bool RankingMeasure::EnZona(int camera, int punto, double cx, double cy) const {
     if (!m_filtrarPorRoi) return true;
@@ -2653,7 +2675,8 @@ bool RankingMeasure::ResolvePositions(int camera, int punto, std::vector<FrameSa
                 std::vector<FrameDetection> dentro;
                 dentro.reserve(s.dets.size());
                 for (const auto& d : s.dets) {
-                    if (EnZona(camera, punto, d.x, d.y)) {
+                    // d.x/d.y vienen en pixeles; la zona esta en 0..1
+                    if (EnZona(camera, punto, d.x / 1920.0, d.y / 1080.0)) {
                         dentro.push_back(d);
                     }
                 }

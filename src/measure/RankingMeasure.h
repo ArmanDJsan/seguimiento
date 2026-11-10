@@ -499,6 +499,9 @@ private:
     // (camara 1-based) * 100 + punto. Si no hay zona para ese punto, no se filtra.
     std::unordered_map<int, std::vector<std::pair<double, double>>> m_zonas;
     bool EnZona(int camera, int punto, double cx, double cy) const;
+    // Cuantas detecciones del cuadro caen en la zona del punto. Las cajas de
+    // FrameSample estan en PIXELES; la zona, normalizada 0..1.
+    int EnZonaCuenta(int camera, int punto, const FrameSample& s) const;
     // Punto que se esta resolviendo: la pared de ROI usa SU zona, no el bloque por
     // reloj. Lo escribe ResolvePositions (hilo medidor, de a una medicion).
     int m_puntoActual = -1;
