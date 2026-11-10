@@ -65,6 +65,11 @@ public:
      * @param posiciones   ballIDs en orden (1er lugar primero)
      * @return true si el datagrama se envio completo
      */
+    void SetRaceId(const std::string& id) {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_state.SetRacePrefix(id);
+    }
+
     bool PublishMeasurePoint(int punto, int64_t frameEpochMs, const std::vector<int>& posiciones);
 
     bool IsEnabled() const { return m_config.enabled; }

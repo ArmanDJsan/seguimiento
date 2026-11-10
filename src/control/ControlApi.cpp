@@ -735,6 +735,9 @@ void ControlApi::HandleArm(const std::string& requestBody, int& status, std::str
         std::lock_guard<std::mutex> lock(m_stateMutex);
         m_state = State::Armed;
         m_raceId = raceId;
+        if (m_measure) {
+            m_measure->SetRaceId(raceId);
+        }
         m_t0 = 0;
     }
     // Identidades limpias para la carrera: las dos sondas dejaron tracks propios.

@@ -229,6 +229,9 @@ public:
      *  La toma no abre hasta que pase ptzSettleMs. Se llama desde la coreografia. */
     void MarcarMovimiento(int camera);
 
+    /** El race_id que manda el backend: se usa como prefijo del seq que va a Touch. */
+    void SetRaceId(const std::string& id);
+
     /**
      * Resultado de UNA medicion, para observadores externos (API de control).
      * No cambia en nada la medicion: es un aviso de lo que ya se resolvio.

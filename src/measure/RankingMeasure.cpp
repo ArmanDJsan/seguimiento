@@ -255,6 +255,12 @@ void NotificarMovimiento(int camera) {
     }
 }
 
+void RankingMeasure::SetRaceId(const std::string& id) {
+    if (m_publisher) {
+        m_publisher->SetRaceId(id);
+    }
+}
+
 void RankingMeasure::MarcarMovimiento(int camera) {
     if (camera < 0 || camera >= kMaxCameras) {
         return;

@@ -50,6 +50,19 @@ struct RankingState {
     // se consiguen van AL FINAL con id 0 (indeterminado), sin huecos en el medio.
     std::vector<int> lastRanking;
     uint32_t seq = 0;
+    // Prefijo del seq: el race_id (solo digitos). El paquete sale con seq
+    // compuesto: race_id + secuencia del punto (19292 + 1 -> 192921), asi el
+    // receptor distingue carreras sin reiniciar el contador.
+    std::string racePrefix;
+
+    void SetRacePrefix(const std::string& id) {
+        racePrefix.clear();
+        for (char ch : id) {
+            if (ch >= '0' && ch <= '9') {
+                racePrefix.push_back(ch);
+            }
+        }
+    }
 
     void Reset() {
         lastPuesto.fill(0);
@@ -104,7 +117,13 @@ struct RankingState {
      */
     std::string BuildPayload() const {
         std::ostringstream oss;
-        oss << "{\"type\":\"ranking\",\"seq\":" << seq << ",\"canicas\":[";
+        oss << "{\"type\":\"ranking\",\"seq\":";
+        if (racePrefix.empty()) {
+            oss << seq;
+        } else {
+            oss << racePrefix << seq;
+        }
+        oss << ",\"canicas\":[";
 
         // Se serializa POR PUESTO: 1..10. Las canicas que se resolvieron van en su
         // orden; las que no se consiguieron van al final con id 0 (indeterminado),
