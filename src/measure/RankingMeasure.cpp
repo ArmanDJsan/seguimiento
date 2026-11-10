@@ -2571,7 +2571,10 @@ double RankingMeasure::AvanceEn(int camera, int64_t epochMs, double cx, double c
                 const double tt = kk / 9.0;
                 const double mx = cx + (t.pts[i - 1].first - cx) * tt;
                 const double my = cy + (t.pts[i - 1].second - cy) * tt;
-                if (!EnPista(camera, epochMs, mx, my)) { cruza = true; break; }
+                const bool dentroPared = (m_puntoActual > 0)
+                    ? EnZona(camera, m_puntoActual, mx, my)
+                    : EnPista(camera, epochMs, mx, my);
+                if (!dentroPared) { cruza = true; break; }
             }
             if (cruza) continue;
         }
@@ -2625,6 +2628,7 @@ bool RankingMeasure::ResolvePositions(int camera, int punto, std::vector<FrameSa
                                       int64_t& resolvedEpochMs) {
     posiciones.clear();
     resolvedEpochMs = 0;
+    m_puntoActual = punto;
 
     // CAMARA EN MOVIMIENTO: los cuadros del barrido quedan en la toma pero NO se
     // rastrean ni votan. Se marcan, no se borran: la cuenta total y el clip siguen
