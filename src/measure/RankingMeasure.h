@@ -403,6 +403,9 @@ private:
         int64_t epochMs = 0;
         std::vector<FrameDetection> dets;
         std::vector<int> trackOf;
+        // Cuadro de un barrido de PTZ: queda en la cuenta y en el clip, pero no
+        // entra al rastreo ni al voto. No se borra: se anota.
+        bool enBarrido = false;
     };
 
     // Esfera fisica seguida por movimiento durante la rafaga. Acumula el voto de

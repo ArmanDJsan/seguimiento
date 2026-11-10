@@ -1957,11 +1957,18 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
         m_llegadaPunto[job.punto] = posiciones;
     }
 
+    int barridos = 0;
+    for (const auto& s : samples) {
+        if (s.enBarrido) {
+            ++barridos;
+        }
+    }
     {
         std::ostringstream oss;
         oss << "RankingMeasure: punto=" << job.punto
             << " camara=" << job.camera
             << " frames=" << samples.size()
+            << " barrido=" << barridos
             << " maxDetecciones=" << MaxDetections(samples)
             << " t=" << resolvedEpochMs
             << " posiciones=[";
@@ -2619,15 +2626,17 @@ bool RankingMeasure::ResolvePositions(int camera, int punto, std::vector<FrameSa
     posiciones.clear();
     resolvedEpochMs = 0;
 
-    // CAMARA EN MOVIMIENTO: los cuadros del barrido no entran a la toma.
+    // CAMARA EN MOVIMIENTO: los cuadros del barrido quedan en la toma pero NO se
+    // rastrean ni votan. Se marcan, no se borran: la cuenta total y el clip siguen
+    // cuadrando con lo que la camara mando.
     {
         const int64_t movHasta = m_movHasta[camera].load(std::memory_order_relaxed);
         if (movHasta > 0) {
-            samples.erase(std::remove_if(samples.begin(), samples.end(),
-                                         [movHasta](const FrameSample& s) {
-                                             return s.epochMs < movHasta;
-                                         }),
-                          samples.end());
+            for (auto& s : samples) {
+                if (s.epochMs < movHasta) {
+                    s.enBarrido = true;
+                }
+            }
         }
     }
 
@@ -2658,7 +2667,7 @@ bool RankingMeasure::ResolvePositions(int camera, int punto, std::vector<FrameSa
     int validos = 0;
     for (auto& sample : samples) {
         sample.trackOf.assign(sample.dets.size(), -1);
-        if (sample.dets.empty()) {
+        if (sample.dets.empty() || sample.enBarrido) {
             continue;
         }
         MatchFrameByMotion(sample);
@@ -2801,6 +2810,9 @@ bool RankingMeasure::ResolvePositions(int camera, int punto, std::vector<FrameSa
     std::vector<int> vecesX(n, 0);
 
     for (const auto& sample : samples) {
+        if (sample.enBarrido) {
+            continue;
+        }
         // Avance sobre la pista (no x): el vector de cada tramo dice para donde
         // va el grupo. Sin calibracion cae a x, como antes.
         const VectorTramo tv = VectorDe(camera, sample.epochMs);
