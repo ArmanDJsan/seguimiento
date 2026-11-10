@@ -56,6 +56,11 @@ constexpr size_t kMaxTracks = 40;       // techo de identidades provisorias
 // un cuadro suelto (fantasma, reflejo) no arranca la toma.
 constexpr int kCuadrosArranque = 3;
 
+// Hasta donde se busca hacia atras el evento cuando el trabajo espero en la cola.
+// El medidor es UN hilo: un punto puede arrancar 10-20 s despues de que el grupo
+// paso, y el evento ya no esta en el cuadro actual.
+constexpr int64_t kBusquedaAtrasMs = 30000;
+
 // Tope de avance de una esfera sobre el recorrido, por cuadro (recorrido
 // normalizado: 0,08 ~ 154 px de 1920). Medido en la carrera 20261109-160220:
 // el avance real por cuadro tiene mediana 0,000 / p90 0,010 / p99 0,024, asi
@@ -1790,6 +1795,7 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
     int racha = 0;
     int64_t rachaIni = 0;
     int64_t ultimoEpoch = 0;
+    int sondeos = 0;
     while (!m_stopRequested.load() && NowEpochMs() < topeAbs) {
         std::vector<FrameSample> ult;
         SnapshotHistory(job.camera, NowEpochMs() - 600, NowEpochMs(), ult);
@@ -1806,6 +1812,33 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
                 }
             } else {
                 racha = 0;
+            }
+        }
+        // Cada 200 ms: si el pasaje ya ocurrio y estamos tarde (esperamos en la cola),
+        // se toma la ultima racha COMPLETA del historial. Es solo leer.
+        if (inicioEvento == 0 && (++sondeos % 20) == 0) {
+            std::vector<FrameSample> hist;
+            SnapshotHistory(job.camera, NowEpochMs() - kBusquedaAtrasMs, NowEpochMs(), hist);
+            int r = 0;
+            int64_t ini = 0;
+            for (size_t i = hist.size(); i-- > 0;) {
+                if (static_cast<int>(hist[i].dets.size()) >= minDetsArranque) {
+                    if (r == 0) {
+                        ini = hist[i].epochMs;
+                    }
+                    ++r;
+                } else {
+                    if (r >= kCuadrosArranque) {
+                        inicioEvento = ini;   // pasaje completo: entro y salio
+                        break;
+                    }
+                    r = 0;
+                }
+            }
+            if (inicioEvento != 0) {
+                Logger::Info("RankingMeasure: punto=" + std::to_string(job.punto) +
+                             " evento encontrado hacia atras en el historial");
+                break;
             }
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
