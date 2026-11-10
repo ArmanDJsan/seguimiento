@@ -40,6 +40,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <unordered_map>
 
 #include "../ai/InferenceEngine.h"
 #include "RankingPublisher.h"
@@ -439,7 +440,7 @@ private:
     void ProcessJob(const MeasureJob& job);
 
 
-    bool ResolvePositions(int camera, std::vector<FrameSample>& samples,
+    bool ResolvePositions(int camera, int punto, std::vector<FrameSample>& samples,
                           std::vector<int>& posiciones, int64_t& resolvedEpochMs);
 
     // Direccion de avance sobre la pista, leida de env_calibracion
@@ -479,6 +480,11 @@ private:
     bool EnPista(int camera, int64_t epochMs, double cx, double cy) const;
     std::vector<RegionTramo> m_regiones[4];
     bool m_filtrarPorRoi = true;
+    // ZONA POR PUNTO (CAM<camera>_P<punto> de env_calibracion): el filtro deja de
+    // depender del reloj y pasa a depender del punto que se esta midiendo. Clave =
+    // (camara 1-based) * 100 + punto. Si no hay zona para ese punto, no se filtra.
+    std::unordered_map<int, std::vector<std::pair<double, double>>> m_zonas;
+    bool EnZona(int camera, int punto, double cx, double cy) const;
     // ROI como pared: no se acepta un tramo si la recta esfera->tramo sale del
     // poligono. Apagado por defecto (se activa por config).
     bool m_paredRoi = false;

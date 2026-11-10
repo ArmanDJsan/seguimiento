@@ -1911,7 +1911,7 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
 
     std::vector<int> posiciones;
     int64_t resolvedEpochMs = 0;
-    if (!ResolvePositions(job.camera, samples, posiciones, resolvedEpochMs)) {
+    if (!ResolvePositions(job.camera, job.punto, samples, posiciones, resolvedEpochMs)) {
         Logger::Warning("RankingMeasure: punto=" + std::to_string(job.punto) +
                         " sin detecciones en la rafaga, se descarta");
         m_droppedCount++;
@@ -2106,19 +2106,9 @@ void RankingMeasure::OnDetections(int camera, int64_t epochMs,
         }
     }
 
-    // FILTRO POR ROI: lo que cae fuera del poligono del bloque no cuenta, no entra
-    // al ranking y no se guarda en el historial. Trabaja sobre las cajas ya
-    // inferidas (CPU, microsegundos): el camino zero-copy no se toca.
-    if (m_filtrarPorRoi) {
-        std::vector<BallDetection> enPista;
-        enPista.reserve(unicas.size());
-        for (const auto& det : unicas) {
-            if (EnPista(camera, epochMs, det.x, det.y)) {
-                enPista.push_back(det);
-            }
-        }
-        unicas.swap(enPista);
-    }
+    // El filtro por ROI YA NO se hace aca: se guardan todas las cajas del cuadro y
+    // cada punto recorta a SU zona al medir (EnZona). Asi el filtro no depende del
+    // reloj ni de que la camara ya se haya movido.
 
     MuestraCamara muestra;
     muestra.epochMs = epochMs;
@@ -2192,7 +2182,7 @@ void RankingMeasure::ConsolidarLlegada(int64_t epochMs) {
         std::vector<FrameSample> muestras;
         SnapshotHistory(cam, desde, ahora, muestras);
         int64_t t = 0;
-        if (!muestras.empty() && ResolvePositions(cam, muestras, pos, t)) {
+        if (!muestras.empty() && ResolvePositions(cam, (cam == 0) ? 8 : 7, muestras, pos, t)) {
             Logger::Info("RankingMeasure: finalizar reconstruyo camara " + std::to_string(cam + 1) +
                          " con " + std::to_string(muestras.size()) + " cuadros -> " +
                          std::to_string(pos.size()) + " posiciones");
@@ -2318,12 +2308,41 @@ void RankingMeasure::LoadTrackVectors() {
     }
     int cargados = 0;
     int regiones = 0;
+    int zonas = 0;
     std::string line;
     while (std::getline(f, line)) {
         const size_t eq = line.find('=');
         if (eq == std::string::npos) continue;
         const std::string key = line.substr(0, eq);
         const std::string val = line.substr(eq + 1);
+
+        // ---- zona por punto (CAM2_P3=...) : mismo poligono, atado al punto ----
+        if (key.find("_ROI") == std::string::npos && key.rfind("CAM", 0) == 0 &&
+            key.find("_P") != std::string::npos) {
+            const int zcam = std::atoi(key.c_str() + 3);
+            const size_t up = key.find("_P");
+            const int zpunto = std::atoi(key.c_str() + up + 2);
+            if (zcam >= 1 && zcam <= 4 && zpunto > 0) {
+                std::vector<std::pair<double, double>> zp;
+                size_t jz = 0;
+                while (jz < val.size()) {
+                    const size_t scz = val.find(';', jz);
+                    const std::string trozo = val.substr(jz, scz == std::string::npos ? std::string::npos : scz - jz);
+                    const size_t comaz = trozo.find(',');
+                    if (comaz != std::string::npos) {
+                        zp.push_back({std::atof(trozo.substr(0, comaz).c_str()),
+                                      std::atof(trozo.substr(comaz + 1).c_str())});
+                    }
+                    if (scz == std::string::npos) break;
+                    jz = scz + 1;
+                }
+                if (zp.size() >= 3) {
+                    m_zonas[zcam * 100 + zpunto] = zp;
+                    ++zonas;
+                }
+            }
+            continue;
+        }
 
         // ---- poligono de la pista (CAM1_ROI_0_7=...) ----
         if (key.find("_ROI") != std::string::npos) {
@@ -2418,8 +2437,9 @@ void RankingMeasure::LoadTrackVectors() {
         ++cargados;
     }
     Logger::Info("RankingMeasure: " + std::to_string(cargados) +
-                 " vectores de pista y " + std::to_string(regiones) +
-                 " regiones ROI cargados de " + usada);
+                 " vectores de pista, " + std::to_string(regiones) +
+                 " regiones ROI y " + std::to_string(zonas) +
+                 " zonas por punto cargados de " + usada);
 }
 
 RankingMeasure::RegionTramo RankingMeasure::RegionDe(int camera, int64_t epochMs) const {
@@ -2445,6 +2465,27 @@ RankingMeasure::RegionTramo RankingMeasure::RegionDe(int camera, int64_t epochMs
 }
 
 // Punto en poligono (ray casting), coordenadas normalizadas 0..1.
+// Punto en poligono de la zona del punto (coordenadas normalizadas 0..1).
+bool RankingMeasure::EnZona(int camera, int punto, double cx, double cy) const {
+    if (!m_filtrarPorRoi) return true;
+    auto it = m_zonas.find((camera + 1) * 100 + punto);
+    if (it == m_zonas.end()) return true;
+    const auto& pts = it->second;
+    const size_t n = pts.size();
+    bool dentro = false;
+    for (size_t i = 0, j = n - 1; i < n; j = i++) {
+        const double xi = pts[i].first, yi = pts[i].second;
+        const double xj = pts[j].first, yj = pts[j].second;
+        if ((yi > cy) != (yj > cy)) {
+            const double xc = xi + (cy - yi) * (xj - xi) / (yj - yi);
+            if (cx < xc) {
+                dentro = !dentro;
+            }
+        }
+    }
+    return dentro;
+}
+
 bool RankingMeasure::EnPista(int camera, int64_t epochMs, double cx, double cy) const {
     if (!m_filtrarPorRoi) return true;
     const RegionTramo r = RegionDe(camera, epochMs);
@@ -2545,11 +2586,29 @@ RankingMeasure::VectorTramo RankingMeasure::VectorDe(int camera, int64_t epochMs
     return *mejor;
 }
 
-bool RankingMeasure::ResolvePositions(int camera, std::vector<FrameSample>& samples,
+bool RankingMeasure::ResolvePositions(int camera, int punto, std::vector<FrameSample>& samples,
                                       std::vector<int>& posiciones,
                                       int64_t& resolvedEpochMs) {
     posiciones.clear();
     resolvedEpochMs = 0;
+
+    // ZONA DEL PUNTO: se recorta la muestra al poligono de (camara, punto). Si el
+    // punto no tiene zona calibrada, no se filtra nada.
+    if (m_filtrarPorRoi && punto > 0) {
+        auto itz = m_zonas.find((camera + 1) * 100 + punto);
+        if (itz != m_zonas.end()) {
+            for (auto& s : samples) {
+                std::vector<FrameDetection> dentro;
+                dentro.reserve(s.dets.size());
+                for (const auto& d : s.dets) {
+                    if (EnZona(camera, punto, d.x, d.y)) {
+                        dentro.push_back(d);
+                    }
+                }
+                s.dets.swap(dentro);
+            }
+        }
+    }
 
     ResetIdentity();
 
