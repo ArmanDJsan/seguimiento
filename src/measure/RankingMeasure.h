@@ -142,6 +142,11 @@ struct RankingMeasureConfig {
     // false = publica igual, marcado como provisorio (solo para armar/validar).
     bool strictClasses = true;
 
+    // Bloqueo tras llamar un preset PTZ: el barrido dura ~0,5 s (medido cuadro a
+    // cuadro) y en esos cuadros el poligono de destino pasa sobre esferas que no
+    // son del tramo. Durante este tiempo la toma no abre y los cuadros no entran.
+    int ptzSettleMs = 1000;
+
     // Evidencia: guardar los cuadros de la rafaga en disco (UYVY crudo) y armar
     // el MP4 con ffmpeg si esta en PATH. Apagado por defecto.
     bool saveClip = false;
@@ -219,6 +224,10 @@ public:
     // (1920x1080 UYVY = 4,15 MB), asi que se reserva una vez en Initialize y
     // nunca se reasigna (el hilo medidor es unico y lo usa en serie).
     static constexpr size_t kMaxFrameBytes = 1920u * 1080u * 2u;
+
+    /** Aviso del PTZ: esta camara acaba de cambiar de preset y se esta moviendo.
+     *  La toma no abre hasta que pase ptzSettleMs. Se llama desde la coreografia. */
+    void MarcarMovimiento(int camera);
 
     /**
      * Resultado de UNA medicion, para observadores externos (API de control).
@@ -428,6 +437,8 @@ private:
     // linea de tiempo), se abre con el primer cuadro de ESA camara en
     // OnDetections.
     std::array<int, kMaxCameras> m_ventanaPunto;
+    // Hasta cuando cada camara se considera en movimiento (epoch ms).
+    std::array<std::atomic<int64_t>, kMaxCameras> m_movHasta;
     // El estado de los clips lo tocan 3 hilos (coreografia, captura, medidor).
     std::mutex m_clipMutex;
     bool m_clipToolOk = false;   // ffmpeg responde (probado UNA vez en Initialize)
@@ -689,5 +700,8 @@ private:
  */
 RankingMeasure* AttachedCoordinator();
 void AttachCoordinator(RankingMeasure* coordinator);
+
+// Aviso de la coreografia: la camara cambio de preset y se esta moviendo.
+void NotificarMovimiento(int camera);
 
 } // namespace Measure

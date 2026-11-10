@@ -248,6 +248,24 @@ void AttachCoordinator(RankingMeasure* coordinator) {
     g_attachedCoordinator.store(coordinator, std::memory_order_release);
 }
 
+void NotificarMovimiento(int camera) {
+    RankingMeasure* c = g_attachedCoordinator.load(std::memory_order_acquire);
+    if (c != nullptr) {
+        c->MarcarMovimiento(camera);
+    }
+}
+
+void RankingMeasure::MarcarMovimiento(int camera) {
+    if (camera < 0 || camera >= kMaxCameras) {
+        return;
+    }
+    const int64_t hasta = NowEpochMs() + m_config.ptzSettleMs;
+    m_movHasta[camera].store(hasta, std::memory_order_relaxed);
+    Logger::Info("RankingMeasure: camara " + std::to_string(camera + 1) +
+                 " en movimiento " + std::to_string(m_config.ptzSettleMs) +
+                 " ms (la toma no abre hasta que se asiente)");
+}
+
 // ============================================================================
 // RankingMeasure
 // ============================================================================
@@ -255,6 +273,9 @@ void AttachCoordinator(RankingMeasure* coordinator) {
 RankingMeasure::RankingMeasure() {
     // -1 = esa camara no tiene ventana pedida.
     m_ventanaPunto.fill(-1);
+    for (auto& m : m_movHasta) {
+        m.store(0);
+    }
 }
 
 RankingMeasure::~RankingMeasure() {
@@ -1797,6 +1818,11 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
     int64_t ultimoEpoch = 0;
     int sondeos = 0;
     while (!m_stopRequested.load() && NowEpochMs() < topeAbs) {
+        // Camara moviendose: no se abre nada todavia.
+        if (NowEpochMs() < m_movHasta[job.camera].load(std::memory_order_relaxed)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            continue;
+        }
         std::vector<FrameSample> ult;
         SnapshotHistory(job.camera, NowEpochMs() - 600, NowEpochMs(), ult);
         if (!ult.empty() && ult.back().epochMs != ultimoEpoch) {
@@ -1828,7 +1854,8 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
                     }
                     ++r;
                 } else {
-                    if (r >= kCuadrosArranque) {
+                    if (r >= kCuadrosArranque &&
+                        ini >= m_movHasta[job.camera].load(std::memory_order_relaxed)) {
                         inicioEvento = ini;   // pasaje completo: entro y salio
                         break;
                     }
@@ -2591,6 +2618,18 @@ bool RankingMeasure::ResolvePositions(int camera, int punto, std::vector<FrameSa
                                       int64_t& resolvedEpochMs) {
     posiciones.clear();
     resolvedEpochMs = 0;
+
+    // CAMARA EN MOVIMIENTO: los cuadros del barrido no entran a la toma.
+    {
+        const int64_t movHasta = m_movHasta[camera].load(std::memory_order_relaxed);
+        if (movHasta > 0) {
+            samples.erase(std::remove_if(samples.begin(), samples.end(),
+                                         [movHasta](const FrameSample& s) {
+                                             return s.epochMs < movHasta;
+                                         }),
+                          samples.end());
+        }
+    }
 
     // ZONA DEL PUNTO: se recorta la muestra al poligono de (camara, punto). Si el
     // punto no tiene zona calibrada, no se filtra nada.

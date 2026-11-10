@@ -5,6 +5,8 @@
  */
 
 #include "ChoreographyEngine.h"
+
+namespace Measure { void NotificarMovimiento(int camera); }
 #include "../control/VMixController.h"
 #include "../control/PTZController.h"
 #include "../control/TrackPhysicalController.h"
@@ -559,6 +561,7 @@ EventResult ChoreographyEngine::ExecuteEventInternal(const ChoreographyEvent& ev
                                   " (index=" + std::to_string(cameraIndex) +
                                   ") preset=" + std::to_string(params->presetNumber));
                     auto viscaResult = m_ptzController->CallPreset(cameraIndex, params->presetNumber);
+                    Measure::NotificarMovimiento(cameraIndex);
                     result.success = viscaResult.success;
                     if (!result.success) {
                         result.errorMessage = "PTZ preset failed: " + viscaResult.errorMessage;

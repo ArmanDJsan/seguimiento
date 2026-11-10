@@ -735,6 +735,7 @@ Config LoadConfig(const std::string& path) {
             if (rm.contains("race_seconds")) config.rankingMeasureConfig.raceSeconds = rm["race_seconds"].get<int>();
             if (rm.contains("ffmpeg_cmd")) config.rankingMeasureConfig.ffmpegCmd = rm["ffmpeg_cmd"].get<std::string>();
             if (rm.contains("strict_classes")) config.rankingMeasureConfig.strictClasses = rm["strict_classes"].get<bool>();
+            if (rm.contains("ptz_settle_ms")) config.rankingMeasureConfig.ptzSettleMs = rm["ptz_settle_ms"].get<int>();
             // Quemar las cajas del detector en los MP4 (clips y carrera). Se
             // dibujan al comprimir, desde las detecciones ya guardadas: no toca
             // la captura ni el zero-copy. Apagado por defecto.
