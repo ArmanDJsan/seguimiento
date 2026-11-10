@@ -1934,6 +1934,19 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
                      " (las que faltan van con puesto 0)");
     }
 
+    // La LLEGADA es el resultado que se paga: se publica solo con las 10 exactas.
+    // Los intermedios se publican incompletos (7, 8, 9) para que la animacion avance.
+    if (job.punto == 8 && static_cast<int>(posiciones.size()) != kTargetSpheres) {
+        Logger::Warning("RankingMeasure: punto=8 llegada incompleta (" +
+                        std::to_string(posiciones.size()) + " de " +
+                        std::to_string(kTargetSpheres) + "), no se publica");
+        m_droppedCount++;
+        result.motivo = "llegada incompleta: " + std::to_string(posiciones.size()) + " de " +
+                        std::to_string(kTargetSpheres);
+        ReportResult(result);
+        return;
+    }
+
     // Una sonda de la API de control (/arm) NO publica: solo verifica.
     if (!job.probe) {
         if (m_publisher && m_publisher->PublishMeasurePoint(job.punto, resolvedEpochMs, posiciones)) {
@@ -2218,6 +2231,12 @@ void RankingMeasure::ConsolidarLlegada(int64_t epochMs) {
     if (elegido.empty()) return;
     Logger::Info("RankingMeasure: finalizar -> " + std::to_string(elegido.size()) +
                  " posiciones" + (nota.empty() ? "" : " (" + nota + ")"));
+    if (static_cast<int>(elegido.size()) != kTargetSpheres) {
+        Logger::Warning("RankingMeasure: finalizar NO publica: " +
+                        std::to_string(elegido.size()) + " de " +
+                        std::to_string(kTargetSpheres) + " posiciones (el final se exige exacto)");
+        return;
+    }
     if (m_publisher) {
         m_publisher->PublishMeasurePoint(10, epochMs, elegido);
         m_measureCount++;
@@ -2550,9 +2569,99 @@ bool RankingMeasure::ResolvePositions(int camera, std::vector<FrameSample>& samp
             idx.push_back(i);
         }
     }
-    const int n = static_cast<int>(idx.size());
+    int n = static_cast<int>(idx.size());
     if (n == 0) {
         return false;
+    }
+
+    // 3) DEDUPE POR CLASE. Dos pistas con la MISMA clase que nunca aparecen juntas en
+    //    un cuadro son la misma esfera partida por un reinicio de identidad: se queda
+    //    la de mas cuadros y se suman sus votos al voto final. Si coinciden en algun
+    //    cuadro son dos esferas distintas (una mal etiquetada) y se dejan las dos:
+    //    cual sobra lo decide el voto, no este paso.
+    if (n > 1) {
+        std::vector<int> clase(n, -1);
+        std::unordered_map<int, int> idAK;
+        idAK.reserve(static_cast<size_t>(n) * 2);
+        for (int k = 0; k < n; ++k) {
+            clase[k] = ArgMaxClass(m_tracks[idx[k]]);
+            idAK[m_tracks[idx[k]].id] = k;
+        }
+        std::vector<bool> juntas(static_cast<size_t>(n) * static_cast<size_t>(n), false);
+        std::vector<int> presentes;
+        for (const auto& s : samples) {
+            presentes.clear();
+            for (int id : s.trackOf) {
+                auto it = idAK.find(id);
+                if (it != idAK.end()) {
+                    presentes.push_back(it->second);
+                }
+            }
+            for (size_t p = 0; p < presentes.size(); ++p) {
+                for (size_t q = p + 1; q < presentes.size(); ++q) {
+                    if (presentes[p] == presentes[q]) {
+                        continue;
+                    }
+                    juntas[static_cast<size_t>(presentes[p]) * n + presentes[q]] = true;
+                    juntas[static_cast<size_t>(presentes[q]) * n + presentes[p]] = true;
+                }
+            }
+        }
+        std::vector<int> padre(n);
+        for (int k = 0; k < n; ++k) {
+            padre[k] = k;
+        }
+        auto raiz = [&padre](int x) {
+            while (padre[x] != x) {
+                padre[x] = padre[padre[x]];
+                x = padre[x];
+            }
+            return x;
+        };
+        for (int i = 0; i < n; ++i) {
+            if (clase[i] < 0) {
+                continue;
+            }
+            for (int j = i + 1; j < n; ++j) {
+                if (clase[j] != clase[i]) {
+                    continue;
+                }
+                if (juntas[static_cast<size_t>(i) * n + j]) {
+                    continue;   // se ven juntas: son dos esferas distintas
+                }
+                const int ri = raiz(i);
+                const int rj = raiz(j);
+                if (ri != rj) {
+                    padre[rj] = ri;
+                }
+            }
+        }
+        std::unordered_map<int, int> ganador;   // raiz -> pista con mas cuadros
+        for (int k = 0; k < n; ++k) {
+            const int r = raiz(k);
+            auto it = ganador.find(r);
+            if (it == ganador.end() ||
+                m_tracks[idx[k]].frames > m_tracks[idx[it->second]].frames) {
+                ganador[r] = k;
+            }
+        }
+        std::vector<size_t> idx2;
+        idx2.reserve(idx.size());
+        for (int k = 0; k < n; ++k) {
+            if (ganador[raiz(k)] == k) {
+                idx2.push_back(idx[k]);
+            }
+        }
+        if (idx2.size() < idx.size()) {
+            Logger::Info("RankingMeasure: dedupe por clase: " +
+                         std::to_string(idx.size() - idx2.size()) +
+                         " pista(s) fusionadas (quedan " + std::to_string(idx2.size()) + ")");
+        }
+        idx.swap(idx2);
+        n = static_cast<int>(idx.size());
+        if (n == 0) {
+            return false;
+        }
     }
 
     auto posDeId = [&idx, this](int id) -> int {
