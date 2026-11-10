@@ -41,6 +41,7 @@
 
 #include "../ai/InferenceEngine.h"
 #include "RankingPublisher.h"
+#include "MeasureClipWriter.h"
 
 namespace Measure {
 
@@ -135,6 +136,15 @@ private:
 struct RankingMeasureConfig {
     int burstMs = 400;   // rafaga corta de medicion por punto
     int maxMs = 2000;    // techo si no salen las 10 esferas
+
+    // Evidencia de la rafaga (mismo bloque "ranking_measure"). save_burst viene
+    // APAGADO: se prende por config cuando se quiere el clip de cada punto.
+    // Ver MeasureClipWriter (JPEG con WIC; MP4 si hay ffmpeg.exe).
+    bool saveBurst = false;                        // save_burst
+    std::string saveDir = "measure_clips";         // save_dir
+    int saveMaxFrames = 90;                        // save_max_frames (3 s @30fps)
+    int saveJpegQuality = 85;                      // save_jpeg_quality
+    int saveFps = 30;                              // save_fps (solo para el MP4)
 };
 
 /**
@@ -260,6 +270,10 @@ private:
 
     // Publisher UDP (1 datagrama por punto)
     std::unique_ptr<RankingPublisher> m_publisher;
+
+    // Evidencia (save_burst): hilo escritor de los cuadros de la rafaga.
+    // nullptr = apagado (default). Si el escritor falla se apaga solo.
+    std::unique_ptr<MeasureClipWriter> m_clipWriter;
 
     // Defaults de medicion (bloque "ranking_measure"); el evento gana si trae
     // burst_ms/max_ms propios.

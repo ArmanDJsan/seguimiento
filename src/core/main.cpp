@@ -715,6 +715,12 @@ Config LoadConfig(const std::string& path) {
             auto& rm = j["ranking_measure"];
             if (rm.contains("burst_ms")) config.rankingMeasureConfig.burstMs = rm["burst_ms"].get<int>();
             if (rm.contains("max_ms")) config.rankingMeasureConfig.maxMs = rm["max_ms"].get<int>();
+            // Evidencia de la rafaga (clips): apagado por default.
+            if (rm.contains("save_burst")) config.rankingMeasureConfig.saveBurst = rm["save_burst"].get<bool>();
+            if (rm.contains("save_dir")) config.rankingMeasureConfig.saveDir = rm["save_dir"].get<std::string>();
+            if (rm.contains("save_max_frames")) config.rankingMeasureConfig.saveMaxFrames = rm["save_max_frames"].get<int>();
+            if (rm.contains("save_jpeg_quality")) config.rankingMeasureConfig.saveJpegQuality = rm["save_jpeg_quality"].get<int>();
+            if (rm.contains("save_fps")) config.rankingMeasureConfig.saveFps = rm["save_fps"].get<int>();
             Logger::Info("RankingMeasure config: burst=" +
                         std::to_string(config.rankingMeasureConfig.burstMs) + "ms, max=" +
                         std::to_string(config.rankingMeasureConfig.maxMs) + "ms");

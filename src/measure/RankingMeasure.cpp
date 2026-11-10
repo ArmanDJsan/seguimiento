@@ -268,7 +268,22 @@ bool RankingMeasure::Initialize(const RankingPublisherConfig& pubConfig,
     }
     m_deviceFrameBytes = kMaxFrameBytes;
 
-    // 5. Hilo medidor
+    // 5. Evidencia de la rafaga (save_burst): hilo escritor propio. Apagado por
+    //    default. Si arranca mal, se apaga solo y la medicion sigue igual.
+    if (m_config.saveBurst) {
+        MeasureClipConfig clipConfig;
+        clipConfig.save = true;
+        clipConfig.dir = m_config.saveDir;
+        clipConfig.maxFrames = m_config.saveMaxFrames;
+        clipConfig.jpegQuality = m_config.saveJpegQuality;
+        clipConfig.fps = m_config.saveFps;
+        m_clipWriter = std::make_unique<MeasureClipWriter>(clipConfig);
+        if (!m_clipWriter->Start()) {
+            m_clipWriter.reset();
+        }
+    }
+
+    // 6. Hilo medidor
     m_worker = std::jthread([this](std::stop_token stopToken) {
         WorkerThreadFunc(stopToken);
     });
@@ -295,7 +310,13 @@ void RankingMeasure::Shutdown() {
         m_queue.clear();
     }
 
-    // 2. Anillos pinned
+    // 2. Evidencia: cerrar el hilo escritor antes de liberar GPU/stream.
+    if (m_clipWriter) {
+        m_clipWriter->Stop();
+        m_clipWriter.reset();
+    }
+
+    // 3. Anillos pinned
     for (auto& ring : m_rings) {
         if (ring) {
             ring->Shutdown();
@@ -303,20 +324,20 @@ void RankingMeasure::Shutdown() {
         }
     }
 
-    // 3. Buffer propio de device
+    // 4. Buffer propio de device
     if (m_deviceFrame) {
         cudaFree(m_deviceFrame);
         m_deviceFrame = nullptr;
         m_deviceFrameBytes = 0;
     }
 
-    // 4. Stream propio
+    // 5. Stream propio
     if (m_inferenceStream) {
         cudaStreamDestroy(m_inferenceStream);
         m_inferenceStream = nullptr;
     }
 
-    // 5. Publisher UDP
+    // 6. Publisher UDP
     if (m_publisher) {
         m_publisher->Shutdown();
         m_publisher.reset();
@@ -452,6 +473,22 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
         return;
     }
 
+    // Evidencia (save_burst): el clip cubre exactamente la rafaga de este punto.
+    // El guardia lo cierra en CUALQUIER salida (publicado, descartado, retorno
+    // temprano): una carpeta por punto y por corrida.
+    struct ClipGuard {
+        explicit ClipGuard(MeasureClipWriter* w) : writer(w) {}
+        ~ClipGuard() {
+            if (writer) {
+                writer->EndClip();
+            }
+        }
+        MeasureClipWriter* writer;
+    } clipGuard(m_clipWriter.get());
+    if (m_clipWriter) {
+        m_clipWriter->BeginClip(job.punto, ring->Width(), ring->Height());
+    }
+
     const int64_t t0 = job.requestedEpochMs;
     const int64_t burstEnd = t0 + job.burstMs;
     const int64_t hardEnd = t0 + job.maxMs;
@@ -550,6 +587,15 @@ bool RankingMeasure::IngestFrame(FrameRing* ring, int64_t index, FrameSample& ou
         ring->Width(),
         ring->Height(),
         m_inferenceStream);
+
+    // Evidencia (save_burst): el MISMO cuadro que se acaba de inferir va al hilo
+    // escritor. Se engancha DESPUES de ProcessFrameUYVY (que ya sincronizo el
+    // stream): la copia D2H se encola al final, no retrasa la inferencia, y queda
+    // ordenada antes del proximo CopyToDevice (asi no se pisa m_deviceFrame).
+    // StageFrame no espera: memcpy async + event + push a una cola de tope 2.
+    if (m_clipWriter) {
+        m_clipWriter->StageFrame(m_deviceFrame, ring->FrameBytes(), m_inferenceStream);
+    }
 
     if (detections.empty()) {
         out.epochMs = epochMs;

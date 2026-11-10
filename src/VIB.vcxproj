@@ -137,6 +137,7 @@
     <ClCompile Include="verification\SphereVerifier.cpp" />
     <ClCompile Include="verification\ArrivalOrderStabilizer.cpp" />
     <ClCompile Include="measure\RankingMeasure.cpp" />
+    <ClCompile Include="measure\MeasureClipWriter.cpp" />
     <ClCompile Include="measure\RankingPublisher.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -187,6 +188,7 @@
     <ClInclude Include="verification\SphereVerifier.h" />
     <ClInclude Include="verification\ArrivalOrderStabilizer.h" />
     <ClInclude Include="measure\RankingMeasure.h" />
+    <ClInclude Include="measure\MeasureClipWriter.h" />
     <ClInclude Include="measure\RankingPublisher.h" />
   </ItemGroup>
   <ItemGroup>
