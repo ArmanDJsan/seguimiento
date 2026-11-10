@@ -45,6 +45,10 @@ struct RankingState {
 
     // Indice por ballID del tracker (1..10). [0] no se usa.
     std::array<int, kMaxBalls + 1> lastPuesto{};
+    // Ultimo ranking tal cual lo resolvio el medidor (ballIDs en orden, 1o primero).
+    // Es lo que se serializa: las canicas resueltas van en su puesto y las que no
+    // se consiguen van AL FINAL con id 0 (indeterminado), sin huecos en el medio.
+    std::vector<int> lastRanking;
     uint32_t seq = 0;
 
     void Reset() {
@@ -65,7 +69,7 @@ struct RankingState {
 
         // 1) los puestos que trae esta medicion
         std::array<bool, kMaxBalls + 1> ocupado{};
-        for (size_t i = 0; i < ranking.size(); ++i) {
+        for (size_t i = 0; i < ranking.size() && i < static_cast<size_t>(kMaxBalls); ++i) {
             const int id = ranking[i];
             if (id >= 1 && id <= kMaxBalls && !ocupado[static_cast<int>(i) + 1]) {
                 next[id] = static_cast<int>(i) + 1;
@@ -87,6 +91,10 @@ struct RankingState {
 
         const bool changed = (next != lastPuesto);
         lastPuesto = next;
+        lastRanking = ranking;
+        if (lastRanking.size() > static_cast<size_t>(kMaxBalls)) {
+            lastRanking.resize(static_cast<size_t>(kMaxBalls));
+        }
         return changed;
     }
 
@@ -98,16 +106,21 @@ struct RankingState {
         std::ostringstream oss;
         oss << "{\"type\":\"ranking\",\"seq\":" << seq << ",\"canicas\":[";
 
-        // ids de TouchDesigner 1..10 (0 esta reservado para "indeterminado").
-        bool first = true;
-        for (int tdId = 1; tdId <= kMaxBalls; ++tdId) {
-            const int ballId = (tdId == 10) ? 1 : tdId + 1;
-            if (!first) {
+        // Se serializa POR PUESTO: 1..10. Las canicas que se resolvieron van en su
+        // orden; las que no se consiguieron van al final con id 0 (indeterminado),
+        // que es como lo dibuja TouchDesigner.
+        for (int puesto = 1; puesto <= kMaxBalls; ++puesto) {
+            int tdId = 0;
+            if (puesto <= static_cast<int>(lastRanking.size())) {
+                const int ballId = lastRanking[static_cast<size_t>(puesto) - 1];
+                if (ballId >= 1 && ballId <= kMaxBalls) {
+                    tdId = MapBallIdToTd(ballId);
+                }
+            }
+            if (puesto > 1) {
                 oss << ",";
             }
-            first = false;
-            oss << "{\"id\":" << tdId
-                << ",\"puesto\":" << lastPuesto[ballId] << "}";
+            oss << "{\"id\":" << tdId << ",\"puesto\":" << puesto << "}";
         }
 
         oss << "]}";
