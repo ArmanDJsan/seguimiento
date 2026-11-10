@@ -52,6 +52,10 @@ constexpr int kFinalDrainMs = 40;       // margen para el ultimo frame (~1 frame
 constexpr int kTimestampRetries = 50;   // reintentos de lectura de un slot en escritura
 constexpr size_t kMaxTracks = 40;       // techo de identidades provisorias
 
+// Cuadros CONSECUTIVOS con el minimo de esferas para abrir una ventana:
+// un cuadro suelto (fantasma, reflejo) no arranca la toma.
+constexpr int kCuadrosArranque = 3;
+
 // Tope de avance de una esfera sobre el recorrido, por cuadro (recorrido
 // normalizado: 0,08 ~ 154 px de 1920). Medido en la carrera 20261109-160220:
 // el avance real por cuadro tiene mediana 0,000 / p90 0,010 / p99 0,024, asi
@@ -1780,12 +1784,29 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
     const int64_t topeAbs = t0 + job.maxMs;   // techo duro por si el evento no llega
 
     int64_t inicioEvento = 0;
+    // Racha de kCuadrosArranque cuadros CONSECUTIVOS con el minimo de esferas.
+    // Los sondeos van cada 10 ms y los cuadros llegan cada ~33 ms: se cuentan
+    // muestras distintas por epoch, no sondeos, o el mismo cuadro contaria 3 veces.
+    int racha = 0;
+    int64_t rachaIni = 0;
+    int64_t ultimoEpoch = 0;
     while (!m_stopRequested.load() && NowEpochMs() < topeAbs) {
         std::vector<FrameSample> ult;
         SnapshotHistory(job.camera, NowEpochMs() - 600, NowEpochMs(), ult);
-        if (!ult.empty() && static_cast<int>(ult.back().dets.size()) >= minDetsArranque) {
-            inicioEvento = ult.back().epochMs;
-            break;
+        if (!ult.empty() && ult.back().epochMs != ultimoEpoch) {
+            ultimoEpoch = ult.back().epochMs;
+            if (static_cast<int>(ult.back().dets.size()) >= minDetsArranque) {
+                if (racha == 0) {
+                    rachaIni = ultimoEpoch;
+                }
+                ++racha;
+                if (racha >= kCuadrosArranque) {
+                    inicioEvento = rachaIni;   // la ventana incluye la racha completa
+                    break;
+                }
+            } else {
+                racha = 0;
+            }
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
