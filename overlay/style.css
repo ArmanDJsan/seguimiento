@@ -2,6 +2,16 @@
  * Transparent by design: the page is loaded by vMix as a Web Browser Input,
  * so the video must show through everywhere the canvas does not paint.
  */
+
+/* Bundled for the scoreboard: the original composition uses Race Sport. */
+@font-face {
+    font-family: "Race Sport";
+    src: url("assets/fonts/race-sport.ttf") format("truetype");
+    font-style: italic;
+    font-weight: 900;
+    font-display: block;
+}
+
 html,
 body {
     margin: 0;
