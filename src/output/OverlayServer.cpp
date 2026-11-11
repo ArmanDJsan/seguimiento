@@ -22,7 +22,7 @@
 #include <sstream>
 
 #include "../../third_party/httplib.h"
-#include "../core/Logger.h"
+#include "../utils/Logger.h"
 
 namespace {
 
