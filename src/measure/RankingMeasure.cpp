@@ -1894,6 +1894,7 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
     // quieto; en ambos casos tambien vence el plazo.
     const int64_t cierreTope = inicioEvento + plazoMs;
     int vaciosZona = 0;
+    int maxVistoZona = 0;   // para no cerrar por quietud antes de que pase el grupo
     while (!m_stopRequested.load() && NowEpochMs() < cierreTope) {
         std::vector<FrameSample> ult;
         SnapshotHistory(job.camera, NowEpochMs() - 1800, NowEpochMs(), ult);
@@ -1908,11 +1909,14 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
                 if (++vaciosZona >= 10) break;
             } else {
                 vaciosZona = 0;
+                maxVistoZona = (std::max)(maxVistoZona, EnZonaCuenta(job.camera, job.punto, ult.back()));
                 // Cierre por quietud: si el grupo se detuvo DENTRO de la zona, la
                 // toma ya tiene todo lo que va a tener. Antes se esperaba al techo
                 // de 25 s con la zona ocupada, y eso retrasaba a los puntos
                 // siguientes en la cola del medidor (un solo hilo).
-                if (QuietoEnZona(job.camera, job.punto, ult, 45, 2.0)) {   // 1,5 s
+                const bool yaHuboPasaje = (maxVistoZona >= 6) &&
+                                          (NowEpochMs() - inicioEvento > 3000);
+                if (yaHuboPasaje && QuietoEnZona(job.camera, job.punto, ult, 45, 2.0)) {   // 1,5 s
                     Logger::Info("RankingMeasure: punto=" + std::to_string(job.punto) +
                                  " cierra por quietud (el grupo se detuvo en la zona)");
                     break;
