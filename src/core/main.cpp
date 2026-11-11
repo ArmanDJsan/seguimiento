@@ -62,6 +62,7 @@
 #include "../control/PTZController.h"
 #include "../control/ControlApi.h"
 #include "../output/OverlayServer.h"
+#include "PipelineGate.h"
 #include "../control/PistaReadiness.h"
 #include "../choreography/ChoreographyEngine.h"
 #include "../verification/SphereVerifier.h"
@@ -1400,7 +1401,8 @@ bool RunRunningMode(bool serviceMode = false, bool consoleService = false) {
                 auto yoloStart = std::chrono::high_resolution_clock::now();
                 
                 std::vector<BallDetection> ballDetections;
-                if (inferenceReady && inferenceEngine) {
+                // Compuerta: fuera de carrera no se infiere (GPU en reposo).
+                if (inferenceReady && inferenceEngine && Pipeline::InferenciaActiva()) {
                     // Use optimized UYVY path with zero-copy and fused kernel
                     // This eliminates:
                     // 1. cudaMemcpy from host to device (zero-copy mapped memory)

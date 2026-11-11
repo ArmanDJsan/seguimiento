@@ -23,6 +23,7 @@
 #include "../../third_party/httplib.h"
 
 #include "ControlApi.h"
+#include "../core/PipelineGate.h"
 
 #include "../choreography/ChoreographyEngine.h"
 #include "../control/PTZController.h"
@@ -762,6 +763,7 @@ void ControlApi::HandleArm(const std::string& requestBody, int& status, std::str
         << ",\"state\":\"armed\"}";
     status = 200;
     out = oss.str();
+    Pipeline::PedirInferencia(60);   // el armado hace sondas: ventana corta
     Logger::Info("[API] /arm OK race_id=" + raceId + " (pista lista + AND de dos camaras): " +
                  "META " + metaVerdict.detalle + " en " + std::to_string(totalMs) +
                  " ms: state=armed (sin reload: el ascensor es del guion)");
@@ -827,6 +829,8 @@ void ControlApi::HandleStart(int& status, std::string& out) {
     status = 200;
     out = "{\"ok\":true,\"t0\":" + std::to_string(t0) +
           ",\"race_id\":\"" + JsonEscape(raceId) + "\"}";
+    // Carrera + volcado + cierre: la inferencia se apaga sola al vencer.
+    Pipeline::PedirInferencia(m_config.raceSeconds + 90);
     Logger::Info("[API] /start OK race_id=" + raceId + " t0=" + std::to_string(t0) +
                  ": state=running (solo guion: el streaming, el reload y el lock de "
                  "arriba los maneja la coreografia)");
@@ -849,6 +853,7 @@ void ControlApi::HandleAbort(int& status, std::string& out) {
     }
     status = 200;
     out = "{\"ok\":true,\"state\":\"idle\"}";
+    Pipeline::PedirInferencia(0);   // se corta la carrera: GPU en reposo
     Logger::Info("[API] /abort OK: state=idle");
 }
 
