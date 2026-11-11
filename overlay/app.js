@@ -52,6 +52,9 @@
         debug: flagParam('debug'),
         demo: flagParam('demo'),
         initial: query.get('initial') === 'empty' ? 'empty' : 'unknown',
+        vertical: query.get('layout') === 'vertical',
+        x: clamp(numberParam('x', 0.5), 0, 1),
+        bar: query.get('bar') !== '0',
     };
 
     const canvas = document.getElementById('stage');
@@ -214,16 +217,35 @@
         context.setTransform(ratio, 0, 0, ratio, 0, 0);
 
         diameter = Math.max(24, height * CONFIG.size);
-        const step = diameter * CONFIG.gap;
-        const rowWidth = step * (TOTAL - 1);
-        const centerY = height * CONFIG.y;
 
-        for (let puesto = 1; puesto <= TOTAL; puesto += 1) {
-            const visibleIndex = CONFIG.direction === 1 ? puesto - 1 : TOTAL - puesto;
-            slots[puesto] = {
-                x: width / 2 - rowWidth / 2 + visibleIndex * step,
-                y: centerY,
-            };
+        if (CONFIG.vertical) {
+            // Columna: 1o arriba. El diametro se achica para que entren las diez
+            // aunque la ventana sea baja.
+            const maxStep = (height * 0.9) / (TOTAL - 1);
+            const step = Math.min(diameter * CONFIG.gap, maxStep);
+            if (step < diameter * CONFIG.gap) {
+                diameter = Math.max(18, step / CONFIG.gap);
+            }
+            const top = height / 2 - (step * (TOTAL - 1)) / 2;
+            const centerX = width * CONFIG.x;
+            for (let puesto = 1; puesto <= TOTAL; puesto += 1) {
+                const visibleIndex = CONFIG.direction === 1 ? puesto - 1 : TOTAL - puesto;
+                slots[puesto] = {
+                    x: centerX,
+                    y: top + visibleIndex * step,
+                };
+            }
+        } else {
+            const step = diameter * CONFIG.gap;
+            const rowWidth = step * (TOTAL - 1);
+            const centerY = height * CONFIG.y;
+            for (let puesto = 1; puesto <= TOTAL; puesto += 1) {
+                const visibleIndex = CONFIG.direction === 1 ? puesto - 1 : TOTAL - puesto;
+                slots[puesto] = {
+                    x: width / 2 - rowWidth / 2 + visibleIndex * step,
+                    y: centerY,
+                };
+            }
         }
 
         // Re-apply the last ranking so entities follow the new geometry.
@@ -311,6 +333,34 @@
             context.shadowOffsetY = Math.max(2, diameter * 0.035);
             context.drawImage(entity.image, x, y, size, size);
             context.restore();
+
+            // Barra de posiciones: el puesto al lado de cada esfera.
+            if (CONFIG.vertical && CONFIG.bar) {
+                const chip = Math.max(22, diameter * 0.62);
+                const cx = entity.x - diameter * 0.95 - chip / 2;
+                const cy = entity.y;
+                context.save();
+                context.globalAlpha = clamp(entity.alpha, 0, 1);
+                context.fillStyle = 'rgba(12, 16, 24, 0.72)';
+                context.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+                context.lineWidth = Math.max(1.5, chip * 0.06);
+                const r = chip * 0.22;
+                context.beginPath();
+                context.moveTo(cx - chip / 2 + r, cy - chip / 2);
+                context.arcTo(cx + chip / 2, cy - chip / 2, cx + chip / 2, cy + chip / 2, r);
+                context.arcTo(cx + chip / 2, cy + chip / 2, cx - chip / 2, cy + chip / 2, r);
+                context.arcTo(cx - chip / 2, cy + chip / 2, cx - chip / 2, cy - chip / 2, r);
+                context.arcTo(cx - chip / 2, cy - chip / 2, cx + chip / 2, cy - chip / 2, r);
+                context.closePath();
+                context.fill();
+                context.stroke();
+                context.fillStyle = '#ffffff';
+                context.font = '700 ' + Math.round(chip * 0.62) + 'px "Segoe UI", Arial, sans-serif';
+                context.textAlign = 'center';
+                context.textBaseline = 'middle';
+                context.fillText(String(entity.puesto), cx, cy + chip * 0.02);
+                context.restore();
+            }
         }
 
         if (CONFIG.debug) drawDebug();
