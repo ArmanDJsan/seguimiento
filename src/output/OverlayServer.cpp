@@ -97,6 +97,11 @@ bool OverlayServer::Start(const OverlayConfig& config) {
         res.set_chunked_content_provider(
             "text/event-stream",
             [this](size_t, httplib::DataSink& sink) {
+                ++m_clients;
+                struct GuardiaClientes {
+                    std::atomic<int>* n;
+                    ~GuardiaClientes() { --(*n); }
+                } guardia{&m_clients};
                 uint64_t visto = 0;
                 std::string payload;
                 {
@@ -189,12 +194,15 @@ void OverlayServer::Stop() {
 }
 
 void OverlayServer::Publish(const std::string& payload) {
+    uint64_t version = 0;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         m_lastPayload = payload;
         m_lastMs = NowEpochMs();
-        ++m_version;
-        m_cv.notify_all();
+        version = ++m_version;
     }
+    m_cv.notify_all();
+    Logger::Info("Overlay: ranking v" + std::to_string(version) +
+                 " -> " + std::to_string(m_clients.load()) + " cliente(s) -> " + payload);
     // Etapa 2: aca se empuja el payload a los clientes SSE de /events.
 }

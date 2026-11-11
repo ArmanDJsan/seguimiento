@@ -70,4 +70,5 @@ private:
     int64_t m_lastMs = 0;
     uint64_t m_version = 0;
     std::condition_variable m_cv;
+    std::atomic<int> m_clients{0};   ///< clientes SSE conectados (vMix)
 };
