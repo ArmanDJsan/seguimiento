@@ -41,7 +41,7 @@ struct OverlayConfig {
 
 class OverlayServer {
 public:
-    OverlayServer() = default;
+    OverlayServer();
     ~OverlayServer();
 
     OverlayServer(const OverlayServer&) = delete;

@@ -21,7 +21,7 @@
 #include <fstream>
 #include <sstream>
 
-#include "third_party/httplib.h"
+#include "../../third_party/httplib.h"
 #include "../core/Logger.h"
 
 namespace {
@@ -53,6 +53,8 @@ std::string TipoDe(const std::string& ruta) {
 }
 
 }  // namespace
+
+OverlayServer::OverlayServer() = default;
 
 OverlayServer::~OverlayServer() {
     Stop();
