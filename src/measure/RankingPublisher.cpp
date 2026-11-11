@@ -107,32 +107,59 @@ void RankingPublisher::Shutdown() {
 
 bool RankingPublisher::PublishMeasurePoint(int punto, int64_t frameEpochMs,
                                              const std::vector<int>& posiciones) {
-    if (!m_config.enabled) {
-        return false;
+    // El ESTADO se actualiza siempre: el overlay local no depende del UDP. Si el
+    // UDP esta apagado (o el socket fallo), el punto igual llega al overlay.
+    std::string payload;
+    std::string seqTexto;
+    PublishSink sink;
+    SOCKET sock = INVALID_SOCKET;
+    sockaddr_in destino{};
+    bool enviarPorUdp = false;
+
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (!m_config.enabled && !m_sink) {
+            return false;
+        }
+
+        m_state.Update(posiciones);
+        m_state.seq += 1;
+        payload = m_state.BuildPayload();
+        seqTexto = std::to_string(m_state.seq);
+        sink = m_sink;
+
+        if (m_config.enabled) {
+            if (!m_initialized || m_socket == INVALID_SOCKET) {
+                SetLastError("Publisher no inicializado");
+                m_failCount++;
+            } else {
+                sock = m_socket;
+                destino = m_target;
+                enviarPorUdp = true;
+            }
+        }
     }
 
-    std::lock_guard<std::mutex> lock(m_mutex);
-
-    if (!m_initialized || m_socket == INVALID_SOCKET) {
-        SetLastError("Publisher no inicializado");
-        m_failCount++;
-        return false;
+    // 1) Overlay local: se empuja SIEMPRE, fuera del lock.
+    if (sink) {
+        sink(payload);
     }
 
-    // El punto ya viene resuelto: se actualiza el mapa de puestos y se emite
-    // SIEMPRE (una vez por punto), sin dedupe.
-    m_state.Update(posiciones);
-    m_state.seq += 1;
-
-    const std::string payload = m_state.BuildPayload();
+    // 2) UDP (TouchDesigner / el programa Go): solo si esta habilitado.
+    if (!enviarPorUdp) {
+        Logger::Info("RankingPublisher: punto=" + std::to_string(punto) +
+                     " t=" + std::to_string(frameEpochMs) +
+                     " seq=" + seqTexto + " (solo overlay, UDP apagado) -> " + payload);
+        return true;
+    }
 
     // Un solo datagrama por punto: nunca se parte el JSON en dos envios.
-    const int sent = sendto(m_socket,
+    const int sent = sendto(sock,
                             payload.c_str(),
                             static_cast<int>(payload.size()),
                             0,
-                            reinterpret_cast<const sockaddr*>(&m_target),
-                            sizeof(m_target));
+                            reinterpret_cast<const sockaddr*>(&destino),
+                            sizeof(destino));
 
     if (sent == SOCKET_ERROR) {
         SetLastError("sendto failed: " + std::to_string(WSAGetLastError()));
@@ -150,17 +177,7 @@ bool RankingPublisher::PublishMeasurePoint(int punto, int64_t frameEpochMs,
     m_publishCount++;
     Logger::Info("RankingPublisher: punto=" + std::to_string(punto) +
                  " t=" + std::to_string(frameEpochMs) +
-                 " seq=" + std::to_string(m_state.seq) + " -> " + payload);
-
-    // El overlay HTTP recibe el mismo JSON (copia del sink fuera del lock).
-    PublishSink sink;
-    {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        sink = m_sink;
-    }
-    if (sink) {
-        sink(payload);
-    }
+                 " seq=" + seqTexto + " -> " + payload);
     return true;
 }
 
