@@ -830,7 +830,8 @@ void ControlApi::HandleStart(int& status, std::string& out) {
     out = "{\"ok\":true,\"t0\":" + std::to_string(t0) +
           ",\"race_id\":\"" + JsonEscape(raceId) + "\"}";
     // Carrera + volcado + cierre: la inferencia se apaga sola al vencer.
-    Pipeline::PedirInferencia(m_config.raceSeconds + 90);
+    // 180 s cubre carrera (75 s) + volcado (~20 s) + cierre, con margen.
+    Pipeline::PedirInferencia(180);
     Logger::Info("[API] /start OK race_id=" + raceId + " t0=" + std::to_string(t0) +
                  ": state=running (solo guion: el streaming, el reload y el lock de "
                  "arriba los maneja la coreografia)");
