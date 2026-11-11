@@ -528,6 +528,12 @@ private:
     // menos de maxPx (en pixeles) entre cuadros consecutivos: el tablero quedo quieto.
     static bool EstableQuieto(const std::vector<FrameSample>& samples, int nFrames, double maxPx);
 
+    /** Quietud dentro de la zona del punto (sirve tambien con menos de 10 esferas).
+     *  Devuelve true si los ultimos nFrames cuadros tienen la misma cantidad de
+     *  cajas en la zona y ninguna se corrio mas de maxPx. */
+    bool QuietoEnZona(int camera, int punto, const std::vector<FrameSample>& samples,
+                      int nFrames, double maxPx) const;
+
     // Consolida las dos medidas de llegada (punto 8 y punto 9) y publica la final.
     void ConsolidarLlegada(int64_t epochMs);
     void MatchFrameByMotion(FrameSample& sample);

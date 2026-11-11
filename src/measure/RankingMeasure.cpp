@@ -1908,6 +1908,15 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
                 if (++vaciosZona >= 10) break;
             } else {
                 vaciosZona = 0;
+                // Cierre por quietud: si el grupo se detuvo DENTRO de la zona, la
+                // toma ya tiene todo lo que va a tener. Antes se esperaba al techo
+                // de 25 s con la zona ocupada, y eso retrasaba a los puntos
+                // siguientes en la cola del medidor (un solo hilo).
+                if (QuietoEnZona(job.camera, job.punto, ult, 45, 2.0)) {   // 1,5 s
+                    Logger::Info("RankingMeasure: punto=" + std::to_string(job.punto) +
+                                 " cierra por quietud (el grupo se detuvo en la zona)");
+                    break;
+                }
             }
         } else {
             if (EnZonaCuenta(job.camera, job.punto, ult.back()) >= kTargetSpheres &&
@@ -2318,6 +2327,58 @@ void RankingMeasure::ConsolidarLlegada(int64_t epochMs) {
 // Quietud del tablero: las ultimas nFrames muestras tienen las 10 esferas y cada
 // una se movio menos de maxPx (pixeles) respecto de la anterior. Se empareja cada
 // caja con la mas cercana del cuadro previo (el orden del vector no es estable).
+bool RankingMeasure::QuietoEnZona(int camera, int punto, const std::vector<FrameSample>& samples,
+                                  int nFrames, double maxPx) const {
+    if (static_cast<int>(samples.size()) < nFrames || nFrames < 2) {
+        return false;
+    }
+    const size_t ini = samples.size() - static_cast<size_t>(nFrames);
+    std::vector<std::vector<std::pair<double, double>>> centros;
+    centros.reserve(static_cast<size_t>(nFrames));
+    for (size_t i = ini; i < samples.size(); ++i) {
+        std::vector<std::pair<double, double>> c;
+        for (const auto& d : samples[i].dets) {
+            if (EnZona(camera, punto, d.x / 1920.0, d.y / 1080.0)) {
+                c.emplace_back(d.x, d.y);
+            }
+        }
+        if (c.empty()) {
+            return false;
+        }
+        centros.push_back(std::move(c));
+    }
+    // Menos de 3 esferas quietas no es un pasaje detenido: puede ser una esfera
+    // aparcada en el tramo.
+    if (centros.front().size() < 3) {
+        return false;
+    }
+    const size_t n = centros.front().size();
+    for (const auto& c : centros) {
+        if (c.size() != n) {
+            return false;
+        }
+    }
+    for (size_t i = 1; i < centros.size(); ++i) {
+        double suma = 0.0;
+        int cuenta = 0;
+        for (const auto& p : centros[i]) {
+            double mejor = 1e18;
+            for (const auto& q : centros[i - 1]) {
+                const double dx = p.first - q.first;
+                const double dy = p.second - q.second;
+                const double d2 = dx * dx + dy * dy;
+                if (d2 < mejor) mejor = d2;
+            }
+            suma += std::sqrt(mejor);
+            ++cuenta;
+        }
+        if (cuenta == 0 || (suma / cuenta) > maxPx) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool RankingMeasure::EstableQuieto(const std::vector<FrameSample>& samples, int nFrames, double maxPx) {
     if (static_cast<int>(samples.size()) < nFrames) return false;
     const size_t ini = samples.size() - static_cast<size_t>(nFrames);
