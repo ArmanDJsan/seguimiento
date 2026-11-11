@@ -88,6 +88,43 @@ bool OverlayServer::Start(const OverlayConfig& config) {
         res.set_header("Cache-Control", "no-store");
     });
 
+    // SSE: la web escucha events y recibe cada ranking en el momento en que se
+    // publica. Es lo que reemplaza al UDP de TouchDesigner.
+    m_server->Get("/events", [this](const httplib::Request&, httplib::Response& res) {
+        res.set_header("Cache-Control", "no-cache, no-transform");
+        res.set_header("X-Accel-Buffering", "no");
+        res.set_header("Access-Control-Allow-Origin", "*");
+        res.set_chunked_content_provider(
+            "text/event-stream",
+            [this](size_t, httplib::DataSink& sink) {
+                uint64_t visto = 0;
+                std::string payload;
+                {
+                    std::lock_guard<std::mutex> lock(m_mutex);
+                    visto = m_version;
+                    payload = m_lastPayload;
+                }
+                // Al conectarse, el estado actual (si hay) va de una.
+                if (!payload.empty()) {
+                    const std::string msg = "event: ranking\ndata: " + payload + "\n\n";
+                    if (!sink.write(msg.data(), msg.size())) return false;
+                }
+                while (sink.is_writable()) {
+                    std::unique_lock<std::mutex> lock(m_mutex);
+                    m_cv.wait_for(lock, std::chrono::seconds(10),
+                                  [this, visto] { return m_version != visto; });
+                    visto = m_version;
+                    payload = m_lastPayload;
+                    lock.unlock();
+                    const std::string msg = payload.empty()
+                        ? std::string(": ping\n\n")
+                        : ("event: ranking\ndata: " + payload + "\n\n");
+                    if (!sink.write(msg.data(), msg.size())) return false;
+                }
+                return false;
+            });
+    });
+
     m_server->Get("/healthz", [](const httplib::Request&, httplib::Response& res) {
         res.set_content("ok", "text/plain");
     });
@@ -157,6 +194,7 @@ void OverlayServer::Publish(const std::string& payload) {
         m_lastPayload = payload;
         m_lastMs = NowEpochMs();
         ++m_version;
+        m_cv.notify_all();
     }
     // Etapa 2: aca se empuja el payload a los clientes SSE de /events.
 }

@@ -26,6 +26,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <condition_variable>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -68,4 +69,5 @@ private:
     std::string m_lastPayload;      ///< ultimo JSON publicado (vacio = todavia nada)
     int64_t m_lastMs = 0;
     uint64_t m_version = 0;
+    std::condition_variable m_cv;
 };
