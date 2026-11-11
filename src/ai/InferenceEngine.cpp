@@ -223,6 +223,16 @@ std::vector<BallDetection> InferenceEngine::ProcessFrameUYVY(
     
     // Real TensorRT inference with FUSED UYVY kernel
     // This path eliminates the intermediate BGRA buffer
+
+    // CORRECCION (race de canales): el motor tiene UN m_inputBuffer y UN
+    // m_hostOutput, y los tres hilos de captura entran por aca. Antes el lock
+    // cubria solo enqueueV3 + memcpy: el preprocesado del canal B podia pisar el
+    // buffer mientras el A todavia no habia inferido, y despues del unlock el B
+    // podia sobrescribir m_hostOutput antes de que A lo leyera. Resultado: las
+    // detecciones de un canal salian calculadas sobre el cuadro de otro y
+    // firmadas con el cameraID equivocado (el mapeo cambiaba por timing).
+    // Ahora el lock cubre todo el tramo: preprocesar -> inferir -> copiar -> leer.
+    std::lock_guard<std::mutex> candadoCanal(m_mutex);
     
     // 1. Fused preprocessing: UYVY→RGB at configured dimensions in one kernel
     auto preprocessStart = std::chrono::high_resolution_clock::now();
@@ -255,11 +265,8 @@ std::vector<BallDetection> InferenceEngine::ProcessFrameUYVY(
     // 2. Run TensorRT inference (serialized via mutex for thread safety)
     auto inferenceStart = std::chrono::high_resolution_clock::now();
     
-    {
-        // Acquire lock before accessing execution context
-        // This serializes inference calls from multiple capture threads
-        std::lock_guard<std::mutex> lock(m_mutex);
-        
+        {
+        // El lock ya se tomo arriba y cubre todo el tramo (ver comentario).
         // For dynamic shape engines, set the input shape before inference
         if (m_hasDynamicShapes) {
             nvinfer1::Dims inputDims;
@@ -295,10 +302,8 @@ std::vector<BallDetection> InferenceEngine::ProcessFrameUYVY(
         // Copy results to host asynchronously while still holding the lock
         // This ensures the output buffer isn't overwritten by another thread
         cudaMemcpyAsync(m_hostOutput, m_outputBuffer, m_outputSize, cudaMemcpyDeviceToHost, stream);
-    }
-    // OPTIMIZATION: Lock is released HERE - before waiting for GPU work to complete
-    // This allows other threads to enqueue their inference work in parallel while this thread waits
-    // The GPU can process multiple streams concurrently, significantly reducing contention
+    }    // El lock sigue tomado: no se libera antes de esperar, porque el stream y
+    // los buffers son unicos y compartidos entre canales.
     
     // Wait for THIS stream's work to complete (GPU copy to host memory)
     // Each stream waits independently - no blocking of other streams' GPU work
