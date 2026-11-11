@@ -1616,6 +1616,33 @@ bool RunRunningMode(bool serviceMode = false, bool consoleService = false) {
         pistaCaptura.push_back(capture.get());
     }
 
+    // Supervisor de recursos: con la ventana de inferencia cerrada se libera el
+    // motor (VRAM + RAM) y se recarga solo cuando /arm o /start la abren. Usa
+    // weak_ptr para no tocar el motor si ya se destruyo al cerrar el programa.
+    {
+        std::weak_ptr<InferenceEngine> motorDebil = inferenceEngine;
+        std::thread([motorDebil, &config]() {
+            bool liberado = false;
+            while (true) {
+                auto motor = motorDebil.lock();
+                if (!motor) {
+                    return;   // el VIB se esta cerrando
+                }
+                const bool activa = Pipeline::InferenciaActiva();
+                if (!activa && !liberado) {
+                    motor->ReleaseIdle();
+                    liberado = true;
+                } else if (activa && liberado) {
+                    Logger::Info("InferenceEngine: recargando motor (ventana de carrera abierta)");
+                    if (motor->Initialize(config.inferenceConfig)) {
+                        liberado = false;
+                    }
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            }
+        }).detach();
+    }
+
     std::unique_ptr<ControlApi> controlApi;
     std::unique_ptr<OverlayServer> overlayServer;
     bool controlApiFailed = false;

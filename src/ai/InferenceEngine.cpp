@@ -94,6 +94,29 @@ InferenceEngine::InferenceEngine()
     std::memset(&m_lastTelemetry, 0, sizeof(m_lastTelemetry));
 }
 
+void InferenceEngine::ReleaseIdle() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (!m_initialized) {
+        return;
+    }
+    // Mismo orden que el destructor: buffers, contexto, engine, runtime.
+    FreeBuffers();
+    if (m_context) {
+        delete m_context;
+        m_context = nullptr;
+    }
+    if (m_engine) {
+        delete m_engine;
+        m_engine = nullptr;
+    }
+    if (m_runtime) {
+        delete m_runtime;
+        m_runtime = nullptr;
+    }
+    m_initialized = false;
+    Logger::Info("InferenceEngine: recursos liberados (sin carrera; se recargan con /arm)");
+}
+
 InferenceEngine::~InferenceEngine() {
     FreeBuffers();
     

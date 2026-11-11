@@ -122,6 +122,11 @@ public:
      * @return true if successful (or stub mode enabled)
      */
     bool Initialize(const InferenceEngineConfig& config);
+
+    /** Libera VRAM y RAM del motor (buffers, contexto, engine, runtime) dejando el
+     *  objeto utilizable: Initialize() lo reconstruye. Se usa cuando no hay carrera:
+     *  el motor ocupaba ~695 MiB de VRAM y ~500 MB de RAM sin hacer nada. */
+    void ReleaseIdle();
     
     /**
      * Initialize with default config (for backward compatibility)
