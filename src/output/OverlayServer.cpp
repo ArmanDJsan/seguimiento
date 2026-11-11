@@ -92,6 +92,19 @@ bool OverlayServer::Start(const OverlayConfig& config) {
         res.set_content("ok", "text/plain");
     });
 
+    // Prueba sin carrera: se le manda el mismo JSON que publica el medidor y el
+    // overlay lo anima. Solo loopback, asi que no hay riesgo de que lo use nadie
+    // de afuera.
+    m_server->Post("/api/ranking", [this](const httplib::Request& req, httplib::Response& res) {
+        if (req.body.empty()) {
+            res.status = 400;
+            res.set_content("{"ok":false,"motivo":"body vacio"}", "application/json");
+            return;
+        }
+        Publish(req.body);
+        res.set_content("{"ok":true}", "application/json");
+    });
+
     // Estaticos: se sirve el directorio del overlay. httplib resuelve "/" a
     // index.html y no deja salir del directorio montado.
     const std::string dir = m_config.dir;
