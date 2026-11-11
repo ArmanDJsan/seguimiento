@@ -98,11 +98,11 @@ bool OverlayServer::Start(const OverlayConfig& config) {
     m_server->Post("/api/ranking", [this](const httplib::Request& req, httplib::Response& res) {
         if (req.body.empty()) {
             res.status = 400;
-            res.set_content("{"ok":false,"motivo":"body vacio"}", "application/json");
+            res.set_content(R"({"ok":false,"motivo":"body vacio"})", "application/json");
             return;
         }
         Publish(req.body);
-        res.set_content("{"ok":true}", "application/json");
+        res.set_content(R"({"ok":true})", "application/json");
     });
 
     // Estaticos: se sirve el directorio del overlay. httplib resuelve "/" a
