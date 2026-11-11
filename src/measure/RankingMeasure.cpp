@@ -255,6 +255,13 @@ void NotificarMovimiento(int camera) {
     }
 }
 
+void RankingMeasure::SetPublishSink(std::function<void(const std::string&)> sink) {
+    m_sinkPendiente = std::move(sink);
+    if (m_publisher) {
+        m_publisher->SetPublishSink(m_sinkPendiente);
+    }
+}
+
 void RankingMeasure::SetRaceId(const std::string& id) {
     if (m_publisher) {
         m_publisher->SetRaceId(id);
@@ -349,6 +356,9 @@ bool RankingMeasure::Initialize(const RankingPublisherConfig& pubConfig,
 
     // 1. Publisher UDP del punto (1 datagrama por punto)
     m_publisher = std::make_unique<RankingPublisher>(pubConfig);
+    if (m_sinkPendiente) {
+        m_publisher->SetPublishSink(m_sinkPendiente);
+    }
     if (!m_publisher->Initialize()) {
         Logger::Error("RankingMeasure: RankingPublisher no inicializo, se aborta");
         m_publisher.reset();

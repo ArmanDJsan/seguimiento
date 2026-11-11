@@ -151,6 +151,16 @@ bool RankingPublisher::PublishMeasurePoint(int punto, int64_t frameEpochMs,
     Logger::Info("RankingPublisher: punto=" + std::to_string(punto) +
                  " t=" + std::to_string(frameEpochMs) +
                  " seq=" + std::to_string(m_state.seq) + " -> " + payload);
+
+    // El overlay HTTP recibe el mismo JSON (copia del sink fuera del lock).
+    PublishSink sink;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        sink = m_sink;
+    }
+    if (sink) {
+        sink(payload);
+    }
     return true;
 }
 

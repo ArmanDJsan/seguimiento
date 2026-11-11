@@ -232,6 +232,9 @@ public:
     /** El race_id que manda el backend: se usa como prefijo del seq que va a Touch. */
     void SetRaceId(const std::string& id);
 
+    /** Engancha el overlay HTTP: recibe el mismo payload que se manda por UDP. */
+    void SetPublishSink(std::function<void(const std::string&)> sink);
+
     /**
      * Resultado de UNA medicion, para observadores externos (API de control).
      * No cambia en nada la medicion: es un aviso de lo que ya se resolvio.
@@ -508,6 +511,7 @@ private:
     // Punto que se esta resolviendo: la pared de ROI usa SU zona, no el bloque por
     // reloj. Lo escribe ResolvePositions (hilo medidor, de a una medicion).
     int m_puntoActual = -1;
+    std::function<void(const std::string&)> m_sinkPendiente;
     // ROI como pared: no se acepta un tramo si la recta esfera->tramo sale del
     // poligono. Apagado por defecto (se activa por config).
     bool m_paredRoi = false;

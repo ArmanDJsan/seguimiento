@@ -21,6 +21,7 @@
 #include "../measure/RankingMeasure.h"   // RankingMeasureConfig
 #include "../control/PTZController.h"    // PTZCameraConfig, PTZTrackingConfig
 #include "../control/ControlApi.h"       // ControlApiConfig (API HTTP de control)
+#include "../output/OverlayServer.h"      // OverlayConfig (overlay HTTP local)
 
 /**
  * Choreography configuration
@@ -148,6 +149,7 @@ struct Config {
     // --service, para que el backend arranque la carrera por la tailnet sin
     // menu ni F12.
     ControlApiConfig controlApiConfig;
+    OverlayConfig overlayConfig;        // overlay HTTP local (vMix Web Browser)
     
     // PTZ cameras configuration
     PTZCamerasConfig ptzCamerasConfig;

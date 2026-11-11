@@ -26,6 +26,7 @@
 #include <vector>
 #include <mutex>
 #include <atomic>
+#include <functional>
 
 #include "../output/RankingPayload.h"
 
@@ -70,6 +71,13 @@ public:
         m_state.SetRacePrefix(id);
     }
 
+    /** Destino alternativo del mismo payload (el overlay HTTP local). */
+    using PublishSink = std::function<void(const std::string&)>;
+    void SetPublishSink(PublishSink sink) {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_sink = std::move(sink);
+    }
+
     bool PublishMeasurePoint(int punto, int64_t frameEpochMs, const std::vector<int>& posiciones);
 
     bool IsEnabled() const { return m_config.enabled; }
@@ -88,6 +96,7 @@ private:
     void SetLastError(const std::string& error);
 
     RankingPublisherConfig m_config;
+    PublishSink m_sink;   ///< se llama con el mismo JSON que va por UDP
     std::atomic<bool> m_initialized;
     mutable std::mutex m_mutex;
     std::string m_lastError;

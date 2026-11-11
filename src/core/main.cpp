@@ -61,6 +61,7 @@
 #include "../control/VMixController.h"
 #include "../control/PTZController.h"
 #include "../control/ControlApi.h"
+#include "../output/OverlayServer.h"
 #include "../control/PistaReadiness.h"
 #include "../choreography/ChoreographyEngine.h"
 #include "../verification/SphereVerifier.h"
@@ -752,6 +753,19 @@ Config LoadConfig(const std::string& path) {
                         (config.rankingMeasureConfig.drawBoxes ? "true" : "false"));
         }
         
+        // Parse overlay section (overlay HTTP local que captura vMix como
+        // Web Browser; reemplaza al programa Go y a TouchDesigner).
+        if (j.contains("overlay") && j["overlay"].is_object()) {
+            auto& ov = j["overlay"];
+            if (ov.contains("enabled")) config.overlayConfig.enabled = ov["enabled"].get<bool>();
+            if (ov.contains("port")) config.overlayConfig.port = static_cast<uint16_t>(ov["port"].get<int>());
+            if (ov.contains("dir")) config.overlayConfig.dir = ov["dir"].get<std::string>();
+            Logger::Info("Overlay config: enabled=" +
+                         std::string(config.overlayConfig.enabled ? "true" : "false") +
+                         ", port=" + std::to_string(config.overlayConfig.port) +
+                         ", dir=" + config.overlayConfig.dir);
+        }
+
         // Parse control_api section (API HTTP de control para el backend, modo
         // --service). La clave NUNCA se loguea.
         if (j.contains("control_api") && j["control_api"].is_object()) {
@@ -1595,6 +1609,7 @@ bool RunRunningMode(bool serviceMode = false, bool consoleService = false) {
     }
 
     std::unique_ptr<ControlApi> controlApi;
+    std::unique_ptr<OverlayServer> overlayServer;
     bool controlApiFailed = false;
 
     // El menu [12] existe justamente para levantar la API: si el config la tiene
@@ -1605,6 +1620,17 @@ bool RunRunningMode(bool serviceMode = false, bool consoleService = false) {
         Logger::Warning("[SERVICIO] menu [12]: control_api.enabled=false en config.json; "
                         "se levanta igual porque el operador eligio SERVICIO API");
         config.controlApiConfig.enabled = true;
+    }
+
+    // Overlay HTTP: sirve la web y el ultimo ranking. Va antes de la API para
+    // que ya este escuchando cuando se dispare la primera carrera.
+    if (config.overlayConfig.enabled && rankingMeasure) {
+        overlayServer = std::make_unique<OverlayServer>();
+        OverlayServer* ov = overlayServer.get();
+        rankingMeasure->SetPublishSink([ov](const std::string& payload) { ov->Publish(payload); });
+        if (!overlayServer->Start(config.overlayConfig)) {
+            Logger::Warning("Overlay: no se pudo levantar; se sigue sin overlay");
+        }
     }
 
     if (config.controlApiConfig.enabled) {
@@ -2127,6 +2153,10 @@ bool RunRunningMode(bool serviceMode = false, bool consoleService = false) {
     // destruyen mas abajo.
     if (controlApi) {
         Logger::Info("Stopping ControlApi...");
+        if (overlayServer) {
+            overlayServer->Stop();
+            overlayServer.reset();
+        }
         controlApi->Stop();
         controlApi.reset();
     }
