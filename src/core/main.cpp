@@ -1220,7 +1220,13 @@ bool RunRunningMode(bool serviceMode = false, bool consoleService = false) {
     // solo hace Enqueue() y sigue, asi que necesita el medidor enganchado desde
     // el primer evento. El hilo medidor es el que mide (nunca la coreografia).
     std::unique_ptr<Measure::RankingMeasure> rankingMeasure;
-    if (config.rankingPublisherConfig.enabled) {
+    // El medidor NO depende del UDP: tambien hace falta para el overlay, el clip
+    // y el volcado de inferencia. Con cualquiera de esos encendido, se crea.
+    const bool medirHaceFalta = config.rankingPublisherConfig.enabled ||
+                                config.overlayConfig.enabled ||
+                                config.rankingMeasureConfig.saveRace ||
+                                config.rankingMeasureConfig.saveInference;
+    if (medirHaceFalta) {
         Logger::Info("Initializing RankingMeasure...");
         rankingMeasure = std::make_unique<Measure::RankingMeasure>();
         if (rankingMeasure->Initialize(config.rankingPublisherConfig,
