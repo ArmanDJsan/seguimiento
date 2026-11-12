@@ -1825,50 +1825,53 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
         std::vector<int> pos;
         int64_t tUlt = 0;
 
-        // LECTURA DE CUADRO: en una pista determinista las diez esferas se ven
-        // separadas en el cuadro. Se ordena cada cuadro por su avance sobre el
-        // vector, se toma la clase de cada caja en ese cuadro y se vota POSICION a
-        // POSICION entre los cuadros con mas esferas. Es lo que hace una persona
-        // mirando el video; el voto por pistas agregaba ruido y perdia esferas.
-        int claseVoto[kTargetSpheres][kTargetSpheres];
-        std::memset(claseVoto, 0, sizeof(claseVoto));
+        // LECTURA DEL MEJOR CUADRO: se elige el cuadro con mas esferas dentro de la
+        // zona (desempate por confianza media), se ordenan sus cajas por el avance
+        // sobre el vector y ESA es la lista. Sin votar entre cuadros: votar entre 150
+        // cuadros mezclaba posiciones de momentos distintos y daba una lista que no
+        // era la de ningun cuadro (medido 12-nov-2026: publicado 4,2,?,8,6,1,3,7,5,?
+        // contra 0,2,9,9,6,3,8,7,4,5 que es el orden real del cuadro).
+        double mejorPuntaje = -1.0;
+        std::vector<int> mejorLista;
         int cuadrosUtiles = 0;
-        int maxEnCuadro = 0;
         for (const auto& s : muestras) {
             if (s.enBarrido) continue;
             std::vector<std::pair<double, int>> orden;
             orden.reserve(s.dets.size());
+            double conf = 0.0;
             for (size_t k = 0; k < s.dets.size(); ++k) {
                 const FrameDetection& d = s.dets[k];
                 if (!EnZona(job.camera, job.punto, d.x / 1920.0, d.y / 1080.0)) continue;
-                orden.emplace_back(AvanceEn(job.camera, s.epochMs, d.x, d.y, -1.0, 400.0), static_cast<int>(k));
+                orden.emplace_back(AvanceEn(job.camera, s.epochMs, d.x, d.y, -1.0, 400.0),
+                                   static_cast<int>(k));
+                conf += d.conf;
             }
-            if (static_cast<int>(orden.size()) < 8) continue;
+            if (static_cast<int>(orden.size()) < 6) continue;
+            ++cuadrosUtiles;
+            const double puntaje = static_cast<double>(orden.size()) * 1000.0 +
+                                   conf / (std::max)(1.0, static_cast<double>(orden.size()));
+            if (puntaje <= mejorPuntaje) continue;
             std::sort(orden.begin(), orden.end(), [](const auto& a, const auto& b) {
                 return a.first > b.first;   // mas avance = mejor puesto
             });
-            const int n = (std::min)(static_cast<int>(orden.size()), static_cast<int>(kTargetSpheres));
-            maxEnCuadro = (std::max)(maxEnCuadro, n);
-            ++cuadrosUtiles;
-            for (int p = 0; p < n; ++p) {
-                const int c = s.dets[static_cast<size_t>(orden[static_cast<size_t>(p)].second)].ballID;
-                if (c >= 0 && c < static_cast<int>(kTargetSpheres)) claseVoto[p][c] += 1;
+            mejorLista.clear();
+            for (const auto& par : orden) {
+                const int c = s.dets[static_cast<size_t>(par.second)].ballID;
+                if (c >= 0 && c < static_cast<int>(kTargetSpheres)) mejorLista.push_back(c);
             }
+            mejorPuntaje = puntaje;
+            tUlt = s.epochMs;
         }
         Logger::Info("RankingMeasure: punto=" + std::to_string(job.punto) +
                      " lectura de cuadro: " + std::to_string(cuadrosUtiles) +
-                     " cuadros utiles, max " + std::to_string(maxEnCuadro) + " esferas");
-        if (cuadrosUtiles > 0) {
-            std::vector<bool> usado(static_cast<size_t>(kTargetSpheres), false);
-            for (int p = 0; p < maxEnCuadro; ++p) {
-                int mejor = -1, mejorV = 0;
-                for (int c = 0; c < static_cast<int>(kTargetSpheres); ++c) {
-                    if (usado[static_cast<size_t>(c)]) continue;
-                    if (claseVoto[p][c] > mejorV) { mejorV = claseVoto[p][c]; mejor = c; }
-                }
-                if (mejor >= 0) { pos.push_back(mejor); usado[static_cast<size_t>(mejor)] = true; }
-            }
-            tUlt = muestras.empty() ? 0 : muestras.back().epochMs;
+                     " cuadros utiles, mejor con " + std::to_string(mejorLista.size()) + " esferas");
+        // Una clase repetida no puede ocupar dos puestos: se descarta la segunda.
+        std::vector<bool> usado(static_cast<size_t>(kTargetSpheres), false);
+        for (int c : mejorLista) {
+            if (c < 0 || c >= static_cast<int>(kTargetSpheres)) continue;
+            if (usado[static_cast<size_t>(c)]) continue;
+            usado[static_cast<size_t>(c)] = true;
+            pos.push_back(c);
         }
         const bool ok = !pos.empty();
         Logger::Info("RankingMeasure: punto=" + std::to_string(job.punto) + " camara=" +
