@@ -2798,8 +2798,8 @@ void RankingMeasure::LoadTrackVectors() {
             if (vpts.size() >= 2) {
                 VectorTramo vp;
                 vp.ok = true;
-                vp.desdeMs = 0;
-                vp.hastaMs = 3600000;
+                vp.desde = 0;
+                vp.hasta = 1000;
                 double suma = 0.0;
                 for (size_t k = 0; k < vpts.size(); ++k) {
                     vp.pts.push_back(vpts[k]);
