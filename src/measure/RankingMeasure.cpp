@@ -1884,11 +1884,36 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
         const int64_t finFijo = t0 + job.burstMs;
         Logger::Info("RankingMeasure: punto=" + std::to_string(job.punto) +
                      " ventana fija de " + std::to_string(job.burstMs) + " ms");
+        // CIERRE POR GRUPO COMPLETO: la toma abre con la primera esfera (que puede venir
+        // muy adelantada) y no se cierra por reloj sino cuando el conteo llega a su
+        // maximo y se mantiene ~1 s. Asi el grupo que entra detras queda dentro de la
+        // misma toma. El techo de burstMs queda como respaldo.
+        int maxEnZona = 0;
+        int estable = 0;
+        int64_t finReal = finFijo;
         while (!m_stopRequested.load() && NowEpochMs() < finFijo) {
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            std::vector<FrameSample> ult;
+            SnapshotHistory(job.camera, NowEpochMs() - 400, NowEpochMs(), ult);
+            if (ult.empty()) continue;
+            const int cuenta = EnZonaCuenta(job.camera, job.punto, ult.back());
+            if (cuenta > maxEnZona) {
+                maxEnZona = cuenta;
+                estable = 0;
+            } else if (cuenta >= maxEnZona && maxEnZona >= 3) {
+                if (++estable >= 30) {          // 1 s con el grupo completo
+                    finReal = NowEpochMs();
+                    Logger::Info("RankingMeasure: punto=" + std::to_string(job.punto) +
+                                 " cierra con el grupo completo (" +
+                                 std::to_string(maxEnZona) + " esferas)");
+                    break;
+                }
+            } else {
+                estable = 0;
+            }
         }
         std::vector<FrameSample> muestras;
-        SnapshotHistory(job.camera, t0, finFijo, muestras);
+        SnapshotHistory(job.camera, t0, (finReal < finFijo ? finReal : finFijo), muestras);
         std::vector<int> pos;
         int64_t tUlt = 0;
 
