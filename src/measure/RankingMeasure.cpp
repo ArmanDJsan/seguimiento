@@ -1890,6 +1890,19 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
         inicioEvento = t0;   // no hubo evento: se comporta como antes
     }
 
+    // Traza de inicio: hasta ahora el log solo mostraba el final de la toma, asi que
+    // no se veia CUANDO empezaba a medir cada punto (pedido del dueno, 12-nov-2026).
+    {
+        const double desdeT0 = static_cast<double>(inicioEvento - t0) / 1000.0;
+        const double arranque = static_cast<double>(NowEpochMs() - t0) / 1000.0;
+        char buf[160];
+        std::snprintf(buf, sizeof(buf),
+                      " empieza a medir (toma desde +%.1fs, escuchando desde +%.1fs, plazo %ds)",
+                      desdeT0, arranque, static_cast<int>(plazoMs / 1000));
+        Logger::Info("RankingMeasure: punto=" + std::to_string(job.punto) +
+                     " camara=" + std::to_string(job.camera) + buf);
+    }
+
     // Cierre: el pasaje termina (ultimo cuadro sin esferas) o el tablero se queda
     // quieto; en ambos casos tambien vence el plazo.
     const int64_t cierreTope = inicioEvento + plazoMs;
