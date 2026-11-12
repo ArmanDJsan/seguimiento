@@ -1809,6 +1809,33 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
         ~ClipGuard() { if (self) self->ClipStop(camara); }
     } clipGuard{this, job.camera};
 
+    // VENTANA FIJA: si el guion manda burst == max (por ejemplo 7000/7000), la
+    // ventana no se busca: es [disparo, disparo + burst]. La pista es determinista
+    // (la esfera entra a la ROI en el segundo 8 y sale en el 14), asi que esperar
+    // un evento solo agrega error y demora. El calculo en si son milisegundos.
+    if (job.maxMs == job.burstMs && job.burstMs > 0 && !esLlegada) {
+        const int64_t finFijo = t0 + job.burstMs;
+        Logger::Info("RankingMeasure: punto=" + std::to_string(job.punto) +
+                     " ventana fija de " + std::to_string(job.burstMs) + " ms");
+        while (!m_stopRequested.load() && NowEpochMs() < finFijo) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        std::vector<FrameSample> muestras;
+        SnapshotHistory(job.camera, t0, finFijo, muestras);
+        std::vector<int> pos;
+        int64_t tUlt = 0;
+        const bool ok = ResolvePositions(job.camera, job.punto, muestras, pos, tUlt);
+        Logger::Info("RankingMeasure: punto=" + std::to_string(job.punto) + " camara=" +
+                     std::to_string(job.camera) + " ventana fija: " +
+                     std::to_string(muestras.size()) + " cuadros -> " +
+                     std::to_string(pos.size()) + " posiciones" +
+                     (ok ? "" : " (no resolvio)"));
+        if (ok && !pos.empty() && pos.size() <= static_cast<size_t>(kTargetSpheres)) {
+            PublishMeasurePoint(job.punto, tUlt, pos);
+        }
+        return;
+    }
+
     // 1. VENTANA POR EVENTO OBSERVADO.
     //    No se mide "desde el reloj y durante X": se espera el evento que marca el
     //    inicio (>=3 esferas en ROI para los puntos intermedios, las 10 para la
