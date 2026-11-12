@@ -655,7 +655,12 @@ void RankingMeasure::ActivarBanco(int punto, int camera, bool activo) {
                 SnapshotHistory(camara, ahora - 400, ahora, ult);
                 if (ult.empty()) continue;
                 const int enZona = EnZonaCuenta(camara, punto, ult.back());
-                if (enZona < 3) continue;
+                if (enZona < 3) {
+                    // el grupo salio de la ROI: queda libre para la proxima pasada
+                    m_bancoJobEnCurso = false;
+                    continue;
+                }
+                if (m_bancoJobEnCurso.load()) continue;   // una sola toma por pasada
                 MeasureJob job;
                 job.punto = punto;
                 job.camera = camara;
@@ -671,6 +676,7 @@ void RankingMeasure::ActivarBanco(int punto, int camera, bool activo) {
                     m_queue.push_back(job);
                 }
                 m_queueCv.notify_one();
+                m_bancoJobEnCurso = true;
             }
         }).detach();
         return;

@@ -517,6 +517,7 @@ private:
     std::atomic<int> m_bancoPunto{2};
     std::atomic<int> m_bancoCamera{2};
     std::atomic<bool> m_bancoActivo{false};
+    std::atomic<bool> m_bancoJobEnCurso{false};
     int m_puntoActual = -1;
     std::function<void(const std::string&)> m_sinkPendiente;
     // ROI como pared: no se acepta un tramo si la recta esfera->tramo sale del
