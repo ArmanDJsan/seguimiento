@@ -150,7 +150,8 @@ bool OverlayServer::Start(const OverlayConfig& config) {
         };
         const int punto = num("punto", 2);
         const int camara = num("camera", 2);
-        const bool activo = req.body.find("false") == std::string::npos;
+        const bool activo = req.body.find("\"activo\":false") == std::string::npos;
+        const bool sinRoi = req.body.find("\"roi\":false") != std::string::npos;
         BancoCallback cb;
         {
             std::lock_guard<std::mutex> lock(m_mutex);
@@ -161,7 +162,7 @@ bool OverlayServer::Start(const OverlayConfig& config) {
             res.set_content(R"({"ok":false,"motivo":"banco no cableado"})", "application/json");
             return;
         }
-        cb(punto, camara, activo);
+        cb(punto, camara, activo, sinRoi);
         res.set_content(std::string(R"({"ok":true,"activo":)") + (activo ? "true" : "false") + "}",
                         "application/json");
     });
