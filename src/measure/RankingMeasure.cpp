@@ -1813,7 +1813,7 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
     // ventana no se busca: es [disparo, disparo + burst]. La pista es determinista
     // (la esfera entra a la ROI en el segundo 8 y sale en el 14), asi que esperar
     // un evento solo agrega error y demora. El calculo en si son milisegundos.
-    if (job.maxMs == job.burstMs && job.burstMs > 0 && !esLlegada) {
+    if (job.maxMs == job.burstMs && job.burstMs > 0 && job.punto != 8) {
         const int64_t finFijo = t0 + job.burstMs;
         Logger::Info("RankingMeasure: punto=" + std::to_string(job.punto) +
                      " ventana fija de " + std::to_string(job.burstMs) + " ms");
