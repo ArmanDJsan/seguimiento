@@ -1855,9 +1855,41 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
                 return a.first > b.first;   // mas avance = mejor puesto
             });
             mejorLista.clear();
+            std::vector<float> confDe;
             for (const auto& par : orden) {
-                const int c = s.dets[static_cast<size_t>(par.second)].ballID;
-                if (c >= 0 && c < static_cast<int>(kTargetSpheres)) mejorLista.push_back(c);
+                const FrameDetection& d = s.dets[static_cast<size_t>(par.second)];
+                const int c = d.ballID;
+                if (c >= 0 && c < static_cast<int>(kTargetSpheres)) {
+                    mejorLista.push_back(c);
+                    confDe.push_back(d.conf);
+                }
+            }
+            // Si el cuadro trae 10 cajas y una clase se repite mientras otra falta,
+            // una de las repetidas ES la que falta (hay una sola esfera de cada una).
+            // Medido 12-nov-2026: el cuadro traia dos B9 y ningun B1; la cuarta esfera
+            // (amarilla) es la 1, y la lista salia con una clase de menos.
+            if (mejorLista.size() == static_cast<size_t>(kTargetSpheres)) {
+                int cuenta[kTargetSpheres] = {0};
+                for (int c : mejorLista) cuenta[c] += 1;
+                for (int c = 0; c < static_cast<int>(kTargetSpheres); ++c) {
+                    if (cuenta[c] != 1) continue;
+                    // falta esta clase: se la lleva la repetida de menor confianza
+                    int rep = -1;
+                    float peor = 2.0f;
+                    for (size_t k = 0; k < mejorLista.size(); ++k) {
+                        const int cc = mejorLista[k];
+                        if (cuenta[cc] < 2) continue;
+                        if (confDe[k] < peor) { peor = confDe[k]; rep = static_cast<int>(k); }
+                    }
+                    if (rep >= 0 && cuenta[mejorLista[static_cast<size_t>(rep)]] >= 2) {
+                        Logger::Info("RankingMeasure: cuadro con clase repetida " +
+                                     std::to_string(mejorLista[static_cast<size_t>(rep)]) +
+                                     " y sin la " + std::to_string(c) + " -> se reasigna");
+                        cuenta[mejorLista[static_cast<size_t>(rep)]] -= 1;
+                        mejorLista[static_cast<size_t>(rep)] = c;
+                        cuenta[c] = 1;
+                    }
+                }
             }
             mejorPuntaje = puntaje;
             tUlt = s.epochMs;
