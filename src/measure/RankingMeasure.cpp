@@ -1831,6 +1831,35 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
         // cuadros mezclaba posiciones de momentos distintos y daba una lista que no
         // era la de ningun cuadro (medido 12-nov-2026: publicado 4,2,?,8,6,1,3,7,5,?
         // contra 0,2,9,9,6,3,8,7,4,5 que es el orden real del cuadro).
+        // Arco simple: proyeccion sobre la polilinea del vector SIN la pared de ROI.
+        // AvanceEn() devuelve -1 cuando la pared rechaza todos los tramos, y con una
+        // zona que sigue la pista en curva eso pasa siempre: la recta entre la esfera
+        // y el tramo se sale del corredor. Medido 12-nov-2026: las diez esferas con
+        // avance -1 y por lo tanto el orden salia en el orden en que vinieran.
+        auto arcoSimple = [&](int64_t epochMs, double px, double py) {
+            const VectorTramo t = VectorDe(job.camera, epochMs);
+            if (!t.ok || t.pts.size() < 2) return -1.0;
+            double mejorD = 1e18;
+            double mejorA = -1.0;
+            for (size_t k = 1; k < t.pts.size(); ++k) {
+                const double x1 = t.pts[k - 1].first, y1 = t.pts[k - 1].second;
+                const double x2 = t.pts[k].first, y2 = t.pts[k].second;
+                const double dx = x2 - x1, dy = y2 - y1;
+                const double l2 = dx * dx + dy * dy;
+                if (l2 <= 1e-12) continue;
+                double u = ((px - x1) * dx + (py - y1) * dy) / l2;
+                if (u < 0.0) u = 0.0;
+                if (u > 1.0) u = 1.0;
+                const double qx = x1 + u * dx, qy = y1 + u * dy;
+                const double d2 = (px - qx) * (px - qx) + (py - qy) * (py - qy);
+                if (d2 < mejorD) {
+                    mejorD = d2;
+                    mejorA = t.arco[k - 1] + u * (t.arco[k] - t.arco[k - 1]);
+                }
+            }
+            return mejorA;
+        };
+
         double mejorPuntaje = -1.0;
         std::vector<int> mejorLista;
         int cuadrosUtiles = 0;
@@ -1842,7 +1871,7 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
             for (size_t k = 0; k < s.dets.size(); ++k) {
                 const FrameDetection& d = s.dets[k];
                 if (!EnZona(job.camera, job.punto, d.x / 1920.0, d.y / 1080.0)) continue;
-                orden.emplace_back(AvanceEn(job.camera, s.epochMs, d.x, d.y, -1.0, 400.0),
+                orden.emplace_back(arcoSimple(s.epochMs, d.x / 1920.0, d.y / 1080.0),
                                    static_cast<int>(k));
                 conf += d.conf;
             }
