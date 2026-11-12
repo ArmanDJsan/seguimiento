@@ -660,13 +660,19 @@ void RankingMeasure::ActivarBanco(int punto, int camera, bool activo) {
                     m_bancoJobEnCurso = false;
                     continue;
                 }
-                if (m_bancoJobEnCurso.load()) continue;   // una sola toma por pasada
+                if (m_bancoJobEnCurso.load()) {
+                    // si el grupo no sale (esferas quietas), liberar a los 15 s
+                    if (ahora - ultimoJobMs > 15000) m_bancoJobEnCurso = false;
+                    continue;
+                }
                 MeasureJob job;
                 job.punto = punto;
                 job.camera = camara;
                 job.requestedEpochMs = ahora;
-                job.burstMs = 600000;
-                job.maxMs = 600000;
+                // ventana corta: con las esferas quietas el grupo nunca "sale", asi
+                // que la toma se cierra por plazo y publica igual (~6 s de pista).
+                job.burstMs = 6000;
+                job.maxMs = 6000;
                 ultimoJobMs = ahora;
                 Logger::Info("Banco: entro el grupo a la ROI (" + std::to_string(enZona) +
                              " esferas), abre toma");
