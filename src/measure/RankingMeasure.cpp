@@ -2331,84 +2331,38 @@ void RankingMeasure::ConsolidarLlegada(int64_t epochMs) {
 // Quietud del tablero: las ultimas nFrames muestras tienen las 10 esferas y cada
 // una se movio menos de maxPx (pixeles) respecto de la anterior. Se empareja cada
 // caja con la mas cercana del cuadro previo (el orden del vector no es estable).
-bool RankingMeasure::QuietoEnZona(int camera, int punto, const std::vector<FrameSample>& samples,
-                                  int nFrames, double maxPx) const {
-    if (static_cast<int>(samples.size()) < nFrames || nFrames < 2) {
-        return false;
-    }
-    const size_t ini = samples.size() - static_cast<size_t>(nFrames);
-    std::vector<std::vector<std::pair<double, double>>> centros;
-    centros.reserve(static_cast<size_t>(nFrames));
-    for (size_t i = ini; i < samples.size(); ++i) {
-        std::vector<std::pair<double, double>> c;
-        for (const auto& d : samples[i].dets) {
-            if (EnZona(camera, punto, d.x / 1920.0, d.y / 1080.0)) {
-                c.emplace_back(d.x, d.y);
-            }
-        }
-        if (c.empty()) {
-            return false;
-        }
-        centros.push_back(std::move(c));
-    }
-    // Menos de 3 esferas quietas no es un pasaje detenido: puede ser una esfera
-    // aparcada en el tramo.
-    if (centros.front().size() < 3) {
-        return false;
-    }
-    const size_t n = centros.front().size();
-    for (const auto& c : centros) {
-        if (c.size() != n) {
-            return false;
-        }
-    }
-    for (size_t i = 1; i < centros.size(); ++i) {
-        double suma = 0.0;
-        int cuenta = 0;
-        for (const auto& p : centros[i]) {
-            double mejor = 1e18;
-            for (const auto& q : centros[i - 1]) {
-                const double dx = p.first - q.first;
-                const double dy = p.second - q.second;
-                const double d2 = dx * dx + dy * dy;
-                if (d2 < mejor) mejor = d2;
-            }
-            suma += std::sqrt(mejor);
-            ++cuenta;
-        }
-        if (cuenta == 0 || (suma / cuenta) > maxPx) {
-            return false;
-        }
-    }
-    return true;
-}
-
-bool RankingMeasure::EstableQuieto(const std::vector<FrameSample>& samples, int nFrames, double maxPx) {
+bool RankingMeasure::QuietoEnZona(int camera, int punto, const std::vector<FrameSample>& samples, int nFrames, double maxPx) {
     if (static_cast<int>(samples.size()) < nFrames) return false;
     const size_t ini = samples.size() - static_cast<size_t>(nFrames);
+    std::vector<std::vector<std::pair<double,double>>> centros(nFrames);
     for (size_t i = ini; i < samples.size(); ++i) {
-        if (static_cast<int>(samples[i].dets.size()) < kTargetSpheres) return false;
-    }
-    for (size_t i = ini + 1; i < samples.size(); ++i) {
-        const auto& a = samples[i - 1].dets;
-        const auto& b = samples[i].dets;
-        double suma = 0.0;
-        int n = 0;
-        for (const auto& d : b) {
-            double mejor = 1e9;
-            for (const auto& p : a) {
-                // d.x/d.y ya vienen en pixeles: multiplicar por 1920 convertia
-                // medio pixel en 960 y la llegada NUNCA cerraba por quietud
-                // (siempre se iba al techo de 20 s). Medido 12-nov-2026.
-                const double dx = d.x - p.x;
-                const double dy = d.y - p.y;
-                const double dist = std::sqrt(dx * dx + dy * dy);
-                if (dist < mejor) mejor = dist;
-            }
-            suma += mejor;
-            ++n;
+        auto& c = centros[i - ini];
+        for (const auto& d : samples[i].dets) {
+            if (EnZona(camera, punto, d.x / 1920.0, d.y / 1080.0)) c.emplace_back(d.x, d.y);
         }
-        if (n > 0 && (suma / n) > maxPx) return false;
+        if (c.empty()) return false;
+    }
+    // Tolerante al parpadeo del detector: el conteo puede variar en 1 entre cuadros
+    // (10, 11, 9...) y antes eso impedia cerrar (medido 12-nov-2026: punto 6 en el
+    // techo de 25 s dos carreras seguidas con el grupo parado adentro).
+    size_t minN = centros.front().size(), maxN = centros.front().size();
+    for (const auto& c : centros) { minN = (std::min)(minN, c.size()); maxN = (std::max)(maxN, c.size()); }
+    if (minN == 0 || maxN - minN > 2) return false;
+    for (size_t i = 1; i < centros.size(); ++i) {
+        std::vector<double> d;
+        for (const auto& p : centros[i]) {
+            double mejor = 1e18;
+            for (const auto& q : centros[i-1]) {
+                const double dx = p.first - q.first, dy = p.second - q.second;
+                const double d2 = dx*dx + dy*dy;
+                if (d2 < mejor) mejor = d2;
+            }
+            d.push_back(std::sqrt(mejor));
+        }
+        if (d.empty()) return false;
+        std::sort(d.begin(), d.end());
+        const double mediana = d[d.size() / 2];
+        if (mediana > maxPx) return false;
     }
     return true;
 }
@@ -2796,7 +2750,10 @@ bool RankingMeasure::ResolvePositions(int camera, int punto, std::vector<FrameSa
     // punto 7: 4 de 11 pistas cruzaban en menos del 40 % y se perdian). Ahora se exige
     // una presencia absoluta de 15 cuadros (0,5 s), o la mitad si la ventana es corta:
     // alcanza para descartar fantasmas de 1-3 cuadros sin perder esferas que cruzan.
-    const int minVentana = (validos / 6) > 15 ? ((validos / 6) < 120 ? validos / 6 : 120) : 15;
+    // El minimo no puede crecer con el largo de la toma: con 900 cuadros pedia 120
+    // de presencia por esfera y una esfera que cruza en 2-3 s no calificaba
+    // (medido 12-nov-2026: punto 1 con 5.752 cajas publico cero). Tope: 30 (1 s).
+    const int minVentana = (validos / 6) > 15 ? ((validos / 6) < 30 ? validos / 6 : 30) : 15;
     const int minimoFrames = (validos < 30) ? (std::max)(2, validos / 2) : minVentana;
     std::vector<size_t> idx;
     idx.reserve(m_tracks.size());
