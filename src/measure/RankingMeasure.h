@@ -217,6 +217,9 @@ struct MeasureJob {
  */
 class RankingMeasure {
 public:
+    // Banco de pruebas: mide el punto cada vez que el grupo entra a la ROI y publica
+    // cuando el grupo va saliendo. Repite solo, sin guion ni carrera.
+    void ActivarBanco(int punto, int camera, bool activo);
     static constexpr int kMaxCameras = 4;        // 4 PTZ radar
     static constexpr size_t kQueueCapacity = 8;  // tope de la cola de mediciones
     static constexpr int kTargetSpheres = 10;
@@ -535,10 +538,6 @@ private:
     /** Quietud dentro de la zona del punto (sirve tambien con menos de 10 esferas).
      *  Devuelve true si los ultimos nFrames cuadros tienen la misma cantidad de
      *  cajas en la zona y ninguna se corrio mas de maxPx. */
-    // ---------------------------------------------------------------- modo banco
-    // Banco de pruebas: cada vez que el grupo entra a la ROI se abre una toma; cuando
-    // el grupo va saliendo se cierra, se resuelve, se loguea y se publica.
-    void ActivarBanco(int punto, int camera, bool activo);
 
     bool QuietoEnZona(int camera, int punto, const std::vector<FrameSample>& samples,
                       int nFrames, double maxPx) const;

@@ -661,7 +661,12 @@ void RankingMeasure::ActivarBanco(int punto, int camera, bool activo) {
                 ultimoJobMs = ahora;
                 Logger::Info("Banco: entro el grupo a la ROI (" + std::to_string(enZona) +
                              " esferas), abre toma");
-                EnqueueMeasure(job);
+                {
+                    std::lock_guard<std::mutex> lock(m_queueMutex);
+                    if (m_queue.size() >= kQueueCapacity) m_queue.pop_front();
+                    m_queue.push_back(job);
+                }
+                m_queueCv.notify_one();
             }
         }).detach();
         return;
