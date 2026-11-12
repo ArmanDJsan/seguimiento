@@ -1665,8 +1665,7 @@ bool RunRunningMode(bool serviceMode = false, bool consoleService = false) {
         rankingMeasure->SetPublishSink([ov](const std::string& payload) { ov->Publish(payload); });
         // Banco de pruebas: el overlay expone POST /banco y lo cablea al medidor.
         if (rankingMeasure) {
-            RankingMeasure* rm = rankingMeasure.get();
-            overlayServer->SetBancoCallback([rm](int punto, int camara, bool activo) {
+            overlayServer->SetBancoCallback([rm = rankingMeasure.get()](int punto, int camara, bool activo) {
                 rm->ActivarBanco(punto, camara, activo);
             });
         }
