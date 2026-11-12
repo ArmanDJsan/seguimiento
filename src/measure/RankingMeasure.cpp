@@ -1924,7 +1924,10 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
 
     // Cierre: el pasaje termina (ultimo cuadro sin esferas) o el tablero se queda
     // quieto; en ambos casos tambien vence el plazo.
-    const int64_t cierreTope = inicioEvento + (plazoMs > 8000 ? 8000 : plazoMs);
+    // Informativas: 8 s de tope. La llegada (punto 8) conserva su plazo largo porque
+    // tiene que esperar a que las diez se detengan en el tablero.
+    const int64_t topeToma = esLlegada ? plazoMs : (plazoMs > 8000 ? 8000 : plazoMs);
+    const int64_t cierreTope = inicioEvento + topeToma;
     int vaciosZona = 0;
     int bajosZona = 0;      // cuadros seguidos con <=2 en zona despues del pico
     bool noPaso = false;    // la zona nunca se lleno: el grupo no vino
