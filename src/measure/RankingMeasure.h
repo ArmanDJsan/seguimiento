@@ -36,6 +36,7 @@
 #include <deque>
 #include <functional>
 #include <memory>
+#include <map>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -490,6 +491,9 @@ private:
     double AvanceEn(int camera, int64_t epochMs, double cx, double cy,
                     double arcoPrevio = -1.0, double maxPaso = 0.0) const;
     std::vector<VectorTramo> m_vectores[4];
+    // Vector por punto (CAM<c>_P<p>_VECTOR): la ROI y el vector cuelgan del punto,
+    // no del reloj. Clave: (camera+1)*100 + punto.
+    std::map<int, VectorTramo> m_vectoresPunto;
 
     // Poligono de la pista por camara y bloque de segundos (CAMx_ROI[_a_b] de
     // env_calibracion). Se usa como FILTRO de cajas: lo que cae fuera no cuenta

@@ -1880,6 +1880,7 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
     // (la esfera entra a la ROI en el segundo 8 y sale en el 14), asi que esperar
     // un evento solo agrega error y demora. El calculo en si son milisegundos.
     if (job.maxMs == job.burstMs && job.burstMs > 0 && job.punto != 8) {
+        m_puntoActual = job.punto;   // para que VectorDe use el vector del punto
         const int64_t finFijo = t0 + job.burstMs;
         Logger::Info("RankingMeasure: punto=" + std::to_string(job.punto) +
                      " ventana fija de " + std::to_string(job.burstMs) + " ms");
@@ -2776,6 +2777,34 @@ void RankingMeasure::LoadTrackVectors() {
             continue;
         }
 
+        // CAM<c>_P<p>_VECTOR = polilinea del tramo de ese punto (mismo criterio que la ROI)
+        if (key.find("_VECTOR") != std::string::npos && key.find("_P") != std::string::npos) {
+            const size_t pp = key.find("_P");
+            const int cnum = std::atoi(key.c_str() + 3);
+            const int pnum = std::atoi(key.c_str() + pp + 2);
+            VectorTramo vp;
+            double suma = 0.0;
+            for (const auto& par : pts) {
+                vp.pts.push_back(par);
+                const double nx = par.first * 1920.0, ny = par.second * 1080.0;
+                if (!vp.pts.empty() && vp.pts.size() > 1) {
+                    const auto& ant = vp.pts[vp.pts.size() - 2];
+                    const double dx = nx - ant.first * 1920.0, dy = ny - ant.second * 1080.0;
+                    suma += std::sqrt(dx * dx + dy * dy);
+                }
+                vp.arco.push_back(suma);
+            }
+            if (vp.pts.size() >= 2) {
+                vp.ok = true;
+                vp.desdeMs = 0;
+                vp.hastaMs = 3600000;
+                m_vectoresPunto[(cnum) * 100 + pnum] = vp;
+                Logger::Info("RankingMeasure: vector por punto CAM" + std::to_string(cnum) +
+                             "_P" + std::to_string(pnum) + " con " +
+                             std::to_string(vp.pts.size()) + " puntos");
+            }
+            continue;
+        }
         if (key.find("TRACK_VECTOR") == std::string::npos) continue;
         if (key.rfind("CAM", 0) != 0) continue;
         const int cam = std::atoi(key.c_str() + 3);
@@ -2976,6 +3005,15 @@ double RankingMeasure::AvanceEn(int camera, int64_t epochMs, double cx, double c
 }
 
 RankingMeasure::VectorTramo RankingMeasure::VectorDe(int camera, int64_t epochMs) const {
+    // Primero el vector DEL PUNTO que se esta midiendo: la ROI y el vector cuelgan
+    // del punto, no del reloj (si no, con otro preset o sin carrera el vector no
+    // pasa por las esferas y el avance sale 0).
+    if (m_puntoActual > 0) {
+        const auto itp = m_vectoresPunto.find((camera + 1) * 100 + m_puntoActual);
+        if (itp != m_vectoresPunto.end() && itp->second.ok && itp->second.pts.size() >= 2) {
+            return itp->second;
+        }
+    }
     VectorTramo vacio;
     if (camera < 0 || camera >= 4) return vacio;
     const auto& v = m_vectores[camera];
