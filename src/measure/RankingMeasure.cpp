@@ -3113,7 +3113,12 @@ void RankingMeasure::MatchFrameByMotion(FrameSample& sample) {
             // 30 fps, asi que medio diametro sobra y no alcanza a la vecina (que
             // esta a ~0.8 diametros).
             const float diam = (std::max)(tr.lastW, tr.lastH);
-            const float gate = (std::max)(0.55f * diam, 30.0f);
+            // Puerta = medio diametro, con piso de 30 px, pero tambien >= 2,2 veces
+            // la velocidad de la pista. En la camara ancha (la 3) las esferas se
+            // corren 40-60 px por cuadro: con la puerta fija cada cuadro creaba una
+            // identidad nueva y el mapa se reiniciaba (punto 2 sin posiciones).
+            const float vel = std::sqrt(tr.vx * tr.vx + tr.vy * tr.vy);
+            const float gate = (std::max)((std::max)(0.55f * diam, 30.0f), 2.2f * vel);
             if (dist <= gate && (best == m_tracks.size() || dist < bestDist)) {
                 best = i;
                 bestDist = dist;
@@ -3135,6 +3140,8 @@ void RankingMeasure::MatchFrameByMotion(FrameSample& sample) {
         }
 
         SphereTrack& track = m_tracks[best];
+        track.vx = det.x - track.lastX;
+        track.vy = det.y - track.lastY;
         track.lastX = det.x;
         track.lastY = det.y;
         track.lastW = det.w;

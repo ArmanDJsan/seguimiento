@@ -421,6 +421,7 @@ private:
         int id = 0;
         float lastX = 0.0f, lastY = 0.0f;
         float lastW = 0.0f, lastH = 0.0f;
+        float vx = 0.0f, vy = 0.0f;   // velocidad por cuadro: la puerta la usa
         int frames = 0;
         int64_t firstMs = 0, lastMs = 0;   // para exigir continuidad (sin huecos grandes)
         // Arco arrastrado: donde quedo esta esfera sobre el recorrido en el ultimo
