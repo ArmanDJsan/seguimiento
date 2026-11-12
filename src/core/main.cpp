@@ -1623,13 +1623,20 @@ bool RunRunningMode(bool serviceMode = false, bool consoleService = false) {
         std::weak_ptr<InferenceEngine> motorDebil = inferenceEngine;
         std::thread([motorDebil, &config]() {
             bool liberado = false;
+            // No liberar al arrancar: destruir el motor tumba el contexto CUDA que el
+            // DeckLink tiene mapeado y la entrada de video no se puede habilitar
+            // (medido 12-nov-2026: "Failed to enable video input 0x-2147467259" y
+            // "no hay canales de captura inicializados"). Solo se libera despues de
+            // que una carrera abrio la ventana y la cerro.
+            bool huboUso = false;
             while (true) {
                 auto motor = motorDebil.lock();
                 if (!motor) {
                     return;   // el VIB se esta cerrando
                 }
                 const bool activa = Pipeline::InferenciaActiva();
-                if (!activa && !liberado) {
+                if (activa) huboUso = true;
+                if (!activa && !liberado && huboUso) {
                     motor->ReleaseIdle();
                     liberado = true;
                 } else if (activa && liberado) {
