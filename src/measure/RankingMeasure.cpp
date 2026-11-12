@@ -2850,7 +2850,9 @@ bool RankingMeasure::ResolvePositions(int camera, int punto, std::vector<FrameSa
     // El minimo no puede crecer con el largo de la toma: con 900 cuadros pedia 120
     // de presencia por esfera y una esfera que cruza en 2-3 s no calificaba
     // (medido 12-nov-2026: punto 1 con 5.752 cajas publico cero). Tope: 30 (1 s).
-    const int minVentana = (validos / 6) > 15 ? ((validos / 6) < 30 ? validos / 6 : 30) : 15;
+    // Tope de 15 cuadros (0,5 s de presencia) para la pista: con 30 se perdian
+    // esferas que cruzan el tramo en menos de un segundo (medido 12-nov-2026).
+    const int minVentana = (validos / 6) > 12 ? ((validos / 6) < 15 ? validos / 6 : 15) : 12;
     const int minimoFrames = (validos < 30) ? (std::max)(2, validos / 2) : minVentana;
     std::vector<size_t> idx;
     idx.reserve(m_tracks.size());
