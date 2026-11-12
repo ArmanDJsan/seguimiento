@@ -535,6 +535,11 @@ private:
     /** Quietud dentro de la zona del punto (sirve tambien con menos de 10 esferas).
      *  Devuelve true si los ultimos nFrames cuadros tienen la misma cantidad de
      *  cajas en la zona y ninguna se corrio mas de maxPx. */
+    // ---------------------------------------------------------------- modo banco
+    // Banco de pruebas: cada vez que el grupo entra a la ROI se abre una toma; cuando
+    // el grupo va saliendo se cierra, se resuelve, se loguea y se publica.
+    void ActivarBanco(int punto, int camera, bool activo);
+
     bool QuietoEnZona(int camera, int punto, const std::vector<FrameSample>& samples,
                       int nFrames, double maxPx) const;
 

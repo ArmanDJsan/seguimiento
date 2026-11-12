@@ -626,6 +626,50 @@ void RankingMeasure::ResetIdentity() {
 // Hilo medidor
 // ----------------------------------------------------------------------------
 
+void RankingMeasure::ActivarBanco(int punto, int camera, bool activo) {
+    if (activo) {
+        if (m_bancoActivo.load()) {
+            Logger::Info("Banco: ya estaba activo");
+            return;
+        }
+        m_bancoPunto = punto;
+        m_bancoCamera = camera;
+        m_bancoActivo = true;
+        Logger::Info("Banco: ACTIVADO punto=" + std::to_string(punto) +
+                     " camara=" + std::to_string(camera) +
+                     " (mide cuando entra el grupo y publica cuando va saliendo)");
+        std::thread([this]() {
+            int64_t ultimoJobMs = 0;
+            while (!m_stopRequested.load()) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                if (!m_bancoActivo.load()) continue;
+                const int punto = m_bancoPunto.load();
+                const int camara = m_bancoCamera.load();
+                const int64_t ahora = NowEpochMs();
+                if (ahora - ultimoJobMs < 3000) continue;
+                std::vector<FrameSample> ult;
+                SnapshotHistory(camara, ahora - 400, ahora, ult);
+                if (ult.empty()) continue;
+                const int enZona = EnZonaCuenta(camara, punto, ult.back());
+                if (enZona < 3) continue;
+                MeasureJob job;
+                job.punto = punto;
+                job.camera = camara;
+                job.requestedEpochMs = ahora;
+                job.burstMs = 600000;
+                job.maxMs = 600000;
+                ultimoJobMs = ahora;
+                Logger::Info("Banco: entro el grupo a la ROI (" + std::to_string(enZona) +
+                             " esferas), abre toma");
+                EnqueueMeasure(job);
+            }
+        }).detach();
+        return;
+    }
+    if (!m_bancoActivo.exchange(false)) return;
+    Logger::Info("Banco: DESACTIVADO");
+}
+
 void RankingMeasure::WorkerThreadFunc(std::stop_token stopToken) {
     Logger::Info("RankingMeasure: hilo medidor iniciado");
     while (!stopToken.stop_requested()) {

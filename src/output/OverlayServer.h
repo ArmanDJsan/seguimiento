@@ -27,6 +27,7 @@
 #include <cstdint>
 #include <memory>
 #include <condition_variable>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <thread>
