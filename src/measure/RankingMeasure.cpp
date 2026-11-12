@@ -1831,7 +1831,7 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
                      std::to_string(pos.size()) + " posiciones" +
                      (ok ? "" : " (no resolvio)"));
         if (ok && !pos.empty() && pos.size() <= static_cast<size_t>(kTargetSpheres)) {
-            PublishMeasurePoint(job.punto, tUlt, pos);
+            if (m_publisher) m_publisher->PublishMeasurePoint(job.punto, tUlt, pos);
         }
         return;
     }
