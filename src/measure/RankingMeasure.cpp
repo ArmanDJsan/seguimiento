@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <set>
+#include "../core/PipelineGate.h"
 #include "../utils/Logger.h"
 
 #include <algorithm>
@@ -646,6 +647,9 @@ void RankingMeasure::ActivarBanco(int punto, int camera, bool activo) {
                 const int punto = m_bancoPunto.load();
                 const int camara = m_bancoCamera.load();
                 const int64_t ahora = NowEpochMs();
+                // El banco necesita el pipeline despierto: sin carrera la captura y la
+                // inferencia estan apagadas (ahorro). Se pide la ventana cada vuelta.
+                Pipeline::PedirInferencia(120);
                 if (ahora - ultimoJobMs < 3000) continue;
                 std::vector<FrameSample> ult;
                 SnapshotHistory(camara, ahora - 400, ahora, ult);
