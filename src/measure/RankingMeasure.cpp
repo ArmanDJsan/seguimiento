@@ -627,7 +627,8 @@ void RankingMeasure::ResetIdentity() {
 // Hilo medidor
 // ----------------------------------------------------------------------------
 
-void RankingMeasure::ActivarBanco(int punto, int camera, bool activo) {
+void RankingMeasure::ActivarBanco(int punto, int camera, bool activo, bool sinRoi) {
+    m_bancoSinRoi = sinRoi;
     if (activo) {
         if (m_bancoActivo.load()) {
             Logger::Info("Banco: ya estaba activo");
@@ -1944,7 +1945,7 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
             double conf = 0.0;
             for (size_t k = 0; k < s.dets.size(); ++k) {
                 const FrameDetection& d = s.dets[k];
-                if (!EnZona(job.camera, job.punto, d.x / 1920.0, d.y / 1080.0)) continue;
+                if (!m_bancoSinRoi.load() && !EnZona(job.camera, job.punto, d.x / 1920.0, d.y / 1080.0)) continue;
                 orden.emplace_back(arcoSimple(s.epochMs, d.x / 1920.0, d.y / 1080.0),
                                    static_cast<int>(k));
                 conf += d.conf;

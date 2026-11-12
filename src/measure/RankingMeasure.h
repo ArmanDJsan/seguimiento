@@ -219,7 +219,7 @@ class RankingMeasure {
 public:
     // Banco de pruebas: mide el punto cada vez que el grupo entra a la ROI y publica
     // cuando el grupo va saliendo. Repite solo, sin guion ni carrera.
-    void ActivarBanco(int punto, int camera, bool activo);
+    void ActivarBanco(int punto, int camera, bool activo, bool sinRoi = false);
     static constexpr int kMaxCameras = 4;        // 4 PTZ radar
     static constexpr size_t kQueueCapacity = 8;  // tope de la cola de mediciones
     static constexpr int kTargetSpheres = 10;
@@ -518,6 +518,7 @@ private:
     std::atomic<int> m_bancoCamera{2};
     std::atomic<bool> m_bancoActivo{false};
     std::atomic<bool> m_bancoJobEnCurso{false};
+    std::atomic<bool> m_bancoSinRoi{false};
     int m_puntoActual = -1;
     std::function<void(const std::string&)> m_sinkPendiente;
     // ROI como pared: no se acepta un tramo si la recta esfera->tramo sale del
