@@ -1663,6 +1663,13 @@ bool RunRunningMode(bool serviceMode = false, bool consoleService = false) {
         overlayServer = std::make_unique<OverlayServer>();
         OverlayServer* ov = overlayServer.get();
         rankingMeasure->SetPublishSink([ov](const std::string& payload) { ov->Publish(payload); });
+        // Banco de pruebas: el overlay expone POST /banco y lo cablea al medidor.
+        if (rankingMeasure) {
+            RankingMeasure* rm = rankingMeasure.get();
+            overlayServer->SetBancoCallback([rm](int punto, int camara, bool activo) {
+                rm->ActivarBanco(punto, camara, activo);
+            });
+        }
         if (!overlayServer->Start(config.overlayConfig)) {
             Logger::Warning("Overlay: no se pudo levantar; se sigue sin overlay");
         }

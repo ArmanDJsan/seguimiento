@@ -57,6 +57,10 @@ public:
     /** Guarda el ultimo payload publicado y (etapa 2) lo empuja por SSE. */
     void Publish(const std::string& payload);
 
+    // Banco de pruebas: el endpoint POST /banco avisa por aca (punto, camara, activo).
+    using BancoCallback = std::function<void(int, int, bool)>;
+    void SetBancoCallback(BancoCallback cb);
+
     bool Running() const { return m_running.load(); }
 
 private:
@@ -65,6 +69,7 @@ private:
     std::thread m_thread;
     std::atomic<bool> m_running{false};
 
+    BancoCallback m_bancoCb;
     mutable std::mutex m_mutex;
     std::string m_lastPayload;      ///< ultimo JSON publicado (vacio = todavia nada)
     int64_t m_lastMs = 0;

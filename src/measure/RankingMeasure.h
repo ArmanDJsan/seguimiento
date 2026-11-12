@@ -511,6 +511,9 @@ private:
     int EnZonaCuenta(int camera, int punto, const FrameSample& s) const;
     // Punto que se esta resolviendo: la pared de ROI usa SU zona, no el bloque por
     // reloj. Lo escribe ResolvePositions (hilo medidor, de a una medicion).
+    std::atomic<int> m_bancoPunto{2};
+    std::atomic<int> m_bancoCamera{2};
+    std::atomic<bool> m_bancoActivo{false};
     int m_puntoActual = -1;
     std::function<void(const std::string&)> m_sinkPendiente;
     // ROI como pared: no se acepta un tramo si la recta esfera->tramo sale del

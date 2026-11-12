@@ -137,6 +137,35 @@ bool OverlayServer::Start(const OverlayConfig& config) {
     // Prueba sin carrera: se le manda el mismo JSON que publica el medidor y el
     // overlay lo anima. Solo loopback, asi que no hay riesgo de que lo use nadie
     // de afuera.
+    // Banco de pruebas del punto 2: POST /banco {"punto":2,"camera":2,"activo":true}
+    m_server->Post("/banco", [this](const httplib::Request& req, httplib::Response& res) {
+        res.set_header("Content-Type", "application/json");
+        auto num = [&req](const char* clave, int porDefecto) {
+            const std::string k = std::string("\"") + clave + "\"";
+            const size_t p = req.body.find(k);
+            if (p == std::string::npos) return porDefecto;
+            const size_t d = req.body.find(':', p + k.size());
+            if (d == std::string::npos) return porDefecto;
+            return std::atoi(req.body.c_str() + d + 1);
+        };
+        const int punto = num("punto", 2);
+        const int camara = num("camera", 2);
+        const bool activo = req.body.find("false") == std::string::npos;
+        BancoCallback cb;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            cb = m_bancoCb;
+        }
+        if (!cb) {
+            res.status = 400;
+            res.set_content(R"({"ok":false,"motivo":"banco no cableado"})", "application/json");
+            return;
+        }
+        cb(punto, camara, activo);
+        res.set_content(std::string(R"({"ok":true,"activo":)") + (activo ? "true" : "false") + "}",
+                        "application/json");
+    });
+
     m_server->Post("/api/ranking", [this](const httplib::Request& req, httplib::Response& res) {
         if (req.body.empty()) {
             res.status = 400;
@@ -191,6 +220,11 @@ void OverlayServer::Stop() {
     if (m_running.exchange(false)) {
         Logger::Info("OverlayServer: detenido");
     }
+}
+
+void OverlayServer::SetBancoCallback(BancoCallback cb) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_bancoCb = std::move(cb);
 }
 
 void OverlayServer::Publish(const std::string& payload) {
