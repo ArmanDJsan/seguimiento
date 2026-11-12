@@ -2904,6 +2904,54 @@ bool RankingMeasure::ResolvePositions(int camera, int punto, std::vector<FrameSa
                 }
             }
         }
+        // Desempate de clases repetidas: dos pistas que COEXISTEN y comparten la clase
+        // dominante son dos esferas distintas mal clasificadas (el tracker las separo
+        // bien, el voto no). La de menos votos toma su segunda mejor clase si esta
+        // libre. Sin esto la lista sale con una clase repetida y el que publica pierde
+        // el puesto: medido 12-nov-2026 en el punto 2, [2,9,10,4,8,8] -> 6 posiciones.
+        {
+            auto votoMax = [&](int k) {
+                const SphereTrack& tr = m_tracks[idx[k]];
+                int m = 0;
+                for (int c = 0; c < kTargetSpheres; ++c) {
+                    if (tr.votes[c] > m) m = tr.votes[c];
+                }
+                return m;
+            };
+            std::vector<int> orden(n);
+            for (int k = 0; k < n; ++k) orden[k] = k;
+            std::sort(orden.begin(), orden.end(), [&](int a, int b) {
+                return votoMax(a) > votoMax(b);
+            });
+            std::vector<bool> tomada(static_cast<size_t>(kTargetSpheres) + 1, false);
+            for (int oi = 0; oi < n; ++oi) {
+                const int k = orden[oi];
+                const int c = clase[k];
+                if (c < 0) continue;
+                if (!tomada[static_cast<size_t>(c)]) {
+                    tomada[static_cast<size_t>(c)] = true;
+                    continue;
+                }
+                const SphereTrack& tr = m_tracks[idx[k]];
+                int mejor = -1;
+                int mejorV = 0;
+                for (int c2 = 0; c2 < kTargetSpheres; ++c2) {
+                    if (tomada[static_cast<size_t>(c2)]) continue;
+                    if (tr.votes[c2] > mejorV) {
+                        mejorV = tr.votes[c2];
+                        mejor = c2;
+                    }
+                }
+                const int tope = votoMax(k);
+                if (mejor >= 0 && tope > 0 && mejorV * 4 >= tope) {
+                    Logger::Info("RankingMeasure: clase repetida " + std::to_string(c) +
+                                 " -> la pista de menos votos pasa a " + std::to_string(mejor));
+                    clase[k] = mejor;
+                    tomada[static_cast<size_t>(mejor)] = true;
+                }
+            }
+        }
+
         std::vector<int> padre(n);
         for (int k = 0; k < n; ++k) {
             padre[k] = k;
