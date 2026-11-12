@@ -1824,7 +1824,53 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
         SnapshotHistory(job.camera, t0, finFijo, muestras);
         std::vector<int> pos;
         int64_t tUlt = 0;
-        const bool ok = ResolvePositions(job.camera, job.punto, muestras, pos, tUlt);
+
+        // LECTURA DE CUADRO: en una pista determinista las diez esferas se ven
+        // separadas en el cuadro. Se ordena cada cuadro por su avance sobre el
+        // vector, se toma la clase de cada caja en ese cuadro y se vota POSICION a
+        // POSICION entre los cuadros con mas esferas. Es lo que hace una persona
+        // mirando el video; el voto por pistas agregaba ruido y perdia esferas.
+        int claseVoto[kTargetSpheres][kTargetSpheres];
+        std::memset(claseVoto, 0, sizeof(claseVoto));
+        int cuadrosUtiles = 0;
+        int maxEnCuadro = 0;
+        for (const auto& s : muestras) {
+            if (s.enBarrido) continue;
+            std::vector<std::pair<double, int>> orden;
+            orden.reserve(s.dets.size());
+            for (size_t k = 0; k < s.dets.size(); ++k) {
+                const FrameDetection& d = s.dets[k];
+                if (!EnZona(job.camera, job.punto, d.x / 1920.0, d.y / 1080.0)) continue;
+                orden.emplace_back(AvanceEn(job.camera, s.epochMs, d.x, d.y, -1.0, 400.0), static_cast<int>(k));
+            }
+            if (static_cast<int>(orden.size()) < 8) continue;
+            std::sort(orden.begin(), orden.end(), [](const auto& a, const auto& b) {
+                return a.first > b.first;   // mas avance = mejor puesto
+            });
+            const int n = (std::min)(static_cast<int>(orden.size()), static_cast<int>(kTargetSpheres));
+            maxEnCuadro = (std::max)(maxEnCuadro, n);
+            ++cuadrosUtiles;
+            for (int p = 0; p < n; ++p) {
+                const int c = s.dets[static_cast<size_t>(orden[static_cast<size_t>(p)].second)].cls;
+                if (c >= 0 && c < static_cast<int>(kTargetSpheres)) claseVoto[p][c] += 1;
+            }
+        }
+        Logger::Info("RankingMeasure: punto=" + std::to_string(job.punto) +
+                     " lectura de cuadro: " + std::to_string(cuadrosUtiles) +
+                     " cuadros utiles, max " + std::to_string(maxEnCuadro) + " esferas");
+        if (cuadrosUtiles > 0) {
+            std::vector<bool> usado(static_cast<size_t>(kTargetSpheres), false);
+            for (int p = 0; p < maxEnCuadro; ++p) {
+                int mejor = -1, mejorV = 0;
+                for (int c = 0; c < static_cast<int>(kTargetSpheres); ++c) {
+                    if (usado[static_cast<size_t>(c)]) continue;
+                    if (claseVoto[p][c] > mejorV) { mejorV = claseVoto[p][c]; mejor = c; }
+                }
+                if (mejor >= 0) { pos.push_back(mejor); usado[static_cast<size_t>(mejor)] = true; }
+            }
+            tUlt = muestras.empty() ? 0 : muestras.back().epochMs;
+        }
+        const bool ok = !pos.empty();
         Logger::Info("RankingMeasure: punto=" + std::to_string(job.punto) + " camara=" +
                      std::to_string(job.camera) + " ventana fija: " +
                      std::to_string(muestras.size()) + " cuadros -> " +
