@@ -494,6 +494,10 @@ private:
     // Vector por punto (CAM<c>_P<p>_VECTOR): la ROI y el vector cuelgan del punto,
     // no del reloj. Clave: (camera+1)*100 + punto.
     std::map<int, VectorTramo> m_vectoresPunto;
+    // Linea de conteo por punto (CAM<c>_P<p>_LINEA=x1,y1;x2,y2): el orden es el orden
+    // de cruce de esa raya, no el avance sobre el vector.
+    struct LineaConteo { double x1 = 0, y1 = 0, x2 = 0, y2 = 0; bool ok = false; };
+    std::map<int, LineaConteo> m_lineasPunto;
 
     // Poligono de la pista por camara y bloque de segundos (CAMx_ROI[_a_b] de
     // env_calibracion). Se usa como FILTRO de cajas: lo que cae fuera no cuenta

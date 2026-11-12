@@ -1917,6 +1917,79 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
         std::vector<int> pos;
         int64_t tUlt = 0;
 
+        // --- ORDEN POR RAYA DE CONTEO -------------------------------------------
+        // Si el punto tiene raya (CAM<c>_P<p>_LINEA), el orden es el orden en que las
+        // esferas la cruzan: la que cruza primero queda primera. No se proyecta nada.
+        {
+            const auto itl = m_lineasPunto.find((job.camera + 1) * 100 + job.punto);
+            if (itl != m_lineasPunto.end() && itl->second.ok) {
+                const LineaConteo& L = itl->second;
+                struct Pista { double x, y; int lado; int64_t tCruce; int votes[16]; int frames; };
+                std::vector<Pista> pistas;
+                auto lado = [&L](double nx, double ny) {
+                    const double s = (L.x2 - L.x1) * (ny - L.y1) - (L.y2 - L.y1) * (nx - L.x1);
+                    return (s >= 0.0) ? 1 : -1;
+                };
+                for (const auto& s : muestras) {
+                    if (s.enBarrido) continue;
+                    for (const auto& d : s.dets) {
+                        const double nx = d.x / 1920.0, ny = d.y / 1080.0;
+                        if (!EnZona(job.camera, job.punto, nx, ny)) continue;
+                        const int ld = lado(nx, ny);
+                        const double diam = (std::max)(static_cast<double>(d.w), static_cast<double>(d.h));
+                        const double puerta = (std::max)(30.0, 2.5 * diam);
+                        int mejor = -1;
+                        double mejorD = puerta;
+                        for (size_t k = 0; k < pistas.size(); ++k) {
+                            const double du = (d.x - pistas[k].x), dv = (d.y - pistas[k].y);
+                            const double dist = std::sqrt(du * du + dv * dv);
+                            if (dist < mejorD) { mejorD = dist; mejor = static_cast<int>(k); }
+                        }
+                        if (mejor < 0) {
+                            Pista np{};
+                            np.x = d.x; np.y = d.y; np.lado = ld; np.tCruce = 0; np.frames = 0;
+                            for (int k = 0; k < 16; ++k) np.votes[k] = 0;
+                            pistas.push_back(np);
+                            mejor = static_cast<int>(pistas.size()) - 1;
+                        }
+                        Pista& p = pistas[static_cast<size_t>(mejor)];
+                        if (p.tCruce == 0 && ld != p.lado) p.tCruce = s.epochMs;   // cruzo la raya
+                        p.x = d.x; p.y = d.y; p.lado = ld;
+                        if (d.ballID >= 0 && d.ballID < 16) p.votes[d.ballID] += 1;
+                        p.frames += 1;
+                    }
+                }
+                struct Cruce { int64_t t; int clase; int frames; };
+                std::vector<Cruce> cruces;
+                for (const auto& p : pistas) {
+                    if (p.tCruce == 0 || p.frames < 5) continue;
+                    int mejorC = -1, mejorV = 0;
+                    for (int k = 0; k < 16; ++k) {
+                        if (p.votes[k] > mejorV) { mejorV = p.votes[k]; mejorC = k; }
+                    }
+                    if (mejorC >= 0) cruces.push_back({p.tCruce, mejorC, p.frames});
+                }
+                std::sort(cruces.begin(), cruces.end(), [](const Cruce& a, const Cruce& b) {
+                    return a.t < b.t;
+                });
+                Logger::Info("RankingMeasure: punto=" + std::to_string(job.punto) +
+                             " raya de conteo: " + std::to_string(cruces.size()) + " cruces");
+                if (!cruces.empty()) {
+                    std::vector<int> porCruce;
+                    std::vector<bool> visto(16, false);
+                    for (const auto& cr : cruces) {
+                        if (visto[static_cast<size_t>(cr.clase)]) continue;
+                        visto[static_cast<size_t>(cr.clase)] = true;
+                        porCruce.push_back(cr.clase + 1);   // clase -> ballID
+                    }
+                    if (m_publisher && !porCruce.empty()) {
+                        m_publisher->PublishMeasurePoint(job.punto, tUlt, porCruce);
+                    }
+                    return;
+                }
+            }
+        }
+
         // LECTURA DEL MEJOR CUADRO: se elige el cuadro con mas esferas dentro de la
         // zona (desempate por confianza media), se ordenan sus cajas por el avance
         // sobre el vector y ESA es la lista. Sin votar entre cuadros: votar entre 150
@@ -2798,6 +2871,36 @@ void RankingMeasure::LoadTrackVectors() {
                 r.ok = true;
                 m_regiones[rcam - 1].push_back(r);
                 ++regiones;
+            }
+            continue;
+        }
+
+        // CAM<c>_P<p>_LINEA = raya de conteo (dos puntos normalizados en la pista)
+        if (key.find("_LINEA") != std::string::npos && key.find("_P") != std::string::npos) {
+            const size_t pp = key.find("_P");
+            const int cnum = std::atoi(key.c_str() + 3);
+            const int pnum = std::atoi(key.c_str() + pp + 2);
+            std::vector<std::pair<double, double>> lp;
+            size_t pos = 0;
+            while (pos < val.size()) {
+                const size_t finTrozo = val.find(';', pos);
+                const std::string trozo = val.substr(pos, finTrozo == std::string::npos ? std::string::npos : finTrozo - pos);
+                const size_t coma = trozo.find(',');
+                if (coma != std::string::npos) {
+                    lp.emplace_back(std::atof(trozo.substr(0, coma).c_str()),
+                                    std::atof(trozo.substr(coma + 1).c_str()));
+                }
+                if (finTrozo == std::string::npos) break;
+                pos = finTrozo + 1;
+            }
+            if (lp.size() >= 2) {
+                LineaConteo lc;
+                lc.x1 = lp[0].first; lc.y1 = lp[0].second;
+                lc.x2 = lp[1].first; lc.y2 = lp[1].second;
+                lc.ok = true;
+                m_lineasPunto[cnum * 100 + pnum] = lc;
+                Logger::Info("RankingMeasure: raya de conteo CAM" + std::to_string(cnum) +
+                             "_P" + std::to_string(pnum));
             }
             continue;
         }
