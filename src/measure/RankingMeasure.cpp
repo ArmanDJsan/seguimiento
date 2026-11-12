@@ -2811,6 +2811,7 @@ void RankingMeasure::LoadTrackVectors() {
 
         // ---- zona por punto (CAM2_P3=...) : mismo poligono, atado al punto ----
         if (key.find("_ROI") == std::string::npos && key.find("_VECTOR") == std::string::npos &&
+            key.find("_LINEA") == std::string::npos &&
             key.rfind("CAM", 0) == 0 && key.find("_P") != std::string::npos) {
             const int zcam = std::atoi(key.c_str() + 3);
             const size_t up = key.find("_P");
