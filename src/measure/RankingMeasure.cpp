@@ -1893,6 +1893,15 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
             }
             mejorPuntaje = puntaje;
             tUlt = s.epochMs;
+            {
+                std::ostringstream dbg;
+                dbg << "RankingMeasure: cuadro elegido t=" << s.epochMs << " ->";
+                for (size_t k = 0; k < orden.size(); ++k) {
+                    const FrameDetection& d = s.dets[static_cast<size_t>(orden[k].second)];
+                    dbg << " B" << d.ballID << "@" << static_cast<long long>(orden[k].first);
+                }
+                Logger::Info(dbg.str());
+            }
         }
         Logger::Info("RankingMeasure: punto=" + std::to_string(job.punto) +
                      " lectura de cuadro: " + std::to_string(cuadrosUtiles) +
