@@ -1902,7 +1902,16 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
         // y el tramo se sale del corredor. Medido 12-nov-2026: las diez esferas con
         // avance -1 y por lo tanto el orden salia en el orden en que vinieran.
         auto arcoSimple = [&](int64_t epochMs, double px, double py) {
-            const VectorTramo t = VectorDe(job.camera, epochMs);
+            VectorTramo t = VectorDe(job.camera, epochMs);
+            // Modo banco (sin carrera): no hay bloque de tiempo, asi que VectorDe
+            // no encuentra nada. Respaldo: el vector de esa camara, el que tenga mas
+            // puntos. Sin esto el avance sale -1 y no ordena nada (medido 12-nov).
+            if ((!t.ok || t.pts.size() < 2) && job.camera >= 0 && job.camera < 4) {
+                for (const auto& cand : m_vectores[job.camera]) {
+                    if (!cand.ok || cand.pts.size() < 2) continue;
+                    if (!t.ok || cand.pts.size() > t.pts.size()) t = cand;
+                }
+            }
             if (!t.ok || t.pts.size() < 2) return -1.0;
             double mejorD = 1e18;
             double mejorA = -1.0;
