@@ -1887,7 +1887,22 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     if (inicioEvento == 0) {
-        inicioEvento = t0;   // no hubo evento: se comporta como antes
+        // Antes caia a t0 y medía 25 s de nada: con el medidor de un solo hilo eso
+        // encolaba a todos los puntos siguientes (medido 12-nov-2026: p4..p8
+        // arrancaron juntos a +56s con "toma desde +0.0s"). Ahora se descarta,
+        // salvo el punto 1, que mide las 10 arriba antes de abrir la compuerta.
+        if (job.punto == 1) {
+            inicioEvento = t0;
+        } else {
+            Logger::Warning("RankingMeasure: punto=" + std::to_string(job.punto) +
+                            " camara=" + std::to_string(job.camera) +
+                            " no llego el grupo al tramo en la espera, se descarta");
+            m_droppedCount++;
+            result.spheres = 0;
+            result.motivo = "no llego el grupo al tramo";
+            ReportResult(result);
+            return;
+        }
     }
 
     // Traza de inicio: hasta ahora el log solo mostraba el final de la toma, asi que
