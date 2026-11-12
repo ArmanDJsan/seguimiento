@@ -656,7 +656,7 @@ void RankingMeasure::ActivarBanco(int punto, int camera, bool activo, bool sinRo
                 SnapshotHistory(camara, ahora - 400, ahora, ult);
                 if (ult.empty()) continue;
                 const int enZona = EnZonaCuenta(camara, punto, ult.back());
-                if (enZona < 3) {
+                if (enZona < 1) {   // alcanza con que asome una: la primera es la entrada
                     // el grupo salio de la ROI: queda libre para la proxima pasada
                     m_bancoJobEnCurso = false;
                     continue;
