@@ -2380,6 +2380,37 @@ bool RankingMeasure::QuietoEnZona(int camera, int punto, const std::vector<Frame
     return true;
 }
 
+// Quietud del tablero para la LLEGADA: las ultimas nFrames muestras tienen las 10
+// esferas y cada una se movio menos de maxPx (pixeles) respecto de la anterior.
+bool RankingMeasure::EstableQuieto(const std::vector<FrameSample>& samples, int nFrames, double maxPx) {
+    if (static_cast<int>(samples.size()) < nFrames) return false;
+    const size_t ini = samples.size() - static_cast<size_t>(nFrames);
+    for (size_t i = ini; i < samples.size(); ++i) {
+        if (static_cast<int>(samples[i].dets.size()) < kTargetSpheres) return false;
+    }
+    for (size_t i = ini + 1; i < samples.size(); ++i) {
+        const auto& a = samples[i - 1].dets;
+        const auto& b = samples[i].dets;
+        double suma = 0.0;
+        int n = 0;
+        for (const auto& d : b) {
+            double mejor = 1e9;
+            for (const auto& p : a) {
+                // d.x/d.y YA vienen en pixeles: multiplicar por 1920 convertia medio
+                // pixel en 960 y la llegada nunca cerraba por quietud (12-nov-2026).
+                const double dx = d.x - p.x;
+                const double dy = d.y - p.y;
+                const double dist = std::sqrt(dx * dx + dy * dy);
+                if (dist < mejor) mejor = dist;
+            }
+            suma += mejor;
+            ++n;
+        }
+        if (n > 0 && (suma / n) > maxPx) return false;
+    }
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // Direccion de avance por tramo, leida de env_calibracion.
 // Formato: CAM1_TRACK_VECTOR_44_59=0.996,0.572;0.016,0.418
