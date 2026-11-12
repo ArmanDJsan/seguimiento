@@ -2712,8 +2712,8 @@ void RankingMeasure::LoadTrackVectors() {
         const std::string val = line.substr(eq + 1);
 
         // ---- zona por punto (CAM2_P3=...) : mismo poligono, atado al punto ----
-        if (key.find("_ROI") == std::string::npos && key.rfind("CAM", 0) == 0 &&
-            key.find("_P") != std::string::npos) {
+        if (key.find("_ROI") == std::string::npos && key.find("_VECTOR") == std::string::npos &&
+            key.rfind("CAM", 0) == 0 && key.find("_P") != std::string::npos) {
             const int zcam = std::atoi(key.c_str() + 3);
             const size_t up = key.find("_P");
             const int zpunto = std::atoi(key.c_str() + up + 2);
@@ -2782,23 +2782,35 @@ void RankingMeasure::LoadTrackVectors() {
             const size_t pp = key.find("_P");
             const int cnum = std::atoi(key.c_str() + 3);
             const int pnum = std::atoi(key.c_str() + pp + 2);
-            VectorTramo vp;
-            double suma = 0.0;
-            for (const auto& par : pts) {
-                vp.pts.push_back(par);
-                const double nx = par.first * 1920.0, ny = par.second * 1080.0;
-                if (!vp.pts.empty() && vp.pts.size() > 1) {
-                    const auto& ant = vp.pts[vp.pts.size() - 2];
-                    const double dx = nx - ant.first * 1920.0, dy = ny - ant.second * 1080.0;
-                    suma += std::sqrt(dx * dx + dy * dy);
+            std::vector<std::pair<double, double>> vpts;
+            size_t pos = 0;
+            while (pos < val.size()) {
+                const size_t finTrozo = val.find(';', pos);
+                const std::string trozo = val.substr(pos, finTrozo == std::string::npos ? std::string::npos : finTrozo - pos);
+                const size_t coma = trozo.find(',');
+                if (coma != std::string::npos) {
+                    vpts.emplace_back(std::atof(trozo.substr(0, coma).c_str()),
+                                      std::atof(trozo.substr(coma + 1).c_str()));
                 }
-                vp.arco.push_back(suma);
+                if (finTrozo == std::string::npos) break;
+                pos = finTrozo + 1;
             }
-            if (vp.pts.size() >= 2) {
+            if (vpts.size() >= 2) {
+                VectorTramo vp;
                 vp.ok = true;
                 vp.desdeMs = 0;
                 vp.hastaMs = 3600000;
-                m_vectoresPunto[(cnum) * 100 + pnum] = vp;
+                double suma = 0.0;
+                for (size_t k = 0; k < vpts.size(); ++k) {
+                    vp.pts.push_back(vpts[k]);
+                    if (k > 0) {
+                        const double dx = (vpts[k].first - vpts[k - 1].first) * 1920.0;
+                        const double dy = (vpts[k].second - vpts[k - 1].second) * 1080.0;
+                        suma += std::sqrt(dx * dx + dy * dy);
+                    }
+                    vp.arco.push_back(suma);
+                }
+                m_vectoresPunto[cnum * 100 + pnum] = vp;
                 Logger::Info("RankingMeasure: vector por punto CAM" + std::to_string(cnum) +
                              "_P" + std::to_string(pnum) + " con " +
                              std::to_string(vp.pts.size()) + " puntos");
