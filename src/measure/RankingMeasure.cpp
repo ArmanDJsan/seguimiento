@@ -2344,7 +2344,7 @@ void RankingMeasure::ConsolidarLlegada(int64_t epochMs) {
 // Quietud del tablero: las ultimas nFrames muestras tienen las 10 esferas y cada
 // una se movio menos de maxPx (pixeles) respecto de la anterior. Se empareja cada
 // caja con la mas cercana del cuadro previo (el orden del vector no es estable).
-bool RankingMeasure::QuietoEnZona(int camera, int punto, const std::vector<FrameSample>& samples, int nFrames, double maxPx) {
+bool RankingMeasure::QuietoEnZona(int camera, int punto, const std::vector<FrameSample>& samples, int nFrames, double maxPx) const {
     if (static_cast<int>(samples.size()) < nFrames) return false;
     const size_t ini = samples.size() - static_cast<size_t>(nFrames);
     std::vector<std::vector<std::pair<double,double>>> centros(nFrames);
