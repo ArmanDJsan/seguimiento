@@ -1851,7 +1851,7 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
             maxEnCuadro = (std::max)(maxEnCuadro, n);
             ++cuadrosUtiles;
             for (int p = 0; p < n; ++p) {
-                const int c = s.dets[static_cast<size_t>(orden[static_cast<size_t>(p)].second)].cls;
+                const int c = s.dets[static_cast<size_t>(orden[static_cast<size_t>(p)].second)].ballID;
                 if (c >= 0 && c < static_cast<int>(kTargetSpheres)) claseVoto[p][c] += 1;
             }
         }
