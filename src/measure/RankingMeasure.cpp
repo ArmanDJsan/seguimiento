@@ -2017,7 +2017,7 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
             if (c < 0 || c >= static_cast<int>(kTargetSpheres)) continue;
             if (usado[static_cast<size_t>(c)]) continue;
             usado[static_cast<size_t>(c)] = true;
-            pos.push_back(c);
+            pos.push_back(c + 1);   // clase (0..9) -> ballID (1..10)
         }
         const bool ok = !pos.empty();
         Logger::Info("RankingMeasure: punto=" + std::to_string(job.punto) + " camara=" +
