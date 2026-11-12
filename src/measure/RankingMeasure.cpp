@@ -1922,6 +1922,8 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
     // quieto; en ambos casos tambien vence el plazo.
     const int64_t cierreTope = inicioEvento + plazoMs;
     int vaciosZona = 0;
+    int bajosZona = 0;      // cuadros seguidos con <=2 en zona despues del pico
+    bool noPaso = false;    // la zona nunca se lleno: el grupo no vino
     int maxVistoZona = 0;   // para no cerrar por quietud antes de que pase el grupo
     while (!m_stopRequested.load() && NowEpochMs() < cierreTope) {
         std::vector<FrameSample> ult;
@@ -1933,11 +1935,29 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
         if (!esLlegada) {
             // El pasaje termina cuando la ZONA queda vacia 10 cuadros seguidos
             // (0,33 s): un cuadro suelto sin detecciones no cierra la toma.
-            if (EnZonaCuenta(job.camera, job.punto, ult.back()) == 0) {
+            const int cuentaZona = EnZonaCuenta(job.camera, job.punto, ult.back());
+            if (cuentaZona == 0) {
                 if (++vaciosZona >= 10) break;
             } else {
                 vaciosZona = 0;
-                maxVistoZona = (std::max)(maxVistoZona, EnZonaCuenta(job.camera, job.punto, ult.back()));
+                maxVistoZona = (std::max)(maxVistoZona, cuentaZona);
+                // (a) El grupo ya paso: hubo pico (>=6) y ahora quedan <=2 en la
+                // zona. Evita quedarse 25 s con 4-5 esferas que nunca se vacian.
+                if (maxVistoZona >= 6 && cuentaZona <= 2) {
+                    if (++bajosZona >= 10) {
+                        Logger::Info("RankingMeasure: punto=" + std::to_string(job.punto) +
+                                     " cierra: el grupo ya paso (quedan " +
+                                     std::to_string(cuentaZona) + " en la zona)");
+                        break;
+                    }
+                } else {
+                    bajosZona = 0;
+                }
+                // (c) Nunca llego el grupo: 8 s sin pasar de 3 esferas en la zona.
+                if (maxVistoZona < 3 && (NowEpochMs() - inicioEvento) > 8000) {
+                    noPaso = true;
+                    break;
+                }
                 // Cierre por quietud: si el grupo se detuvo DENTRO de la zona, la
                 // toma ya tiene todo lo que va a tener. Antes se esperaba al techo
                 // de 25 s con la zona ocupada, y eso retrasaba a los puntos
@@ -1966,6 +1986,13 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
         if (m_ventanaPunto[job.camera] == job.punto) {
             m_ventanaPunto[job.camera] = -1;
         }
+    }
+
+    if (noPaso) {
+        Logger::Warning("RankingMeasure: punto=" + std::to_string(job.punto) +
+                        " el grupo no paso por el tramo en 8 s, se descarta");
+        m_droppedCount++;
+        return;
     }
 
     // 2. Tomar lo que el pipeline vio en la ventana.
