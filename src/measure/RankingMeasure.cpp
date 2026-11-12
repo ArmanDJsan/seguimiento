@@ -50,7 +50,7 @@ namespace {
 constexpr int kPollIntervalMs = 5;      // cadencia de sondeo del hilo medidor
 constexpr int kFinalDrainMs = 40;       // margen para el ultimo frame (~1 frame @30fps)
 constexpr int kTimestampRetries = 50;   // reintentos de lectura de un slot en escritura
-constexpr size_t kMaxTracks = 40;       // techo de identidades provisorias
+constexpr size_t kMaxTracks = 400;      // techo de identidades provisorias (era 40: saturaba en 10 cuadros)
 
 // Cuadros CONSECUTIVOS con el minimo de esferas para abrir una ventana:
 // un cuadro suelto (fantasma, reflejo) no arranca la toma.
@@ -3080,10 +3080,18 @@ bool RankingMeasure::ResolvePositions(int camera, int punto, std::vector<FrameSa
 
 void RankingMeasure::MatchFrameByMotion(FrameSample& sample) {
     if (m_tracks.size() > kMaxTracks) {
-        // Red de seguridad: sin la barrera IR no hay identidad real, y no
-        // queremos que la lista de tracks crezca sin techo.
-        Logger::Warning("RankingMeasure: demasiadas identidades provisorias, se reinician");
-        ResetIdentity();
+        // PODA en vez de reinicio total: con ~2,3 identidades nuevas por cuadro el
+        // mapa se llenaba en ~10 cuadros y ResetIdentity mataba las pistas en curso.
+        // Medido 12-nov-2026 en el punto 2: 1.492 cajas dentro de la zona y CERO
+        // posiciones porque ninguna pista llegaba a los 30 cuadros minimos.
+        const int64_t corte = sample.epochMs - 2000;
+        m_tracks.erase(std::remove_if(m_tracks.begin(), m_tracks.end(),
+                          [corte](const SphereTrack& t) { return t.lastMs < corte; }),
+                       m_tracks.end());
+        if (m_tracks.size() > kMaxTracks) {
+            Logger::Warning("RankingMeasure: demasiadas identidades provisorias, se reinician");
+            ResetIdentity();
+        }
     }
 
     std::vector<bool> usado(m_tracks.size(), false);
