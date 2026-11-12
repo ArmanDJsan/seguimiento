@@ -2377,10 +2377,6 @@ void RankingMeasure::ConsolidarLlegada(int64_t epochMs) {
         tP8 = m_tPunto[8];
         tP7 = m_tPunto[7];
     }
-    // Si el guion quedo simplificado (solo punto 2 y final), los puntos 7 y 8 no
-    // marcan tiempo: la ventana de llegada arranca con el propio final menos 3 s.
-    if (tP8 <= 0) tP8 = (epochMs > 11000) ? (epochMs - 11000) : 0;
-    if (tP7 <= 0) tP7 = tP8;
 
     // Lo que importa: reconstruir el final con TODOS los cuadros de cada camara
     // desde su punto hasta el cierre, no con lo que se publico en el punto.
