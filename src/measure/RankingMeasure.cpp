@@ -1822,6 +1822,10 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
     // confirma despues los resultados de 7 y 8.
     const bool esLlegada = (job.punto == 8);
     const int minDetsArranque = esLlegada ? kTargetSpheres : 3;
+    // Tope duro de la toma informativa: 8 s. Con un solo hilo medidor, una toma
+    // que no cierra bloquea a los puntos siguientes y esos abren cuando la camara
+    // ya cambio de preset (medido 12-nov-2026: p3 abrio a +31s en vez de +10 y la
+    // ROI cayo sobre otra parte de la pista). El tope mantiene la cola avanzando.
     const int64_t plazoMs = job.burstMs;      // 2 s intermedios · 20 s llegada
     const int64_t topeAbs = t0 + job.maxMs;   // techo duro por si el evento no llega
 
@@ -1920,7 +1924,7 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
 
     // Cierre: el pasaje termina (ultimo cuadro sin esferas) o el tablero se queda
     // quieto; en ambos casos tambien vence el plazo.
-    const int64_t cierreTope = inicioEvento + plazoMs;
+    const int64_t cierreTope = inicioEvento + (plazoMs > 8000 ? 8000 : plazoMs);
     int vaciosZona = 0;
     int bajosZona = 0;      // cuadros seguidos con <=2 en zona despues del pico
     bool noPaso = false;    // la zona nunca se lleno: el grupo no vino
