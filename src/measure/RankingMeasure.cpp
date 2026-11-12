@@ -2397,8 +2397,11 @@ bool RankingMeasure::EstableQuieto(const std::vector<FrameSample>& samples, int 
         for (const auto& d : b) {
             double mejor = 1e9;
             for (const auto& p : a) {
-                const double dx = (d.x - p.x) * 1920.0;
-                const double dy = (d.y - p.y) * 1080.0;
+                // d.x/d.y ya vienen en pixeles: multiplicar por 1920 convertia
+                // medio pixel en 960 y la llegada NUNCA cerraba por quietud
+                // (siempre se iba al techo de 20 s). Medido 12-nov-2026.
+                const double dx = d.x - p.x;
+                const double dy = d.y - p.y;
                 const double dist = std::sqrt(dx * dx + dy * dy);
                 if (dist < mejor) mejor = dist;
             }
