@@ -11,5 +11,38 @@
 <body>
     <canvas id="stage" aria-label="Marcador de la carrera" role="img"></canvas>
     <script src="app.js"></script>
+
+    <div id="punto-test">P?</div>
+    <script>
+    (function () {
+        var hist = new Map(), ultimo = 0;
+        var el = document.getElementById('punto-test');
+        function pintar() {
+            el.innerHTML = Array.from(hist.entries()).sort(function (a, b) { return a[0] - b[0]; })
+                .map(function (e) {
+                    var p = e[0], d = e[1];
+                    return '<div class="' + (d.tarde ? 'tarde' : 'ok') + '">P' + p + ': ' +
+                           d.a + '|' + d.b + ' : ' + d.lista + (d.tarde ? '  tarde' : '') + '</div>';
+                }).join('');
+        }
+        var src = new EventSource('events');
+        src.addEventListener('ranking', function (ev) {
+            try {
+                var m = JSON.parse(ev.data), p = Number(m.punto || 0);
+                if (!p) return;
+                var tarde = p < ultimo, pu = new Array(11).fill('?');
+                (m.canicas || []).forEach(function (c) {
+                    var k = Number(c.puesto || 0), v = Number(c.id);
+                    if (k >= 1 && k <= 10) pu[k] = (v === 10) ? '0' : (v > 0 ? String(v) : '?');
+                });
+                var a = (m.t0 && m.inicio) ? Math.round((m.inicio - m.t0) / 1000) + 's' : '--';
+                var b = (m.t0 && m.fin) ? Math.round((m.fin - m.t0) / 1000) + 's' : '--';
+                hist.set(p, { tarde: tarde, lista: pu.slice(1).join(''), a: a, b: b });
+                pintar();
+                ultimo = Math.max(ultimo, p);
+            } catch (e) { }
+        });
+    })();
+    </script>
 </body>
 </html>
