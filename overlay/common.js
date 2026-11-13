@@ -139,9 +139,10 @@ window.OVL = (function () {
         function pintarHistorial() {
             const etiqueta = document.getElementById('punto-test');
             if (!etiqueta) return;
-            etiqueta.innerHTML = historialPuntos.slice(-12)
+            etiqueta.innerHTML = historialPuntos.slice()
+                .sort((a, b) => a.p - b.p)
                 .map((x) => '<div class="' + (x.tarde ? 'tarde' : 'ok') + '">P' + x.p +
-                            ': ' + x.seq + (x.tarde ? ' tarde' : '') + '</div>')
+                            (x.tarde ? ' tarde' : '') + '</div>')
                 .join('');
         }
 
