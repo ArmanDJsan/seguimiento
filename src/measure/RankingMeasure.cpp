@@ -19,6 +19,7 @@
  */
 
 #include "RankingMeasure.h"
+#include "../json.hpp"
 
 #include <algorithm>
 #include <set>
@@ -2786,8 +2787,98 @@ bool RankingMeasure::EstableQuieto(const std::vector<FrameSample>& samples, int 
 // El primer punto es donde entra el grupo y el ultimo donde termina el tramo:
 // la direccion va del primero al ultimo, y "mas adelante" = mayor proyeccion.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// points.json: el punto es la unidad. Cada vista trae camara, zona, vector y raya.
+// Se llenan las mismas estructuras que usa el medidor, asi la resolucion no cambia.
+// ---------------------------------------------------------------------------
+bool RankingMeasure::CargarPuntos() {
+    const char* candidatos[] = { "C:\\vs\\points.json", "points.json", "..\\points.json" };
+    std::ifstream f;
+    std::string usada;
+    for (const char* c : candidatos) {
+        f.open(c);
+        if (f.is_open()) { usada = c; break; }
+    }
+    if (!f.is_open()) return false;
+
+    nlohmann::json j;
+    try {
+        f >> j;
+    } catch (...) {
+        Logger::Warning("RankingMeasure: points.json no se pudo leer");
+        return false;
+    }
+    if (!j.contains("points")) return false;
+
+    int nz = 0, nv = 0, nl = 0;
+    for (const auto& p : j["points"]) {
+        const int punto = p.value("point", 0);
+        if (punto <= 0 || !p.contains("views")) continue;
+        for (const auto& v : p["views"]) {
+            const int cam = v.value("camera", 0);
+            if (cam <= 0) continue;
+            const int clave = cam * 100 + punto;
+
+            if (v.contains("zone") && v["zone"].is_array()) {
+                std::vector<std::pair<double, double>> zona;
+                for (const auto& pt : v["zone"]) {
+                    if (pt.is_array() && pt.size() >= 2) {
+                        zona.emplace_back(pt[0].get<double>(), pt[1].get<double>());
+                    }
+                }
+                if (zona.size() >= 3) {
+                    m_zonas[clave] = zona;
+                    ++nz;
+                }
+            }
+
+            if (v.contains("vector") && v["vector"].is_array()) {
+                VectorTramo t;
+                for (const auto& pt : v["vector"]) {
+                    if (pt.is_array() && pt.size() >= 2) {
+                        t.pts.emplace_back(pt[0].get<double>(), pt[1].get<double>());
+                    }
+                }
+                if (t.pts.size() >= 2) {
+                    t.arco.clear();
+                    t.arco.push_back(0.0);
+                    for (size_t i = 1; i < t.pts.size(); ++i) {
+                        const double dx = t.pts[i].first - t.pts[i - 1].first;
+                        const double dy = t.pts[i].second - t.pts[i - 1].second;
+                        t.arco.push_back(t.arco.back() + std::sqrt(dx * dx + dy * dy));
+                    }
+                    t.x0 = t.pts.front().first;
+                    t.y0 = t.pts.front().second;
+                    t.ok = true;
+                    m_vectoresPunto[clave] = t;
+                    ++nv;
+                }
+            }
+
+            if (v.contains("line") && v["line"].is_array() && v["line"].size() >= 2) {
+                const auto& L = v["line"];
+                if (L[0].is_array() && L[1].is_array() && L[0].size() >= 2 && L[1].size() >= 2) {
+                    LineaConteo lc;
+                    lc.x1 = L[0][0].get<double>();
+                    lc.y1 = L[0][1].get<double>();
+                    lc.x2 = L[1][0].get<double>();
+                    lc.y2 = L[1][1].get<double>();
+                    lc.ok = true;
+                    m_lineasPunto[clave] = lc;
+                    ++nl;
+                }
+            }
+        }
+    }
+    Logger::Info("RankingMeasure: points.json (" + usada + "): " + std::to_string(nz) + " zonas, " +
+                 std::to_string(nv) + " vectores, " + std::to_string(nl) + " rayas");
+    return nz > 0;
+}
+
 void RankingMeasure::LoadTrackVectors() {
     for (auto& v : m_vectores) v.clear();
+    // Si existe points.json, manda el punto: ahi vienen camara, zona, vector y raya juntos.
+    if (CargarPuntos()) return;
     const char* candidatos[] = { "C:\\vs\\env_calibracion", "env_calibracion", "..\\env_calibracion" };
     std::ifstream f;
     std::string usada;

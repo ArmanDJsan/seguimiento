@@ -483,6 +483,8 @@ private:
         bool ok = false;
     };
     void LoadTrackVectors();
+    // Carga points.json: geometria por PUNTO (camara, zona, vector, raya).
+    bool CargarPuntos();
     VectorTramo VectorDe(int camera, int64_t epochMs) const;
     // Largo de arco del punto mas cercano del recorrido (0 = entrada del tramo).
     // Con arcoPrevio >= 0 el punto se busca solo dentro del recorrido alcanzable en
