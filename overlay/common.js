@@ -142,8 +142,8 @@ window.OVL = (function () {
             if (!etiqueta) return;
             const filas = [...historialPuntos.entries()]
                 .sort((a, b) => a[0] - b[0])
-                .map(([p, tarde]) => '<div class="' + (tarde ? 'tarde' : 'ok') + '">P' + p +
-                                     (tarde ? ' tarde' : '') + '</div>');
+                .map(([p, d]) => '<div class="' + (d.tarde ? 'tarde' : 'ok') + '">P' + p + ': ' +
+                                 d.lista + (d.tarde ? '  tarde' : '') + '</div>');
             etiqueta.innerHTML = filas.join('');
         }
 
@@ -154,10 +154,20 @@ window.OVL = (function () {
                 const punto = Number(msg.punto || 0);
                 if (punto > 0) {
                     const tarde = punto < ultimoPunto;
-                    if (!historialPuntos.has(punto) || tarde) {
-                        historialPuntos.set(punto, tarde);
+                    // orden publicado: puesto 1..10 -> clase 0..9 (id 10 = bola 0)
+                    const puesto = new Array(11).fill('?');
+                    const canicas = Array.isArray(msg.canicas) ? msg.canicas : [];
+                    for (const c of canicas) {
+                        const p = Number(c.puesto || 0);
+                        const v = Number(c.id);
+                        if (p >= 1 && p <= 10) {
+                            puesto[p] = (v === 10) ? '0' : (v > 0 ? String(v) : '?');
+                        }
                     }
-                    pintarHistorial();
+                    const lista = puesto.slice(1).join(' ');
+                    if (!historialPuntos.has(punto) || tarde) {
+                        historialPuntos.set(punto, { tarde: tarde, lista: lista });
+                    }
                     if (tarde) {
                         onStatus('ignorado P' + punto + ' (ya va P' + ultimoPunto + ')');
                         return;
