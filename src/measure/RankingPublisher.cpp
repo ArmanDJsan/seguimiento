@@ -122,6 +122,7 @@ bool RankingPublisher::PublishMeasurePoint(int punto, int64_t frameEpochMs,
             return false;
         }
 
+        m_state.punto = punto;
         m_state.Update(posiciones);
         m_state.seq += 1;
         payload = m_state.BuildPayload();

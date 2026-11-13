@@ -42,6 +42,7 @@ inline int MapBallIdToTd(int ballId) {
  */
 struct RankingState {
     static constexpr int kMaxBalls = 10;
+    int punto = 0;   // de que punto viene este ranking (para el overlay)
 
     // Indice por ballID del tracker (1..10). [0] no se usa.
     std::array<int, kMaxBalls + 1> lastPuesto{};
@@ -123,7 +124,7 @@ struct RankingState {
         } else {
             oss << racePrefix << seq;
         }
-        oss << ",\"canicas\":[";
+        oss << ",\"punto\":" << punto << ",\"canicas\":[";
 
         // Se serializa POR PUESTO: 1..10. Las canicas que se resolvieron van en su
         // orden; las que no se consiguieron van al final con id 0 (indeterminado),

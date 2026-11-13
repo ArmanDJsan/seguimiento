@@ -3627,6 +3627,29 @@ bool RankingMeasure::ResolvePositions(int camera, int punto, std::vector<FrameSa
                         " clase(s) repetidas; strict_classes=false, se publica PROVISORIO");
     }
 
+    // Una clase no puede repetirse y la lista no puede pasar de 10: se descarta el
+    // exceso en vez de NO publicar. Medido 13-nov: el P2 resolvio 12 posiciones y el
+    // publicador las rechazo ("se publican hasta 10"), por eso no salia al aire.
+    {
+        std::vector<int> limpia;
+        std::vector<bool> usada(static_cast<size_t>(kMaxBalls) + 1, false);
+        for (int b : posiciones) {
+            if (b >= 1 && b <= kMaxBalls && !usada[static_cast<size_t>(b)]) {
+                usada[static_cast<size_t>(b)] = true;
+                limpia.push_back(b);
+            }
+        }
+        if (limpia.size() != posiciones.size()) {
+            Logger::Warning("RankingMeasure: lista con repetidas o de mas (" +
+                            std::to_string(posiciones.size()) + "), se recorta a " +
+                            std::to_string(limpia.size()));
+        }
+        posiciones.swap(limpia);
+        if (posiciones.size() > static_cast<size_t>(kMaxBalls)) {
+            posiciones.resize(static_cast<size_t>(kMaxBalls));
+        }
+    }
+
     return !posiciones.empty();
 }
 
