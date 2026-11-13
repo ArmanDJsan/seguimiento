@@ -156,13 +156,13 @@ window.OVL = (function () {
             if (!etiqueta) return;
             const filas = [...historialPuntos.entries()]
                 .sort((a, b) => a[0] - b[0])
-                .map(([p, d]) =>
-                    '<div class="' + (d.tarde ? 'tarde' : 'ok') + '">' +
-                    '<div style="font-size:.42em;font-weight:700">P' + p + (d.tarde ? ' tarde' : '') + '</div>' +
-                    '<div style="font-size:.20em;font-weight:400;opacity:.85">comienzo ' + relSeg(d.inicio, d.t0) + '</div>' +
-                    '<div style="font-size:.20em;font-weight:400;opacity:.85">fin ' + relSeg(d.fin, d.t0) + '</div>' +
-                    '<div style="font-size:.33em;font-weight:700;margin-bottom:.12em">' + d.lista + '</div>' +
-                    '</div>')
+                .map(([p, d]) => {
+                    const a = (d.t0 && d.inicio) ? Math.round((d.inicio - d.t0) / 1000) + 's' : '--';
+                    const b = (d.t0 && d.fin) ? Math.round((d.fin - d.t0) / 1000) + 's' : '--';
+                    return '<div class="' + (d.tarde ? 'tarde' : 'ok') + '">P' + p + ': ' +
+                           a + '|' + b + ' : ' + String(d.lista).replace(/ /g, '') +
+                           (d.tarde ? '  tarde' : '') + '</div>';
+                })
                 .join('');
         }
 
