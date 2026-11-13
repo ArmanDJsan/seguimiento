@@ -699,8 +699,27 @@ void ControlApi::HandleArm(const std::string& requestBody, int& status, std::str
         chequeosJson = Pista::ChequeosJson(pista);
         Logger::Info("[API] /arm pista: " + Pista::Resumen(pista));
         if (!pista.ok) {
-            ArmFail(status, out, "pista", 0, pista.motivo, 0, std::string(), chequeosJson);
-            return;
+            // Tras una carrera el DeckLink puede quedar sin cuadros en algun canal
+            // y el VIB quedaba inutil hasta reiniciarlo a mano. Se reinician los
+            // canales UNA vez y se vuelve a chequear antes de rechazar.
+            Pista::Veredicto otra = pista;
+            if (pista.motivo.find("DeckLink") != std::string::npos && m_pista.captura) {
+                Logger::Warning("[API] /arm: DeckLink sin cuadros; reiniciando canales de captura");
+                for (DeckLinkCapture* canal : *m_pista.captura) {
+                    if (!canal) continue;
+                    canal->Stop();
+                    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+                    canal->Start();
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+                otra = Pista::Chequear(m_pista, opciones);
+                chequeosJson = Pista::ChequeosJson(otra);
+                Logger::Info("[API] /arm pista (tras reiniciar captura): " + Pista::Resumen(otra));
+            }
+            if (!otra.ok) {
+                ArmFail(status, out, "pista", 0, otra.motivo, 0, std::string(), chequeosJson);
+                return;
+            }
         }
     }
 
