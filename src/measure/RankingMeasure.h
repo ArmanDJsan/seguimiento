@@ -556,7 +556,7 @@ private:
 
     // Consolida las dos medidas de llegada (punto 8 y punto 9) y publica la final.
     void ConsolidarLlegada(int64_t epochMs);
-    void MatchFrameByMotion(FrameSample& sample);
+    void MatchFrameByMotion(FrameSample& sample, int camera);
     static int ArgMaxClass(const SphereTrack& track);
     static int MaxDetections(const std::vector<FrameSample>& samples);
     static int64_t NowEpochMs();

@@ -3334,7 +3334,7 @@ bool RankingMeasure::ResolvePositions(int camera, int punto, std::vector<FrameSa
         if (sample.dets.empty() || sample.enBarrido) {
             continue;
         }
-        MatchFrameByMotion(sample);
+        MatchFrameByMotion(sample, camera);
         resolvedEpochMs = sample.epochMs;
         ++validos;
     }
@@ -3511,7 +3511,7 @@ bool RankingMeasure::ResolvePositions(int camera, int punto, std::vector<FrameSa
         }
     }
 
-    auto posDeId = [&idx, this](int id) -> int {
+    auto posDeId = [&idx, &m_tracks, this](int id) -> int {
         for (int k = 0; k < static_cast<int>(idx.size()); ++k) {
             if (m_tracks[idx[k]].id == id) {
                 return k;
@@ -3630,9 +3630,9 @@ bool RankingMeasure::ResolvePositions(int camera, int punto, std::vector<FrameSa
     return !posiciones.empty();
 }
 
-void RankingMeasure::MatchFrameByMotion(FrameSample& sample) {
+void RankingMeasure::MatchFrameByMotion(FrameSample& sample, int camera) {
     // Tabla de pistas de ESTA camara (antes era una sola para las tres).
-    auto& m_tracks = m_tracksCam[(sample.cam >= 0 && sample.cam < kMaxCameras) ? sample.cam : 0];
+    auto& m_tracks = m_tracksCam[(camera >= 0 && camera < kMaxCameras) ? camera : 0];
     if (m_tracks.size() > kMaxTracks) {
         // PODA en vez de reinicio total: con ~2,3 identidades nuevas por cuadro el
         // mapa se llenaba en ~10 cuadros y ResetIdentity mataba las pistas en curso.
