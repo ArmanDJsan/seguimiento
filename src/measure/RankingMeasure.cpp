@@ -1997,7 +1997,7 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
                         porCruce.push_back(cr.clase + 1);   // clase -> ballID
                     }
                     if (m_publisher && !porCruce.empty()) {
-                        m_publisher->PublishMeasurePoint(job.punto, tUlt, porCruce, inicioEvento);
+                        m_publisher->PublishMeasurePoint(job.punto, tUlt, porCruce, t0);
                     }
                     return;
                 }
@@ -2138,7 +2138,7 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
                      std::to_string(pos.size()) + " posiciones" +
                      (ok ? "" : " (no resolvio)"));
         if (ok && !pos.empty() && pos.size() <= static_cast<size_t>(kTargetSpheres)) {
-            if (m_publisher) m_publisher->PublishMeasurePoint(job.punto, tUlt, pos, inicioEvento);
+            if (m_publisher) m_publisher->PublishMeasurePoint(job.punto, tUlt, pos, t0);
         }
         return;
     }
