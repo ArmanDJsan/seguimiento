@@ -122,6 +122,12 @@ bool RankingPublisher::PublishMeasurePoint(int punto, int64_t frameEpochMs,
             return false;
         }
 
+        if (m_puntosPublicados.count(punto) > 0) {
+            Logger::Info("RankingPublisher: punto=" + std::to_string(punto) +
+                         " ya publicado en esta carrera, se ignora");
+            return false;
+        }
+        m_puntosPublicados.insert(punto);
         m_state.punto = punto;
         m_state.Update(posiciones);
         m_state.seq += 1;

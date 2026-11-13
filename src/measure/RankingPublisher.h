@@ -22,6 +22,7 @@
 
 #include <winsock2.h>
 #include <cstdint>
+#include <set>
 #include <string>
 #include <vector>
 #include <mutex>
@@ -68,6 +69,7 @@ public:
      */
     void SetRaceId(const std::string& id) {
         std::lock_guard<std::mutex> lock(m_mutex);
+        m_puntosPublicados.clear();
         m_state.SetRacePrefix(id);
     }
 
@@ -108,4 +110,6 @@ private:
     bool m_winsockInitialized;
 
     ranking::RankingState m_state;
+    // Puntos ya publicados en esta carrera: cada punto publica UNA vez.
+    std::set<int> m_puntosPublicados;
 };
