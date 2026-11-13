@@ -2140,7 +2140,7 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
     // Punto 8 = llegada (espera las 10 y la quietud). El resto, incluido el 7,
     // mide su pasaje: publica lo que ve en su ventana. El punto 10 ("finalizar")
     // confirma despues los resultados de 7 y 8.
-    const bool esLlegada = (job.punto == 8);
+    const bool esLlegada = (job.punto == 9);
     const int minDetsArranque = esLlegada ? kTargetSpheres : 3;
     // Tope duro de la toma informativa: 8 s. Con un solo hilo medidor, una toma
     // que no cierra bloquea a los puntos siguientes y esos abren cuando la camara
@@ -2621,8 +2621,8 @@ void RankingMeasure::ConsolidarLlegada(int64_t epochMs) {
         std::lock_guard<std::mutex> lock(m_llegadaMutex);
         a = m_llegadaPunto[8];
         b = m_llegadaPunto[7];
-        tP8 = m_tPunto[8];
-        tP7 = m_tPunto[7];
+        tP8 = m_tPunto[9];
+        tP7 = m_tPunto[8];
     }
 
     // Lo que importa: reconstruir el final con TODOS los cuadros de cada camara
