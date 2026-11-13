@@ -3285,8 +3285,6 @@ bool RankingMeasure::ResolvePositions(int camera, int punto, std::vector<FrameSa
                                       int64_t& resolvedEpochMs) {
     // Tabla de pistas de la camara de este punto (una por camara desde 13-nov).
     auto& m_tracks = m_tracksCam[(camera >= 0 && camera < kMaxCameras) ? camera : 0];
-    // Tabla de pistas de la camara de este punto.
-    auto& m_tracks = m_tracksCam[(camera >= 0 && camera < kMaxCameras) ? camera : 0];
     posiciones.clear();
     resolvedEpochMs = 0;
     m_puntoActual = punto;
