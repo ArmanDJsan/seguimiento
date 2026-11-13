@@ -3631,6 +3631,8 @@ bool RankingMeasure::ResolvePositions(int camera, int punto, std::vector<FrameSa
 }
 
 void RankingMeasure::MatchFrameByMotion(FrameSample& sample) {
+    // Tabla de pistas de ESTA camara (antes era una sola para las tres).
+    auto& m_tracks = m_tracksCam[(sample.cam >= 0 && sample.cam < kMaxCameras) ? sample.cam : 0];
     if (m_tracks.size() > kMaxTracks) {
         // PODA en vez de reinicio total: con ~2,3 identidades nuevas por cuadro el
         // mapa se llenaba en ~10 cuadros y ResetIdentity mataba las pistas en curso.
