@@ -3632,9 +3632,9 @@ bool RankingMeasure::ResolvePositions(int camera, int punto, std::vector<FrameSa
     // publicador las rechazo ("se publican hasta 10"), por eso no salia al aire.
     {
         std::vector<int> limpia;
-        std::vector<bool> usada(static_cast<size_t>(kMaxBalls) + 1, false);
+        std::vector<bool> usada(static_cast<size_t>(kTargetSpheres) + 1, false);
         for (int b : posiciones) {
-            if (b >= 1 && b <= kMaxBalls && !usada[static_cast<size_t>(b)]) {
+            if (b >= 1 && b <= kTargetSpheres && !usada[static_cast<size_t>(b)]) {
                 usada[static_cast<size_t>(b)] = true;
                 limpia.push_back(b);
             }
@@ -3645,8 +3645,8 @@ bool RankingMeasure::ResolvePositions(int camera, int punto, std::vector<FrameSa
                             std::to_string(limpia.size()));
         }
         posiciones.swap(limpia);
-        if (posiciones.size() > static_cast<size_t>(kMaxBalls)) {
-            posiciones.resize(static_cast<size_t>(kMaxBalls));
+        if (posiciones.size() > static_cast<size_t>(kTargetSpheres)) {
+            posiciones.resize(static_cast<size_t>(kTargetSpheres));
         }
     }
 
