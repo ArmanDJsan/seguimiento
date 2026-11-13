@@ -460,8 +460,8 @@ private:
     void SnapshotHistory(int camera, int64_t fromMs, int64_t toMs,
                          std::vector<FrameSample>& out);
 
-    void WorkerThreadFunc(int camera, std::stop_token stopToken);
-    bool PopJob(int camera, MeasureJob& job);
+    void WorkerThreadFunc(std::stop_token stopToken);
+    bool PopJob(MeasureJob& job);
     void ProcessJob(const MeasureJob& job);
 
 
@@ -676,14 +676,12 @@ private:
     std::array<std::unique_ptr<FrameRing>, kMaxCameras> m_rings;
 
     // Cola de mediciones (tope fijo, descarte del mas viejo)
-    // Un buzon por camara: un hilo por camara, para que una toma lenta de una
-    // camara no frene a las otras (medido: P1 cam1 retrasaba 4 s al P2 cam3).
-    std::map<int, std::deque<MeasureJob>> m_queues;
+    std::deque<MeasureJob> m_queue;
     mutable std::mutex m_queueMutex;
     std::condition_variable m_queueCv;
 
     // Hilo medidor
-    std::vector<std::jthread> m_workers;
+    std::jthread m_worker;
 
     // Publisher UDP (1 datagrama por punto)
     std::unique_ptr<RankingPublisher> m_publisher;

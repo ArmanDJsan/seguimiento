@@ -372,11 +372,9 @@ bool RankingMeasure::Initialize(const RankingPublisherConfig& pubConfig,
     //    medidor volvia a inferir los mismos cuadros con un segundo TensorRT,
     //    que era la mitad de la carga de GPU y la causa de que llegara tarde.
     // 5. Hilo medidor
-    for (int cam = 0; cam < kMaxCameras; ++cam) {
-        m_workers.emplace_back([this, cam](std::stop_token stopToken) {
-            WorkerThreadFunc(cam, stopToken);
-        });
-    }
+    m_worker = std::jthread([this](std::stop_token stopToken) {
+        WorkerThreadFunc(stopToken);
+    });
 
     m_initialized = true;
     m_stopRequested.store(false);
@@ -410,18 +408,11 @@ void RankingMeasure::Shutdown() {
     for (int cam = 0; cam < kMaxCameras; ++cam) {
         ClipStop(cam);
     }
-    for (auto& w : m_workers) {
-        if (w.joinable()) {
-            w.request_stop();
-        }
+    if (m_worker.joinable()) {
+        m_worker.request_stop();
+        m_queueCv.notify_all();
+        m_worker.join();
     }
-    m_queueCv.notify_all();
-    for (auto& w : m_workers) {
-        if (w.joinable()) {
-            w.join();
-        }
-    }
-    m_workers.clear();
 
     // 1b. Red de seguridad: si la carrera siguio abierta (no se cumplio el corte
     //     automatico de race_seconds, p. ej. porque se cerro el programa antes),
@@ -443,7 +434,7 @@ void RankingMeasure::Shutdown() {
 
     {
         std::lock_guard<std::mutex> lock(m_queueMutex);
-        m_queues.clear();
+        m_queue.clear();
     }
 
     // 2. Anillos pinned
@@ -532,16 +523,15 @@ int64_t RankingMeasure::Enqueue(int camera, int punto, int burstMs, int maxMs, b
     {
         // Solo un push a la cola: nunca se espera al hilo medidor.
         std::lock_guard<std::mutex> lock(m_queueMutex);
-        auto& cola = m_queues[job.camera];
-        if (cola.size() >= kQueueCapacity) {
-            const MeasureJob& dropped = cola.front();
+        if (m_queue.size() >= kQueueCapacity) {
+            const MeasureJob& dropped = m_queue.front();
             Logger::Warning("RankingMeasure: cola llena, se descarta la medicion mas vieja "
                             "(punto=" + std::to_string(dropped.punto) + ", camara=" +
                             std::to_string(dropped.camera) + ")");
-            cola.pop_front();
+            m_queue.pop_front();
             m_droppedCount++;
         }
-        cola.push_back(job);
+        m_queue.push_back(job);
     }
     m_queueCv.notify_one();
 
@@ -690,9 +680,8 @@ void RankingMeasure::ActivarBanco(int punto, int camera, bool activo, bool sinRo
                              " esferas), abre toma");
                 {
                     std::lock_guard<std::mutex> lock(m_queueMutex);
-                    auto& cola = m_queues[job.camera];
-                    if (cola.size() >= kQueueCapacity) cola.pop_front();
-                    cola.push_back(job);
+                    if (m_queue.size() >= kQueueCapacity) m_queue.pop_front();
+                    m_queue.push_back(job);
                 }
                 m_queueCv.notify_one();
                 m_bancoJobEnCurso = true;
@@ -704,11 +693,11 @@ void RankingMeasure::ActivarBanco(int punto, int camera, bool activo, bool sinRo
     Logger::Info("Banco: DESACTIVADO");
 }
 
-void RankingMeasure::WorkerThreadFunc(int camera, std::stop_token stopToken) {
-    Logger::Info("RankingMeasure: hilo medidor de camara " + std::to_string(camera + 1) + " iniciado");
+void RankingMeasure::WorkerThreadFunc(std::stop_token stopToken) {
+    Logger::Info("RankingMeasure: hilo medidor iniciado");
     while (!stopToken.stop_requested()) {
         MeasureJob job;
-        if (!PopJob(camera, job)) {
+        if (!PopJob(job)) {
             continue;
         }
         if (stopToken.stop_requested()) {
@@ -716,21 +705,19 @@ void RankingMeasure::WorkerThreadFunc(int camera, std::stop_token stopToken) {
         }
         ProcessJob(job);
     }
-    Logger::Info("RankingMeasure: hilo medidor de camara " + std::to_string(camera + 1) + " detenido");
+    Logger::Info("RankingMeasure: hilo medidor detenido");
 }
 
-bool RankingMeasure::PopJob(int camera, MeasureJob& job) {
+bool RankingMeasure::PopJob(MeasureJob& job) {
     std::unique_lock<std::mutex> lock(m_queueMutex);
-    m_queueCv.wait_for(lock, std::chrono::milliseconds(20), [this, camera] {
-        const auto it = m_queues.find(camera);
-        return it != m_queues.end() && !it->second.empty();
+    m_queueCv.wait_for(lock, std::chrono::milliseconds(20), [this] {
+        return !m_queue.empty();
     });
-    auto it = m_queues.find(camera);
-    if (it == m_queues.end() || it->second.empty()) {
+    if (m_queue.empty()) {
         return false;
     }
-    job = it->second.front();
-    it->second.pop_front();
+    job = m_queue.front();
+    m_queue.pop_front();
     return true;
 }
 
