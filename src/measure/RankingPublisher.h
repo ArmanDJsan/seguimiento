@@ -80,6 +80,8 @@ public:
         m_sink = std::move(sink);
     }
 
+    void SetT0(int64_t t0) { m_state.t0Ms = t0; }
+
     bool PublishMeasurePoint(int punto, int64_t frameEpochMs, const std::vector<int>& posiciones, int64_t inicioMs = 0);
 
     bool IsEnabled() const { return m_config.enabled; }

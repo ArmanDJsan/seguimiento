@@ -44,7 +44,8 @@ struct RankingState {
     static constexpr int kMaxBalls = 10;
     int punto = 0;
     int64_t inicioMs = 0;   // cuando se activo la toma
-    int64_t finMs = 0;      // cuando reporto   // de que punto viene este ranking (para el overlay)
+    int64_t finMs = 0;
+    int64_t t0Ms = 0;      // epoch del /start: para tiempos relativos      // cuando reporto   // de que punto viene este ranking (para el overlay)
 
     // Indice por ballID del tracker (1..10). [0] no se usa.
     std::array<int, kMaxBalls + 1> lastPuesto{};
@@ -126,7 +127,7 @@ struct RankingState {
         } else {
             oss << racePrefix << seq;
         }
-        oss << ",\"punto\":" << punto << ",\"inicio\":" << inicioMs << ",\"fin\":" << finMs << ",\"canicas\":[";
+        oss << ",\"t0\":" << t0Ms << ",\"punto\":" << punto << ",\"inicio\":" << inicioMs << ",\"fin\":" << finMs << ",\"canicas\":[";
 
         // Se serializa POR PUESTO: 1..10. Las canicas que se resolvieron van en su
         // orden; las que no se consiguieron van al final con id 0 (indeterminado),

@@ -638,6 +638,10 @@ void RankingMeasure::ResetIdentity() {
 // Hilo medidor
 // ----------------------------------------------------------------------------
 
+void RankingMeasure::AvisarInicioCarrera(int64_t t0ms) {
+    if (m_publisher) m_publisher->SetT0(t0ms);
+}
+
 void RankingMeasure::ActivarBanco(int punto, int camera, bool activo, bool sinRoi) {
     m_bancoSinRoi = sinRoi;
     if (activo) {

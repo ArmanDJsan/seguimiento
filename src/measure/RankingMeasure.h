@@ -220,6 +220,8 @@ class RankingMeasure {
 public:
     // Banco de pruebas: mide el punto cada vez que el grupo entra a la ROI y publica
     // cuando el grupo va saliendo. Repite solo, sin guion ni carrera.
+    void AvisarInicioCarrera(int64_t t0ms);
+
     void ActivarBanco(int punto, int camera, bool activo, bool sinRoi = false);
     static constexpr int kMaxCameras = 4;        // 4 PTZ radar
     static constexpr size_t kQueueCapacity = 8;  // tope de la cola de mediciones

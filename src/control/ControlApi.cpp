@@ -837,6 +837,7 @@ void ControlApi::HandleStart(int& status, std::string& out) {
         std::lock_guard<std::mutex> lock(m_stateMutex);
         m_state = State::Running;
         m_t0 = t0;
+        if (m_measure) m_measure->AvisarInicioCarrera(t0);
         m_startedAt = t0;
         raceId = m_raceId;
     }

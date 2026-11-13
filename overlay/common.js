@@ -145,17 +145,25 @@ window.OVL = (function () {
                    p(d.getSeconds(), 2) + "." + p(d.getMilliseconds(), 3);
         }
 
+        function relSeg(ms, t0) {
+            if (!ms) return "--";
+            if (!t0) return hhmmss(ms);
+            return "+" + ((Number(ms) - Number(t0)) / 1000).toFixed(1) + " s";
+        }
+
         function pintarHistorial() {
             const etiqueta = document.getElementById('punto-test');
             if (!etiqueta) return;
             const filas = [...historialPuntos.entries()]
                 .sort((a, b) => a[0] - b[0])
-                .map(([p, d]) => '<div class="' + (d.tarde ? 'tarde' : 'ok') + '">' +
-                                 '<b>P' + p + (d.tarde ? ' tarde' : '') + '</b>' +
-                                 '<span class="t">comienzo ' + hhmmss(d.inicio) + '</span>' +
-                                 '<span class="t">fin ' + hhmmss(d.fin) + '</span>' +
-                                 '<span class="o">' + d.lista + '</span></div>');
-            etiqueta.innerHTML = filas.join('');
+                .map(([p, d]) =>
+                    '<div class="' + (d.tarde ? 'tarde' : 'ok') + '">' +
+                    '<div style="font-size:.42em;font-weight:700">P' + p + (d.tarde ? ' tarde' : '') + '</div>' +
+                    '<div style="font-size:.20em;font-weight:400;opacity:.85">comienzo ' + relSeg(d.inicio, d.t0) + '</div>' +
+                    '<div style="font-size:.20em;font-weight:400;opacity:.85">fin ' + relSeg(d.fin, d.t0) + '</div>' +
+                    '<div style="font-size:.33em;font-weight:700;margin-bottom:.12em">' + d.lista + '</div>' +
+                    '</div>')
+                .join('');
         }
 
         source.addEventListener('ranking', (event) => {
@@ -178,7 +186,8 @@ window.OVL = (function () {
                     const lista = puesto.slice(1).join(' ');
                     if (!historialPuntos.has(punto) || tarde) {
                         historialPuntos.set(punto, { tarde: tarde, lista: lista, seq: String(msg.seq || ''),
-                                                 inicio: Number(msg.inicio || 0), fin: Number(msg.fin || 0) });
+                                                 inicio: Number(msg.inicio || 0), fin: Number(msg.fin || 0),
+                                                 t0: Number(msg.t0 || 0) });
                     }
                     pintarHistorial();
                     if (tarde) {
