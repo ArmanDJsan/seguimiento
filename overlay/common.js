@@ -137,14 +137,24 @@ window.OVL = (function () {
         let ultimoPunto = 0;
         const historialPuntos = new Map();   // punto -> llegoTarde
 
+        function hhmmss(ms) {
+            if (!ms) return "--:--:--";
+            const d = new Date(Number(ms));
+            const p = (v, n) => String(v).padStart(n, "0");
+            return p(d.getHours(), 2) + ":" + p(d.getMinutes(), 2) + ":" +
+                   p(d.getSeconds(), 2) + "." + p(d.getMilliseconds(), 3);
+        }
+
         function pintarHistorial() {
             const etiqueta = document.getElementById('punto-test');
             if (!etiqueta) return;
             const filas = [...historialPuntos.entries()]
                 .sort((a, b) => a[0] - b[0])
-                .map(([p, d]) => '<div class="' + (d.tarde ? 'tarde' : 'ok') + '">P' + p + ': ' +
-                                 (d.seq ? d.seq + ' · ' : '') + d.lista +
-                                 (d.tarde ? '  tarde' : '') + '</div>');
+                .map(([p, d]) => '<div class="' + (d.tarde ? 'tarde' : 'ok') + '">' +
+                                 '<b>P' + p + (d.tarde ? ' tarde' : '') + '</b>' +
+                                 '<span class="t">comienzo ' + hhmmss(d.inicio) + '</span>' +
+                                 '<span class="t">fin ' + hhmmss(d.fin) + '</span>' +
+                                 '<span class="o">' + d.lista + '</span></div>');
             etiqueta.innerHTML = filas.join('');
         }
 
@@ -167,7 +177,8 @@ window.OVL = (function () {
                     }
                     const lista = puesto.slice(1).join(' ');
                     if (!historialPuntos.has(punto) || tarde) {
-                        historialPuntos.set(punto, { tarde: tarde, lista: lista, seq: String(msg.seq || '') });
+                        historialPuntos.set(punto, { tarde: tarde, lista: lista, seq: String(msg.seq || ''),
+                                                 inicio: Number(msg.inicio || 0), fin: Number(msg.fin || 0) });
                     }
                     pintarHistorial();
                     if (tarde) {
