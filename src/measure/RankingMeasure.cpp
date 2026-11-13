@@ -2069,7 +2069,7 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
                                    conf / (std::max)(1.0, static_cast<double>(orden.size()));
             if (puntaje <= mejorPuntaje) continue;
             std::sort(orden.begin(), orden.end(), [](const auto& a, const auto& b) {
-                return a.first > b.first;   // mas avance = mejor puesto
+                return a.first < b.first;   // orden invertido (pedido 13-nov)
             });
             mejorLista.clear();
             std::vector<float> confDe;
@@ -3558,7 +3558,7 @@ bool RankingMeasure::ResolvePositions(int camera, int punto, std::vector<FrameSa
             sumaX[presentes[i].first] += presentes[i].second;
             vecesX[presentes[i].first] += 1;
             for (size_t j = 0; j < presentes.size(); ++j) {
-                if (i != j && presentes[i].second > presentes[j].second) {
+                if (i != j && presentes[i].second < presentes[j].second) {
                     delante[presentes[i].first][presentes[j].first] += 1;
                 }
             }
