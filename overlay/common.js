@@ -143,7 +143,8 @@ window.OVL = (function () {
             const filas = [...historialPuntos.entries()]
                 .sort((a, b) => a[0] - b[0])
                 .map(([p, d]) => '<div class="' + (d.tarde ? 'tarde' : 'ok') + '">P' + p + ': ' +
-                                 d.lista + (d.tarde ? '  tarde' : '') + '</div>');
+                                 (d.seq ? d.seq + ' · ' : '') + d.lista +
+                                 (d.tarde ? '  tarde' : '') + '</div>');
             etiqueta.innerHTML = filas.join('');
         }
 
@@ -166,7 +167,7 @@ window.OVL = (function () {
                     }
                     const lista = puesto.slice(1).join(' ');
                     if (!historialPuntos.has(punto) || tarde) {
-                        historialPuntos.set(punto, { tarde: tarde, lista: lista });
+                        historialPuntos.set(punto, { tarde: tarde, lista: lista, seq: String(msg.seq || '') });
                     }
                     if (tarde) {
                         onStatus('ignorado P' + punto + ' (ya va P' + ultimoPunto + ')');
