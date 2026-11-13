@@ -141,7 +141,7 @@ window.OVL = (function () {
             if (!etiqueta) return;
             etiqueta.innerHTML = historialPuntos.slice(-12)
                 .map((x) => '<div class="' + (x.tarde ? 'tarde' : 'ok') + '">P' + x.p +
-                            (x.tarde ? ' tarde' : '') + '</div>')
+                            ': ' + x.seq + (x.tarde ? ' tarde' : '') + '</div>')
                 .join('');
         }
 
@@ -152,7 +152,7 @@ window.OVL = (function () {
                 const punto = Number(msg.punto || 0);
                 if (punto > 0) {
                     const tarde = punto < ultimoPunto;
-                    historialPuntos.push({ p: punto, tarde });
+                    historialPuntos.push({ p: punto, seq: Number(msg.seq || 0), tarde });
                     pintarHistorial();
                     if (tarde) {
                         onStatus('ignorado P' + punto + ' (ya va P' + ultimoPunto + ')');
