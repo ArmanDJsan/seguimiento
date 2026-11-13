@@ -131,10 +131,24 @@ window.OVL = (function () {
 
         source.addEventListener('open', () => onStatus('connected'));
 
+        // Solo se muestran puntos que avancen: una vez publicado el P5, un P4 que
+        // llegue tarde no puede pisar la visual (pedido 13-nov-2026).
+        let ultimoPunto = 0;
         source.addEventListener('ranking', (event) => {
             onStatus('connected');
             try {
-                onMessage(JSON.parse(event.data));
+                const msg = JSON.parse(event.data);
+                const punto = Number(msg.punto || 0);
+                if (punto > 0) {
+                    if (punto < ultimoPunto) {
+                        onStatus('ignorado P' + punto + ' (ya va P' + ultimoPunto + ')');
+                        return;
+                    }
+                    ultimoPunto = punto;
+                }
+                const etiqueta = document.getElementById('punto-test');
+                if (etiqueta) etiqueta.textContent = punto > 0 ? ('P' + punto) : 'P?';
+                onMessage(msg);
             } catch (error) {
                 onStatus('invalid message');
             }
