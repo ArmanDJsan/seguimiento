@@ -615,7 +615,7 @@ void RankingMeasure::ReportResult(const MeasureResult& result) {
 }
 
 void RankingMeasure::ResetIdentity() {
-    m_tracks.clear();
+    for (auto& tabla : m_tracksCam) tabla.clear();
     // NO se reinicia m_nextTrackId a proposito: cada FrameSample ya guarda el id de
     // la pista en trackOf y despues se resuelve por id (posDeId). Si los ids vuelven
     // a 1, una deteccion vieja de una pista destruida se le atribuye a una pista
@@ -3270,6 +3270,10 @@ RankingMeasure::VectorTramo RankingMeasure::VectorDe(int camera, int64_t epochMs
 bool RankingMeasure::ResolvePositions(int camera, int punto, std::vector<FrameSample>& samples,
                                       std::vector<int>& posiciones,
                                       int64_t& resolvedEpochMs) {
+    // Tabla de pistas de la camara de este punto (una por camara desde 13-nov).
+    auto& m_tracks = m_tracksCam[(camera >= 0 && camera < kMaxCameras) ? camera : 0];
+    // Tabla de pistas de la camara de este punto.
+    auto& m_tracks = m_tracksCam[(camera >= 0 && camera < kMaxCameras) ? camera : 0];
     posiciones.clear();
     resolvedEpochMs = 0;
     m_puntoActual = punto;

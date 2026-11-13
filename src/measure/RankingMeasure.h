@@ -698,7 +698,9 @@ private:
     size_t m_deviceFrameBytes = 0;
 
     // Identidades provisorias (persisten entre puntos de la misma carrera)
-    std::vector<SphereTrack> m_tracks;
+    // Una tabla de pistas POR CAMARA: las tres camaras veian en el mismo mapa,
+    // competian por los ids y al resolver un punto se mezclaban (medido 12/13-nov).
+    std::array<std::vector<SphereTrack>, kMaxCameras> m_tracksCam;
     int m_nextTrackId = 1;
 
     // Metricas
