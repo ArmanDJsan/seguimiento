@@ -169,6 +169,7 @@ window.OVL = (function () {
                     if (!historialPuntos.has(punto) || tarde) {
                         historialPuntos.set(punto, { tarde: tarde, lista: lista, seq: String(msg.seq || '') });
                     }
+                    pintarHistorial();
                     if (tarde) {
                         onStatus('ignorado P' + punto + ' (ya va P' + ultimoPunto + ')');
                         return;
