@@ -133,17 +133,18 @@ window.OVL = (function () {
 
         // Visual: los puntos solo avanzan; el historial del centro muestra TODO lo
         // que va llegando, marcando lo que llega tarde (pedido 13-nov-2026).
+        // Historial: UNA linea por punto (no crece), ordenado por numero de punto.
         let ultimoPunto = 0;
-        const historialPuntos = [];
+        const historialPuntos = new Map();   // punto -> llegoTarde
 
         function pintarHistorial() {
             const etiqueta = document.getElementById('punto-test');
             if (!etiqueta) return;
-            etiqueta.innerHTML = historialPuntos.slice()
-                .sort((a, b) => a.p - b.p)
-                .map((x) => '<div class="' + (x.tarde ? 'tarde' : 'ok') + '">P' + x.p +
-                            (x.tarde ? ' tarde' : '') + '</div>')
-                .join('');
+            const filas = [...historialPuntos.entries()]
+                .sort((a, b) => a[0] - b[0])
+                .map(([p, tarde]) => '<div class="' + (tarde ? 'tarde' : 'ok') + '">P' + p +
+                                     (tarde ? ' tarde' : '') + '</div>');
+            etiqueta.innerHTML = filas.join('');
         }
 
         source.addEventListener('ranking', (event) => {
@@ -153,13 +154,15 @@ window.OVL = (function () {
                 const punto = Number(msg.punto || 0);
                 if (punto > 0) {
                     const tarde = punto < ultimoPunto;
-                    historialPuntos.push({ p: punto, seq: Number(msg.seq || 0), tarde });
+                    if (!historialPuntos.has(punto) || tarde) {
+                        historialPuntos.set(punto, tarde);
+                    }
                     pintarHistorial();
                     if (tarde) {
                         onStatus('ignorado P' + punto + ' (ya va P' + ultimoPunto + ')');
                         return;
                     }
-                    ultimoPunto = punto;
+                    ultimoPunto = Math.max(ultimoPunto, punto);
                 }
                 onMessage(msg);
             } catch (error) {
