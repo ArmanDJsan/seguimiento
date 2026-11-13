@@ -38,6 +38,7 @@
 #include <ctime>
 #include <sstream>
 #include <thread>
+#include "../capture/DeckLinkCapture.h"
 
 namespace {
 
