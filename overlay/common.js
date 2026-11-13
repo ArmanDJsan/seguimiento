@@ -131,23 +131,35 @@ window.OVL = (function () {
 
         source.addEventListener('open', () => onStatus('connected'));
 
-        // Solo se muestran puntos que avancen: una vez publicado el P5, un P4 que
-        // llegue tarde no puede pisar la visual (pedido 13-nov-2026).
+        // Visual: los puntos solo avanzan; el historial del centro muestra TODO lo
+        // que va llegando, marcando lo que llega tarde (pedido 13-nov-2026).
         let ultimoPunto = 0;
+        const historialPuntos = [];
+
+        function pintarHistorial() {
+            const etiqueta = document.getElementById('punto-test');
+            if (!etiqueta) return;
+            etiqueta.innerHTML = historialPuntos.slice(-12)
+                .map((x) => '<div class="' + (x.tarde ? 'tarde' : 'ok') + '">P' + x.p +
+                            (x.tarde ? ' tarde' : '') + '</div>')
+                .join('');
+        }
+
         source.addEventListener('ranking', (event) => {
             onStatus('connected');
             try {
                 const msg = JSON.parse(event.data);
                 const punto = Number(msg.punto || 0);
                 if (punto > 0) {
-                    if (punto < ultimoPunto) {
+                    const tarde = punto < ultimoPunto;
+                    historialPuntos.push({ p: punto, tarde });
+                    pintarHistorial();
+                    if (tarde) {
                         onStatus('ignorado P' + punto + ' (ya va P' + ultimoPunto + ')');
                         return;
                     }
                     ultimoPunto = punto;
                 }
-                const etiqueta = document.getElementById('punto-test');
-                if (etiqueta) etiqueta.textContent = punto > 0 ? ('P' + punto) : 'P?';
                 onMessage(msg);
             } catch (error) {
                 onStatus('invalid message');
