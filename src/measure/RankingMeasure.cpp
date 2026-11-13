@@ -1997,7 +1997,7 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
                         porCruce.push_back(cr.clase + 1);   // clase -> ballID
                     }
                     if (m_publisher && !porCruce.empty()) {
-                        m_publisher->PublishMeasurePoint(job.punto, tUlt, porCruce);
+                        m_publisher->PublishMeasurePoint(job.punto, tUlt, porCruce, inicioEvento);
                     }
                     return;
                 }
@@ -2138,7 +2138,7 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
                      std::to_string(pos.size()) + " posiciones" +
                      (ok ? "" : " (no resolvio)"));
         if (ok && !pos.empty() && pos.size() <= static_cast<size_t>(kTargetSpheres)) {
-            if (m_publisher) m_publisher->PublishMeasurePoint(job.punto, tUlt, pos);
+            if (m_publisher) m_publisher->PublishMeasurePoint(job.punto, tUlt, pos, inicioEvento);
         }
         return;
     }
@@ -2439,7 +2439,7 @@ void RankingMeasure::ProcessJob(const MeasureJob& job) {
 
     // Una sonda de la API de control (/arm) NO publica: solo verifica.
     if (!job.probe) {
-        if (m_publisher && m_publisher->PublishMeasurePoint(job.punto, resolvedEpochMs, posiciones)) {
+        if (m_publisher && m_publisher->PublishMeasurePoint(job.punto, resolvedEpochMs, posiciones, inicioEvento)) {
             m_measureCount++;
             result.published = true;
             // Copia thread-safe para GET /status y el final de la carrera.
@@ -2718,7 +2718,7 @@ void RankingMeasure::ConsolidarLlegada(int64_t epochMs) {
         return;
     }
     if (m_publisher) {
-        m_publisher->PublishMeasurePoint(10, epochMs, elegido);
+        m_publisher->PublishMeasurePoint(10, epochMs, elegido, epochMs - 11000);
         m_measureCount++;
     }
 }

@@ -106,7 +106,7 @@ void RankingPublisher::Shutdown() {
 }
 
 bool RankingPublisher::PublishMeasurePoint(int punto, int64_t frameEpochMs,
-                                             const std::vector<int>& posiciones) {
+                                             const std::vector<int>& posiciones, int64_t inicioMs) {
     // El ESTADO se actualiza siempre: el overlay local no depende del UDP. Si el
     // UDP esta apagado (o el socket fallo), el punto igual llega al overlay.
     std::string payload;
@@ -129,6 +129,8 @@ bool RankingPublisher::PublishMeasurePoint(int punto, int64_t frameEpochMs,
         }
         m_puntosPublicados.insert(punto);
         m_state.punto = punto;
+    m_state.inicioMs = inicioMs;
+    m_state.finMs = frameEpochMs;
         m_state.Update(posiciones);
         m_state.seq += 1;
         payload = m_state.BuildPayload();
